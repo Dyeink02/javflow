@@ -1,10 +1,15 @@
-<img width="2559" height="1386" alt="crawler-workspace" src="https://github.com/user-attachments/assets/d717c6b6-f86d-4a0c-9cd3-dea8a52eb70f" /># JavFlow
+# JavFlow
 
 **不需要 Docker、不需要命令列 — Windows 上一键安装的 JAV 媒体库自动化工作流工具。**
 番号抓取 · 视频整理 · 女优订阅 · 媒体库刮削 · 演员头像自动缓存
 
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg)](https://github.com/javflow-team/javflow)
+[![GitHub Release](https://img.shields.io/github/v/release/javflow-team/javflow)](https://github.com/javflow-team/javflow/releases/latest)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/javflow-team/javflow/blob/main/LICENSE)
 
->  JavFlow 一键jav磁力爬虫、视频番号整理、媒体库刮削、女优订阅，把一整套重复劳动串成一条自动流水线。
+简体中文
+
+> **这不只是又一个「把资料喂给 Jellyfin 的刮削器」。** JavFlow 负责从抓片、整理、订阅新片到生成 Emby / Jellyfin 兼容的媒体库，把一整套重复劳动串成一条自动流水线。你按一次按钮，剩下的交给它。
 
 核心由四个工作区组成：**🕷 爬虫** → **📁 视频整理** → **📌 订阅** → **🎬 媒体库刮削**。
 
@@ -30,11 +35,27 @@
 
 ---
 
+## 截图预览
+
+> 截图目录 `docs/screenshots/` 已预留。发布前请将界面截图放入该目录，再替换下方占位符。
+
+<!-- 占位符：添加截图后取消注释并填入实际路径
+| 爬虫工作区 | 视频整理工作区 |
+| --- | --- |
+| ![爬虫工作区](docs/screenshots/crawler-workspace.png) | ![视频整理工作区](docs/screenshots/organizer-workspace.png) |
+
+| 订阅工作区 | 媒体库刮削工作区 |
+| --- | --- |
+| ![订阅工作区](docs/screenshots/subscription-workspace.png) | ![媒体库刮削工作区](docs/screenshots/library-metadata-workspace.png) |
+-->
+
+---
+
 ## 安装
 
 ### 推荐方式：下载 EXE
 
-从 [GitHub Releases]下载：
+从 [GitHub Releases](https://github.com/javflow-team/javflow/releases/latest) 下载：
 
 | 平台 | 文件 |
 | --- | --- |
@@ -127,31 +148,6 @@ JavFlow 会把头像放在库根 `.actors/` 目录。Emby 需要刷新整个库�
 
 ---
 
-## 未来计划
-
-### 视频整理：智能广告片替换
-
-在视频整理阶段自动识别「开头广告影片」，将其从目标目录移除，并自动重新获取对应番号的有效磁力链接，方便用户重新下载无广告版本。
-
-### JAV 爬虫：115 开放平台全流程打通
-
-为 JAV 爬虫接入 **115 开放平台 API**，实现：
-
-> 用户发起爬取请求 → 自动 115 离线下载 → 自动视频整理 → 生成 STRM → 媒体库刮削 → 自动添加订阅
-
-一条龙闭环，无需手动切换多个面板。
-
-### JAV 爬虫：演员榜单快捷操作
-
-在演员榜单中增加：
-
-- 演员名称一键打开对应网址
-- 一键跳转/启动该演员的爬虫任务
-
-进一步减少页面切换和复制粘贴操作。
-
----
-
 ## 开发者指南
 
 ### 技术架构
@@ -223,8 +219,7 @@ JavFlow 使用并感谢以下开源项目：
 - **[Wails](https://wails.io/)** - 跨平台桌面应用框架
 - **[Go](https://go.dev/)** - 后端语言
 - **[Puppeteer](https://pptr.dev/)** - 早期版本使用（保留在 src/）
-- **[jav-scrapy](https://github.com/raawaa/jav-scrapy)** - 核心爬虫功能
-- **[metatube-sdk-go](https://github.com/metatube-community/metatube-sdk-go)** - 核心刮削板块功能
+
 ---
 
 ## License

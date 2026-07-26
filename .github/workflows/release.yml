@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    # baseline-* tags are source-snapshot labels, not real releases
+    if: ${{ !startsWith(github.ref, 'refs/tags/baseline-') }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'wails-shell/go.mod'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Node tests
+        run: npm test
+
+      - name: Run Go tests
+        working-directory: wails-shell
+        run: go test ./...
+
+      - name: Build desktop frontend
+        run: npm run build:desktop-frontend
+
+      - name: Sync frontend to Wails
+        run: npm run sync:wails-frontend
+
+      - name: Build Wails EXE
+        working-directory: wails-shell
+        run: wails build
+
+      - name: Prepare portable package
+        shell: pwsh
+        run: |
+          # Use git tag version (strips 'v' prefix) for artifact naming
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          $staging = "release-staging\JavFlow-Portable-$version"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+
+          # Copy EXE
+          $exeSource = "wails-shell\build\bin\javflow.exe"
+          if (-not (Test-Path $exeSource)) {
+            Write-Error "EXE not found at $exeSource"
+            exit 1
+          }
+          Copy-Item $exeSource "$staging\javflow.exe"
+
+          # Copy frontend assets alongside the EXE so users can inspect or
+          # replace them without unpacking the Wails-embedded copy.
+          $frontendDir = "wails-shell\frontend\desktop"
+          if (Test-Path $frontendDir) {
+            Copy-Item -Recurse $frontendDir "$staging\frontend"
+          }
+
+          # Create ZIP
+          $zipName = "JavFlow-Portable-$version.zip"
+          Compress-Archive -Path "$staging\*" -DestinationPath "release-staging\$zipName"
+
+          # Generate SHA-256
+          $hash = (Get-FileHash "release-staging\$zipName" -Algorithm SHA256).Hash
+          "$hash  $zipName" | Out-File -Encoding ascii "release-staging\$zipName.sha256"
+
+          Write-Output "EXE path: $exeSource"
+          Write-Output "ZIP: release-staging\$zipName"
+          Write-Output "SHA256: $hash"
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@c062c2e988f29b1b8737d5fbc8be0cf3be7b6dd1  # v2.2.1
+        with:
+          files: |
+            release-staging/*.zip
+            release-staging/*.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

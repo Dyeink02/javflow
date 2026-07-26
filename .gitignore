@@ -1,0 +1,98 @@
+# ---- Dependencies ----
+/node_modules
+
+# ---- IDE ----
+/.vscode
+/.trae
+.tern-project
+.eslintrc.json
+
+# ---- Build outputs ----
+/wails-shell/release/**
+!wails-shell/release/.gitkeep
+/wails-shell/build/**
+/wails-shell/*.exe
+/dist/**
+/build/installer_stage*
+
+# Build preview/temp artifacts (icon source and installer script are kept)
+/build/crop*.png
+/build/icon-hd-preview*.png
+/build/icon-preview-*.png
+/build/test-generated.png
+/build/javbus-favicon-preview.png
+
+# Release staging directory
+/release-staging/
+
+# ---- Logs and temp files ----
+error.log
+combined.log
+bash.exe.stackdump
+debug.log
+*.log
+/log/
+/.tmp-*
+/tmp-*
+
+# ---- Crawl outputs ----
+/filmData.json
+/magnet-links.txt
+/tmp
+
+# ---- Runtime payloads ----
+/runtime/node/**
+/tools/node/**
+/wails-shell/runtime/**
+/desktop/resources/ffmpeg/**
+
+# ---- Generated frontend outputs ----
+/desktop/renderer/.generated/**
+/wails-shell/frontend/desktop/**
+
+# ---- Wails dev ----
+/.wails-dev
+
+# ---- Local maintenance snapshots ----
+/backups/**
+/docs/backups/**
+/*-github-upload-*/
+/*-github-upload-clean-*/
+
+# ---- Personal AI/editor state ----
+/.claude/
+/.qoder/
+/.reasonix/
+/.writerHelper/
+
+# ---- Real crawl/subscription/user outputs ----
+/AV订阅/
+
+# ---- Root-level binaries and release archives ----
+/*.exe
+/*.msi
+/*.zip
+/*.7z
+
+# ---- Local screenshots unless explicitly curated into docs ----
+/app-screenshot*.png
+
+# ---- Environment and credentials ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+credentials*.json
+secrets*.json
+.github-token
+
+# ---- Local scratch files not already covered ----
+/tmp-target-readme.md
+/tmp-test-*.js
+
+# ---- User-confirmed exclusions ----
+/demo-variants/
+/pending-fixes.md
