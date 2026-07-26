@@ -1,0 +1,354 @@
+<!--
+  partials/organizer-body.html - 视频整理板块主体区域
+  布局: 单列流式(.layout，无ranking-card)
+    ├── form-panel (整理配置表单 + AI广告学习 + 依赖管理)
+    ├── stats-panel (整理统计 + 报告 + 复盘)
+    └── log-panel (整理日志)
+  与JAV爬虫不同: 无右侧排行栏，无抓取阶段/结果入口面板
+  由 [ORGANIZER_BODY] 占位
+-->
+
+            <main class="layout">
+              <section class="panel form-panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="panel-kicker">整理配置</p>
+                    <h2>目录与规则</h2>
+                  </div>
+                  <div id="organizer-status-pill" class="status-pill idle">等待开始整理。</div>
+                </div>
+
+                <div class="grid">
+                  <label class="field span-2">
+                    <span>目标根目录</span>
+                    <div class="path-row">
+                      <input id="organizer-root" type="text" placeholder="请选择需要整理的根目录" />
+                      <button id="organizer-browse-root" class="inline-button" type="button">选择</button>
+                    </div>
+                    <small>建议客户将所有下载文件统一放在该目录下。</small>
+                  </label>
+
+                  <label class="field span-2">
+                    <span>整理快照或爬虫结果输入</span>
+                    <div class="path-row">
+                      <input id="organizer-crawl-output" type="text" placeholder="默认使用最近整理快照、filmData.json 或爬虫结果目录" />
+                      <button id="organizer-use-latest-output" class="inline-button" type="button">最近整理输入</button>
+                    </div>
+                    <div class="organizer-inline-actions">
+                      <button id="organizer-load-codes" class="ghost-button" type="button">加载番号名单</button>
+                    </div>
+                    <small id="organizer-code-source">来源：尚未加载番号名单</small>
+                    <small>支持 organizer-codes.json、filmData.json 或原始爬虫结果目录。</small>
+                    <small>当前已加载番号数量：<strong id="organizer-code-count">0</strong></small>
+                  </label>
+
+                  <label class="field">
+                    <span>最小体积 (MB)</span>
+                    <input id="organizer-min-size" type="number" min="1" step="1" />
+                    <small>低于该体积的视频会归为广告文件，按"广告处理方式"执行。</small>
+                  </label>
+
+                  <label class="field">
+                    <span>冲突后缀</span>
+                    <input id="organizer-suffix" type="text" placeholder="-A" />
+                    <small>同下方"视频文件后缀判定"配合使用。</small>
+                    <small>同番号多文件时依次附加后缀，例如 -A / -B。</small>
+                  </label>
+
+                  <label class="field span-2">
+                    <span>视频文件后缀判定</span>
+                    <input
+                      id="organizer-video-extensions"
+                      type="text"
+                      placeholder="mp4, mkv, avi, mov, flv, wmv, ts, m4v, iso"
+                    />
+                    <small>符合这些后缀且大于最小体积的文件会进入待整理；可追加 iso、bdmv 等蓝光圆盘文件类型。</small>
+                  </label>
+
+                  <label class="field span-2">
+                    <span>广告处理方式（显式选择）</span>
+                    <div class="toggles organizer-ad-action-grid">
+                      <label class="toggle-card organizer-ad-action-card">
+                        <input
+                          id="organizer-ad-file-action-move"
+                          name="organizer-ad-file-action"
+                          type="radio"
+                          value="move-to-delete"
+                          checked
+                        />
+                        <span>移入待删除（推荐）</span>
+                        <small>广告文件先放入待删除目录，便于人工复核。</small>
+                      </label>
+                      <label class="toggle-card organizer-ad-action-card">
+                        <input
+                          id="organizer-ad-file-action-delete"
+                          name="organizer-ad-file-action"
+                          type="radio"
+                          value="delete-directly"
+                        />
+                        <span>直接删除广告文件</span>
+                        <small>广告文件不再进入待删除，直接清理，速度更快。</small>
+                      </label>
+                    </div>
+                    <small>你可以在每次整理前切换该模式。</small>
+                </label>
+
+                <!-- 批量删除选项（仅直接删除模式可用） -->
+                <label class="toggle-card organizer-ad-action-card" id="organizer-batch-delete-card">
+                  <input
+                    id="organizer-batch-delete"
+                    type="checkbox"
+                    disabled
+                  />
+                  <span>启用批量删除（推荐云盘用户）</span>
+                  <small>先转移全部有效视频，再将其余内容归集后一次性删除；保留待整理、未命中、待删除、日志和报告。</small>
+                </label>
+              </div>
+
+              <!-- 删除/整理间隔配置 -->
+              <div class="grid" id="organizer-rate-limit-grid" style="display:none;">
+                <label class="field">
+                  <span>删除间隔（ms）</span>
+                  <input id="organizer-delete-interval" type="number" min="100" step="100" value="500" />
+                  <small>逐个删除时的操作间隔，默认500ms（2次/秒），防触发云盘风控。</small>
+                </label>
+                <label class="field">
+                  <span>整理间隔（ms）</span>
+                  <input id="organizer-organize-interval" type="number" min="100" step="100" value="500" />
+                  <small>移动/重命名操作的间隔，默认500ms。</small>
+                </label>
+              </div>
+
+              <div class="toggles">
+                  <label class="toggle-card">
+                    <input id="organizer-include-subdirectories" type="checkbox" checked />
+                    <span>扫描子目录</span>
+                    <small>开启后会递归扫描根目录下所有子目录。</small>
+                  </label>
+
+                  <label class="toggle-card">
+                    <input id="organizer-dry-run" type="checkbox" />
+                    <span>开始按钮使用预览模式</span>
+                    <small>开启后点击"执行整理"也只做扫描，不移动文件。</small>
+                  </label>
+
+                  <label class="toggle-card">
+                    <input id="organizer-strict-code-match" type="checkbox" checked />
+                    <span>严格匹配爬虫番号名单</span>
+                    <small>仅整理能由名单唯一确认的番号；无法确认的视频移入“未命中”，绝不猜测命名。</small>
+                  </label>
+                </div>
+
+                <section class="task-box organizer-learning-box">
+                  <p class="message-label">广告样本学习</p>
+                  <p class="organizer-learning-tip">
+                    可导入"广告开头样本"和"正常开头样本"，也可直接输入番号自动抓帧学习。所有学习仅在本地执行。
+                  </p>
+
+                  <div class="grid organizer-learning-grid">
+                    <label class="field">
+                      <span>广告风险阈值 (1-100)</span>
+                      <input id="organizer-ad-threshold" type="number" min="1" max="100" step="1" value="60" />
+                      <small>评分高于阈值的视频会进入"含开头广告"，并输出复核与补抓清单。</small>
+                    </label>
+
+                    <label class="field span-2">
+                      <span>广告关键词（逗号分隔）</span>
+                      <input id="organizer-ad-keywords" type="text" placeholder="示例：片头广告, 站点水印, 宣传（逗号分隔）" />
+                      <small>文件名命中关键词会提高广告风险评分。</small>
+                    </label>
+                  </div>
+
+                  <label class="field">
+                    <span>按番号自动学习（可多条，逗号/换行分隔）</span>
+                    <textarea
+                      id="organizer-learning-codes"
+                      rows="3"
+                      placeholder="例如：ABP-001, IPX-777, SSIS-321"
+                    ></textarea>
+                    <small>用于告诉软件"这些番号是广告样本"或"这些番号是正常样本"。</small>
+                  </label>
+
+                  <input id="organizer-ad-detection-enabled" type="checkbox" hidden />
+                  <div class="toggles organizer-ad-detection-grid">
+                    <label class="toggle-card organizer-ad-action-card">
+                      <input
+                        id="organizer-ad-detection-enable"
+                        name="organizer-ad-detection-mode"
+                        type="radio"
+                        value="enabled"
+                      />
+                      <span>启用 AI 广告检测</span>
+                      <small>结合关键词、样本相似度与片头模板，识别"含开头广告"视频并单独归档。</small>
+                    </label>
+                    <label class="toggle-card organizer-ad-action-card">
+                      <input
+                        id="organizer-ad-detection-disable"
+                        name="organizer-ad-detection-mode"
+                        type="radio"
+                        value="disabled"
+                        checked
+                      />
+                      <span>关闭 AI 广告检测（默认）</span>
+                      <small>仅按文件大小判定广告文件，速度更快；无需检测 FFmpeg / ONNX Runtime。</small>
+                    </label>
+                  </div>
+
+                  <label class="field">
+                    <span>广告识别策略</span>
+                    <select id="organizer-ad-model-type">
+                      <option value="mobile-net-v3-lite">MobileNetV3 Lite（轻量策略，推荐）</option>
+                      <option value="squeezenet-fast">SqueezeNet Fast（轻量策略，更快）</option>
+                      <option value="yolov8n-balanced">YOLOv8n Balanced（轻量策略，更严格）</option>
+                    </select>
+                    <small>可按设备性能切换模型策略；仅影响广告风险评分，不影响爬虫流程。</small>
+                  </label>
+
+                  <div class="organizer-inline-actions organizer-learning-actions">
+                    <div class="help-action-group">
+                      <button id="organizer-import-ad-samples" class="ghost-button" type="button">导入广告样本</button>
+                      <button id="organizer-help-import-ad" class="icon-help-button" type="button" title="导入广告样本说明">?</button>
+                    </div>
+                    <div class="help-action-group">
+                      <button id="organizer-import-normal-samples" class="ghost-button" type="button">导入正常样本</button>
+                      <button id="organizer-help-import-normal" class="icon-help-button" type="button" title="导入正常样本说明">?</button>
+                    </div>
+                    <div class="help-action-group">
+                      <button id="organizer-learn-ad-by-codes" class="ghost-button" type="button">按番号学习广告样本</button>
+                      <button id="organizer-help-learn-ad" class="icon-help-button" type="button" title="按番号学习广告说明">?</button>
+                    </div>
+                    <div class="help-action-group">
+                      <button id="organizer-learn-normal-by-codes" class="ghost-button" type="button">按番号学习正常样本</button>
+                      <button id="organizer-help-learn-normal" class="icon-help-button" type="button" title="按番号学习正常说明">?</button>
+                    </div>
+                    <button id="organizer-refresh-learning-summary" class="ghost-button" type="button">刷新学习摘要</button>
+                  </div>
+                  <small class="organizer-learning-guide">
+                    说明：导入广告样本=选择"有广告开头"的图片或视频；导入正常样本=选择"无广告开头"的正常视频。按番号学习会在目录中匹配番号并自动抓取开头帧。
+                  </small>
+                  <small id="organizer-learning-summary" class="organizer-learning-summary">尚未加载学习模型。</small>
+                </section>
+
+                <div class="organizer-dependency-box">
+                  <div class="organizer-dependency-head">
+                    <p class="message-label">AI 依赖环境</p>
+                    <button id="organizer-refresh-dependency" class="ghost-button" type="button">刷新依赖状态</button>
+                  </div>
+                  <p id="organizer-dependency-summary" class="organizer-dependency-summary">
+                    AI 广告检测已关闭，FFmpeg / ONNX Runtime 不会自动检测。
+                  </p>
+                  <p id="organizer-dependency-detail" class="organizer-dependency-detail">
+                    默认整理模式不依赖 FFmpeg / ONNX Runtime。只有手动启用 AI 广告检测后，才需要按需检查或安装依赖。
+                  </p>
+                  <div class="organizer-dependency-url-fields">
+                    <label class="field organizer-dependency-url-field">
+                      <span>自定义 FFmpeg 下载地址（可选）</span>
+                      <input id="organizer-ffmpeg-download-url" type="text" placeholder="输入 FFmpeg ZIP 包下载链接（留空使用默认地址）" />
+                      <small>国内用户可将 FFmpeg 上传至网盘后提供直链，实现一键安装。</small>
+                    </label>
+                    <label class="field organizer-dependency-url-field">
+                      <span>自定义 ONNX Runtime 下载地址（可选）</span>
+                      <input id="organizer-onnx-download-url" type="text" placeholder="输入 ONNX Runtime ZIP 包下载链接（留空使用默认地址）" />
+                      <small>国内用户可将 ONNX Runtime 上传至网盘后提供直链，实现一键安装。</small>
+                    </label>
+                    <label class="field organizer-dependency-url-field organizer-alist-field">
+                      <span>alist 服务地址（流式检测用，可选）</span>
+                      <input id="organizer-alist-url" type="text" placeholder="http://localhost:5244" />
+                      <small>填写 alist 地址后，广告检测将使用 HTTP Range 流式下载视频头部（仅50MB），大幅提升网盘视频检测速度。</small>
+                    </label>
+                  </div>
+                  <div class="organizer-inline-actions organizer-dependency-actions">
+                    <button id="organizer-install-ffmpeg" class="ghost-button" type="button">一键安装 FFmpeg</button>
+                    <button id="organizer-install-onnx" class="ghost-button" type="button">一键安装 ONNX Runtime</button>
+                    <button id="organizer-delete-dependency" class="ghost-button ghost-button-danger" type="button">删除依赖</button>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <button id="organizer-start" class="primary-button" type="button">执行整理</button>
+                  <button id="organizer-preview" class="secondary-button" type="button">预览扫描</button>
+                  <button id="organizer-rescue-names" class="secondary-button" type="button">抢救番号名称</button>
+                  <button id="organizer-open-root" class="ghost-button" type="button">打开根目录</button>
+                  <button id="organizer-clear-log" class="ghost-button" type="button">清空整理日志</button>
+                </div>
+              </section>
+
+              <section class="panel stats-panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="panel-kicker">整理统计</p>
+                    <h2>运行结果</h2>
+                  </div>
+                </div>
+
+                <div class="stat-grid organizer-stat-grid">
+                  <article class="stat-card">
+                    <span>扫描文件</span>
+                    <strong id="organizer-stat-scanned">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>视频文件</span>
+                    <strong id="organizer-stat-video">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>命中番号</span>
+                    <strong id="organizer-stat-matched">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>移入待整理</span>
+                    <strong id="organizer-stat-waiting">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>移入未命中</span>
+                    <strong id="organizer-stat-unmatched">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>移入待删除</span>
+                    <strong id="organizer-stat-delete">0</strong>
+                  </article>
+                  <article class="stat-card">
+                    <span>失败数</span>
+                    <strong id="organizer-stat-failed">0</strong>
+                  </article>
+                </div>
+
+                <div class="message-box">
+                  <p class="message-label">最近状态</p>
+                  <p id="organizer-summary-message">等待开始整理。</p>
+
+                  <div class="task-box">
+                    <p class="message-label">常用目录</p>
+                    <div class="organizer-quick-actions">
+                      <button id="organizer-open-waiting" class="ghost-button" type="button">打开待整理</button>
+                      <button id="organizer-open-unmatched" class="ghost-button" type="button">打开未命中</button>
+                      <button id="organizer-open-delete" class="ghost-button" type="button">打开待删除</button>
+                      <button id="organizer-open-intro-ad" class="ghost-button" type="button">打开含开头广告</button>
+                      <button id="organizer-open-reports" class="ghost-button" type="button">打开报告目录</button>
+                    </div>
+                  </div>
+
+                  <div class="task-box">
+                    <p class="message-label">报告文件</p>
+                    <div id="organizer-report-paths" class="organizer-report-list"></div>
+                  </div>
+
+                  <div class="task-box">
+                    <p class="message-label">整理复盘</p>
+                    <div id="organizer-review-panel" class="organizer-review-panel">
+                      <p class="organizer-review-empty">运行完成后会在这里显示：遗漏番号、补抓磁力、误判复核入口。</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel log-panel">
+                <div class="panel-head">
+                  <div>
+                    <p class="panel-kicker">整理日志</p>
+                    <h2>执行明细</h2>
+                  </div>
+                </div>
+                <div id="organizer-log-view" class="log-view"></div>
+              </section>
+            </main>
+          </section>

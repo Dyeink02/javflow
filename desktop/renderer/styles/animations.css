@@ -1,0 +1,452 @@
+/* ============================================================
+   Animation Styles - 全局动画与交互效果
+   应用于所有板块的统一动画系统
+   ============================================================ */
+
+/* ============================================================
+   1. 页面切换与模块加载动画
+   ============================================================ */
+
+.workspace-pane {
+  animation: paneIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes paneIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 面板进入动画 - 交错效果 */
+.panel {
+  animation: panelIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.panel:nth-child(1) { animation-delay: 0.05s; }
+.panel:nth-child(2) { animation-delay: 0.1s; }
+.panel:nth-child(3) { animation-delay: 0.15s; }
+.panel:nth-child(4) { animation-delay: 0.2s; }
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   2. 主要交互元素悬停动画
+   ============================================================ */
+
+/* 按钮水波纹效果 */
+button,
+.base-url-chip {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button::after,
+.base-url-chip::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  transform: translate(-50%, -50%);
+  transition: width 0.4s ease, height 0.4s ease;
+}
+
+button:hover::after,
+.base-url-chip:hover::after {
+  width: 200%;
+  height: 200%;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 主按钮特殊悬停 */
+.primary-button:hover:not(:disabled) {
+  box-shadow: 0 12px 35px rgba(255, 76, 134, 0.35);
+}
+
+.secondary-button:hover:not(:disabled) {
+  box-shadow: 0 12px 35px rgba(86, 224, 255, 0.3);
+}
+
+.danger-button:hover:not(:disabled) {
+  box-shadow: 0 12px 35px rgba(255, 95, 117, 0.3);
+}
+
+/* 幽灵按钮 */
+.ghost-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* 内联按钮 */
+.inline-button {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.inline-button:hover:not(:disabled) {
+  background: rgba(86, 224, 255, 0.15);
+  color: var(--accent-cyan);
+  border-color: rgba(86, 224, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+/* 输入框和下拉菜单悬停与聚焦 */
+input[type='text'],
+input[type='number'],
+textarea,
+select {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type='text']:hover,
+input[type='number']:hover,
+textarea:hover,
+select:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(86, 224, 255, 0.4);
+  background: rgba(86, 224, 255, 0.06);
+  box-shadow: 0 0 20px rgba(86, 224, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+/* 开关卡片悬停 */
+.toggle-card {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toggle-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  transform: translateX(4px);
+}
+
+.toggle-card input[type='checkbox'] {
+  transition: transform 0.2s ease;
+}
+
+.toggle-card input[type='checkbox']:checked {
+  transform: scale(1.1);
+}
+
+/* 导航标签悬停 */
+.workspace-nav-button {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workspace-nav-button:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.workspace-nav-button.is-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ============================================================
+   3. 面板与卡片悬停效果
+   ============================================================ */
+
+.panel,
+.ranking-card {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.panel:hover,
+.ranking-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.5);
+}
+
+/* 统计卡片悬停 */
+.stat-card {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stat-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 操作卡片悬停 */
+.ops-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ops-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* 指标项悬停 */
+.ops-metric {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ops-metric:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 状态卡片悬停 */
+.state-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.state-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* 结果路径行悬停 */
+.result-path-row {
+  transition: all 0.2s ease;
+}
+
+.result-path-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================
+   4. 状态变化与操作反馈动画
+   ============================================================ */
+
+/* 数据更新闪烁 */
+.data-updated {
+  animation: dataFlash 0.6s ease;
+}
+
+@keyframes dataFlash {
+  0% { background: rgba(86, 224, 255, 0.2); }
+  100% { background: transparent; }
+}
+
+/* 成功反馈 */
+.feedback-success {
+  animation: feedbackOk 0.5s ease;
+}
+
+@keyframes feedbackOk {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+  50% { transform: scale(1.02); box-shadow: 0 0 20px 5px rgba(52, 211, 153, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+/* 失败反馈 */
+.feedback-error {
+  animation: feedbackFail 0.5s ease;
+}
+
+@keyframes feedbackFail {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+/* 状态脉冲动画 */
+.status-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 运行中状态发光 */
+.mini-status.running {
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+/* ============================================================
+   5. 内容元素动画
+   ============================================================ */
+
+/* Chip 进入动画 */
+.state-chip,
+.current-chip,
+.unfinished-chip,
+.duplicate-chip,
+.page-gap-chip {
+  animation: chipIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chipIn {
+  from { opacity: 0; transform: scale(0.8) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* 列表项交错进入 */
+.hero-note-list li,
+.result-path-row {
+  animation: listItemIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.hero-note-list li:nth-child(1) { animation-delay: 0.05s; }
+.hero-note-list li:nth-child(2) { animation-delay: 0.1s; }
+.hero-note-list li:nth-child(3) { animation-delay: 0.15s; }
+.hero-note-list li:nth-child(4) { animation-delay: 0.2s; }
+.hero-note-list li:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes listItemIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ============================================================
+   6. 进度条动画
+   ============================================================ */
+
+/* 动态流式进度条 */
+.stage-progress-bar-fill {
+  background-size: 200% 100%;
+  animation: progressFlow 2s linear infinite;
+}
+
+@keyframes progressFlow {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* 进度条发光 */
+.stage-progress-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: 0;
+  width: 20px;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(86, 224, 255, 0.4);
+  filter: blur(6px);
+  animation: progressGlow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes progressGlow {
+  0% { opacity: 0.4; transform: scaleX(1); }
+  100% { opacity: 0.8; transform: scaleX(1.5); }
+}
+
+/* 等待状态进度条 */
+.stage-progress-bar.is-waiting .stage-progress-bar-fill {
+  width: 30% !important;
+  animation: progressWaiting 1.5s ease-in-out infinite;
+}
+
+@keyframes progressWaiting {
+  0% { left: -30%; opacity: 0.3; }
+  50% { opacity: 0.8; }
+  100% { left: 100%; opacity: 0.3; }
+}
+
+/* ============================================================
+   7. 粒子背景动画
+   ============================================================ */
+
+.particle-canvas .particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: heroParticleFloat linear infinite;
+  opacity: 0;
+}
+
+@keyframes heroParticleFloat {
+  0% { transform: translateY(100vh) scale(0); opacity: 0; }
+  10% { opacity: 0.5; }
+  90% { opacity: 0.2; }
+  100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+}
+
+/* ============================================================
+   8. Hero 区域背景动画
+   ============================================================ */
+
+@keyframes heroGradientShift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(25px, -15px) rotate(1.5deg); }
+  66% { transform: translate(-15px, 12px) rotate(-1deg); }
+}
+
+.hero::before {
+  animation: heroGradientShift 10s ease-in-out infinite;
+}
+
+/* 浮动光球 */
+.hero-glow-orb-1 {
+  animation: heroOrbFloat 7s ease-in-out infinite;
+}
+
+.hero-glow-orb-2 {
+  animation: heroOrbFloat 9s ease-in-out infinite reverse;
+}
+
+@keyframes heroOrbFloat {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(12px, -10px); }
+}
+
+/* ============================================================
+   9. 滚动条美化
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  border: 2px solid rgba(7, 11, 23, 0.72);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* ============================================================
+   10. 减少动画偏好支持
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

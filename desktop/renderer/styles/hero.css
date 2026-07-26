@@ -1,0 +1,420 @@
+/* ============================================================
+   Hero Section Styles - 恢复原始布局 + 保留动态效果
+   统一应用于 JAV 爬虫 / 视频整理 / AV 订阅 三大板块
+   ============================================================ */
+
+/* ============================================================
+   原始布局结构（恢复）
+   ============================================================ */
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-topline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.hero-quick-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eyebrow,
+.panel-kicker,
+.tip-kicker {
+  margin: 0;
+  color: var(--accent-warm);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.version-badge,
+.message-count,
+.failed-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.09);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.version-badge {
+  margin-left: auto;
+}
+
+.toolbar-button {
+  padding: 9px 14px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+.hero-subtitle {
+  max-width: 720px;
+  margin: 10px 0 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.hero h1 {
+  background: linear-gradient(135deg, #fff 0%, #e8e3ff 50%, var(--accent-cyan) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-source,
+.subtitle-note,
+.log-file-path,
+.failed-card span,
+.tip-secondary {
+  color: var(--muted-soft);
+}
+
+.hero-source {
+  margin: 0;
+  font-size: 13px;
+}
+
+.hero-connection-tip {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  max-width: 720px;
+  border-radius: 16px;
+  border: 1px solid rgba(86, 224, 255, 0.14);
+  background: rgba(86, 224, 255, 0.08);
+  color: var(--muted-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hero-source a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(86, 224, 255, 0.3);
+  transition: border-color 0.2s ease;
+}
+
+.hero-source a:hover {
+  border-color: var(--accent-cyan);
+}
+
+.hero-actions,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hero-actions {
+  gap: 10px;
+}
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hero-note,
+.tip-card,
+.toggle-card,
+.stat-card,
+.message-box {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(8, 13, 29, 0.52);
+}
+
+.hero-note {
+  border-radius: 24px;
+  padding: 14px 16px;
+}
+
+.hero-note-head {
+  margin-bottom: 8px;
+}
+
+.hero-note-title {
+  display: inline-block;
+  color: var(--accent-warm);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* 关键修复：限制最大高度 + 内部滚动 */
+.hero-note-scroll {
+  max-height: 132px;
+  padding-right: 6px;
+  overflow-y: auto;
+}
+
+.hero-note-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-note-list li {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  line-height: 1.55;
+  color: var(--muted-soft);
+  font-size: 13px;
+}
+
+.hero-note-list strong {
+  display: inline-block;
+  min-width: 52px;
+  margin-right: 8px;
+  color: var(--accent-cyan);
+  font-size: 13px;
+}
+
+/* ============================================================
+   粒子画布 - 全局固定背景（保留新效果）
+   ============================================================ */
+.particle-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.particle-canvas .particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: heroParticleFloat linear infinite;
+  opacity: 0;
+}
+
+@keyframes heroParticleFloat {
+  0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+  10%  { opacity: 0.5; }
+  90%  { opacity: 0.2; }
+  100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+}
+
+/* ============================================================
+   渐变流光背景层（保留新效果）
+   ============================================================ */
+.hero-section::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(ellipse at 30% 50%, rgba(86, 224, 255, 0.06) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 40%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes heroGradientShift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33%      { transform: translate(25px, -15px) rotate(1.5deg); }
+  66%      { transform: translate(-15px, 12px) rotate(-1deg); }
+}
+
+/* 各板块顶部渐变背景色调 */
+#crawler-hero::before {
+  background: radial-gradient(ellipse at 30% 50%, rgba(86, 224, 255, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 30%, rgba(52, 211, 153, 0.05) 0%, transparent 50%);
+}
+
+#organizer-hero::before {
+  background: radial-gradient(ellipse at 40% 50%, rgba(255, 179, 71, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 60% 40%, rgba(239, 68, 68, 0.04) 0%, transparent 50%);
+}
+
+#subscription-hero::before {
+  background: radial-gradient(ellipse at 35% 50%, rgba(167, 139, 250, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 65% 40%, rgba(236, 72, 153, 0.04) 0%, transparent 50%);
+}
+
+#librarymetadata-hero::before {
+  background: radial-gradient(ellipse at 35% 50%, rgba(52, 211, 153, 0.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 65% 40%, rgba(56, 189, 248, 0.04) 0%, transparent 50%);
+}
+
+/* ============================================================
+   顶部流光边框 - 单条圆角闭环描边
+   旧实现是四条独立 glow-line 分段轮播，无法在四个圆角处连续显示。
+   这里改为单个闭合 SVG path/rect 描边，让流光真实经过转角。
+   ============================================================ */
+.hero-border-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 30px;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.hero-border-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hero-border-base {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 1.5;
+}
+
+.hero-border-trace {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hero-border-trace-core {
+  stroke-width: 6;
+  stroke-dasharray: 11 89;
+  opacity: 1;
+}
+
+.hero-border-trace-glow {
+  stroke-width: 10;
+  stroke-dasharray: 18 82;
+  filter: blur(4px);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+}
+
+/* 各板块流光边框独立色调 */
+#crawler-hero .hero-border-trace-glow,
+#organizer-hero .hero-border-trace-glow,
+#subscription-hero .hero-border-trace-glow {
+  opacity: 0.92;
+}
+
+/* ============================================================
+   浮动光球装饰（保留新效果）
+   ============================================================ */
+.hero-glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-glow-orb-1 {
+  width: 160px;
+  height: 160px;
+  top: -20px;
+  right: 50px;
+  animation: heroOrbFloat 7s ease-in-out infinite;
+}
+
+.hero-glow-orb-2 {
+  width: 100px;
+  height: 100px;
+  bottom: -15px;
+  left: 30px;
+  animation: heroOrbFloat 9s ease-in-out infinite reverse;
+}
+
+@keyframes heroOrbFloat {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(12px, -10px); }
+}
+
+#crawler-hero .hero-glow-orb-1 { background: rgba(86, 224, 255, 0.08); }
+#crawler-hero .hero-glow-orb-2 { background: rgba(52, 211, 153, 0.06); }
+#organizer-hero .hero-glow-orb-1 { background: rgba(255, 179, 71, 0.08); }
+#organizer-hero .hero-glow-orb-2 { background: rgba(239, 68, 68, 0.06); }
+#subscription-hero .hero-glow-orb-1 { background: rgba(167, 139, 250, 0.08); }
+#subscription-hero .hero-glow-orb-2 { background: rgba(236, 72, 153, 0.06); }
+#librarymetadata-hero .hero-glow-orb-1 { background: rgba(52, 211, 153, 0.08); }
+#librarymetadata-hero .hero-glow-orb-2 { background: rgba(56, 189, 248, 0.06); }
+
+/* ============================================================
+   动态流式进度条 - 启动准备阶段（保留新效果）
+   ============================================================ */
+.stage-progress-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.stage-progress-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #56e0ff, #a78bfa);
+  background-size: 200% 100%;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: progressFlow 2s linear infinite;
+}
+
+@keyframes progressFlow {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* 进度条发光效果 */
+.stage-progress-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: 0;
+  width: 20px;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(86, 224, 255, 0.4);
+  filter: blur(6px);
+  animation: progressGlow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes progressGlow {
+  0%   { opacity: 0.4; transform: scaleX(1); }
+  100% { opacity: 0.8; transform: scaleX(1.5); }
+}
+
+/* 等待状态下的流动动画 */
+.stage-progress-bar.is-waiting .stage-progress-bar-fill {
+  width: 30% !important;
+  animation: progressWaiting 1.5s ease-in-out infinite;
+}
+
+@keyframes progressWaiting {
+  0%   { left: -30%; opacity: 0.3; }
+  50%  { opacity: 0.8; }
+  100% { left: 100%; opacity: 0.3; }
+}

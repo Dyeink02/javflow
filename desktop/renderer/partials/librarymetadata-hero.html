@@ -1,0 +1,55 @@
+<!--
+  partials/librarymetadata-hero.html - 媒体库刮削板块头部区域
+  作用: 与其它板块保持一致的 Hero 结构、流体边框和快速操作区
+  workspace-pane默认hidden，通过导航按钮切换显示
+-->
+
+<section id="librarymetadata-workspace" class="workspace-pane hidden">
+<header class="hero" id="librarymetadata-hero" data-hero-border-theme="librarymetadata">
+  <div class="hero-border-glow hero-border-glow-svg" aria-hidden="true">
+    <svg class="hero-border-svg" viewBox="0 0 1200 320" preserveAspectRatio="none" focusable="false">
+      <rect class="hero-border-base" x="1.5" y="1.5" width="1197" height="317" rx="30"></rect>
+      <rect class="hero-border-trace hero-border-trace-core" x="1.5" y="1.5" width="1197" height="317" rx="30" pathLength="100"></rect>
+    </svg>
+  </div>
+  <div class="hero-glow-orb hero-glow-orb-1"></div>
+  <div class="hero-glow-orb hero-glow-orb-2"></div>
+
+  <section class="hero-copy">
+    <div class="hero-topline">
+      <div class="hero-quick-actions">
+        <button id="choose-library-background" class="ghost-button toolbar-button" type="button">切换背景</button>
+        <button id="reset-library-background" class="ghost-button toolbar-button" type="button">恢复默认</button>
+      </div>
+      <p class="eyebrow">媒体库刮削工作台</p>
+      <span id="librarymetadata-version-badge" class="version-badge">v0.1</span>
+    </div>
+
+    <h1>NAS 元数据补齐与写回</h1>
+    <p class="hero-subtitle">读取本地爬虫产物、隐藏番号缓存和 NAS 挂载目录，扫描 STRM / 视频文件，补抓封面、NFO、演员与简介并写回指定目录。</p>
+    <p class="hero-connection-tip">重点支持 `BBAN-452.mp4.strm` 这类平铺 STRM 模式，直接提取番号后进入刮削与订阅补齐流程。</p>
+  </section>
+
+  <aside class="hero-side">
+    <div class="hero-note">
+      <div class="hero-note-head">
+        <span class="hero-note-title">当前板块能力</span>
+      </div>
+      <div class="hero-note-scroll">
+        <ul class="hero-note-list">
+          <li>扫描 NAS 媒体库目录</li>
+          <li>读取 `filmData.json` / `organizer-codes.json` / `crawl-profile.json`</li>
+          <li>支持输入番号或网页地址重新路由到 JAV 爬虫</li>
+          <li>补齐 NFO、poster、backdrop、landscape</li>
+          <li>生成供 AV 订阅使用的媒体库索引</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="hero-actions">
+      <button id="scan-library-hero" class="ghost-button" type="button">扫描媒体库</button>
+      <button id="fill-metadata-hero" class="ghost-button" type="button">补齐当前选择</button>
+      <button id="refresh-library-index-hero" class="ghost-button" type="button">刷新索引</button>
+    </div>
+  </aside>
+</header>

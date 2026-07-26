@@ -1,0 +1,102 @@
+@media (max-width: 1180px) {
+  .hero,
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .subscription-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .subscription-side-stack {
+    position: static;
+  }
+
+  .ranking-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid,
+  .toggles,
+  .stat-grid,
+  .state-grid,
+  .crawl-ops-grid,
+  .ops-metric-grid,
+  .subscription-metric-grid,
+  .subscription-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .span-2 {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .organizer-stat-grid,
+  .organizer-quick-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .result-path-row {
+    grid-template-columns: 1fr;
+  }
+
+  .organizer-inline-actions {
+    flex-direction: column;
+  }
+
+  .ranking-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-topbar {
+    flex-wrap: wrap;
+  }
+
+  .workspace-topbar-tabs {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .workspace-nav-button {
+    flex: 1;
+    text-align: center;
+  }
+
+  .result-history-grid,
+  .ops-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .result-history-row,
+  .subscription-card-head {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .subscription-actions {
+    flex-direction: column;
+  }
+
+  .subscription-side-stack {
+    gap: 14px;
+  }
+}
+
+@container (max-width: 560px) {
+  .ranking-head,
+  .ranking-source {
+    flex-wrap: wrap;
+  }
+
+  .ranking-head .ghost-button,
+  .ranking-source .inline-button {
+    width: 100%;
+  }
+
+  .ranking-controls {
+    grid-template-columns: 1fr;
+  }
+}

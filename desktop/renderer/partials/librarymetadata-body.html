@@ -1,0 +1,217 @@
+<!--
+  partials/librarymetadata-body.html - 媒体库刮削板块主体区域
+  由 [LIBRARYMETADATA_BODY] 占位
+  与 librarymetadata-hero.html 共享 workspace-pane 容器
+-->
+
+  <main id="librarymetadataLayout" class="layout librarymetadata-layout">
+    <section class="panel form-panel full-width-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">刮削配置</p>
+          <h2>本地库与刮削源</h2>
+        </div>
+        <div id="library-status-pill" class="status-pill idle">等待扫描</div>
+      </div>
+
+      <div class="grid">
+        <label class="field span-2">
+          <span>媒体库根目录</span>
+          <div class="path-row">
+            <input id="libraryRootPath" type="text" placeholder="请选择本地媒体库根目录" />
+            <button id="browseLibraryRoot" class="inline-button" type="button">选择</button>
+          </div>
+          <small>程序会递归扫描该目录下的视频文件，并按文件夹名或文件名识别番号。</small>
+        </label>
+
+        <label class="field">
+          <span>输出模式</span>
+          <select id="libraryOutputMode">
+            <option value="inplace">在视频同级目录生成 NFO 与封面</option>
+            <option value="subfolder">每个影片单独子文件夹</option>
+          </select>
+          <small>选择元数据与封面图片的存放位置。</small>
+        </label>
+
+        <label class="field">
+          <span>扫描文件类型</span>
+          <input id="scanFileTypes" type="text" value="strm, mp4, mkv, avi, mov, flv, wmv, ts, m4v, iso" />
+          <small>逗号分隔，决定哪些文件会被识别为影片；STRM 文件无需真实视频即可生成旁挂元数据。</small>
+        </label>
+
+        <label class="field span-2">
+          <span>刮削源优先级</span>
+          <select id="metadataSourcePriority">
+            <option value="">默认（自动选择最佳结果）</option>
+          </select>
+          <small>选择优先使用的刮削源；选择“默认”时使用所有可用源并自动择优。</small>
+        </label>
+
+        <label class="field">
+          <span>刮削并发量</span>
+          <input id="libraryScrapeConcurrency" type="number" min="1" max="5" step="1" value="3" />
+          <small>建议 3；代理和网络稳定时可提高到 5。</small>
+        </label>
+
+        <div class="field librarymetadata-auto-subscribe-field">
+          <span>自动订阅</span>
+          <label class="librarymetadata-auto-subscribe-control">
+            <input id="libraryAutoSubscribeLeadActor" type="checkbox" checked />
+            <span>刮削成功后订阅首位演员</span>
+          </label>
+          <small>后台解析女优目录并建立订阅基线，不阻塞当前刮削。</small>
+        </div>
+
+        <label class="field span-2">
+          <div class="field-header">
+            <span>代理地址</span>
+            <span id="libraryProxyStatus" class="proxy-status-chip empty">未检测</span>
+          </div>
+          <input id="libraryProxyUrl" type="text" value="127.0.0.1:7897" placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080（留空使用全局代理）" />
+          <small id="libraryProxyStatusDetail">媒体库刮削默认使用 127.0.0.1:7897，可手动修改；留空时自动使用爬虫设置中的全局代理。</small>
+        </label>
+
+        <label class="field span-2">
+          <div class="field-header">
+            <span>爬虫结果目录</span>
+            <span id="crawlArtifactCountBadge" class="artifact-count-badge idle">尚未读取</span>
+          </div>
+          <div class="path-row">
+            <input id="crawlArtifactPath" type="text" placeholder="选择 filmData.json 或爬虫结果目录（可选）" />
+            <button id="browseCrawlArtifacts" class="inline-button" type="button">选择</button>
+          </div>
+          <small id="crawlArtifactCountFeedback">用于把本地视频与已抓结果关联，提升刮削命中率。</small>
+        </label>
+
+        <label class="field span-2">
+          <span>历史抓取快照（隐藏产物）</span>
+          <div class="path-row">
+            <select id="crawlSourceSnapshot" class="flex-select">
+              <option value="">不指定历史快照</option>
+            </select>
+            <button id="refreshCrawlSources" class="inline-button" type="button">刷新</button>
+          </div>
+          <small>自动读取 C 盘隐藏抓取产物中的历史快照；选择后会作为本地元数据来源。</small>
+        </label>
+
+        <label class="field span-2">
+          <span>番号快速测试 / 路由回填</span>
+          <div class="path-row">
+            <input id="crawlFallbackInput" type="text" placeholder="输入番号或网页地址，例如 BBAN-452 或 https://www.javbus.com/BBAN-452" />
+            <button id="rehydrateCode" class="inline-button" type="button">路由回 JAV 爬虫</button>
+            <button id="testScrape" class="inline-button" type="button">测试刮削</button>
+          </div>
+          <small>测试刮削会直接调用 metatube-sdk-go 查看返回结果，不写入本地文件；路由回 JAV 爬虫会把输入的番号回填到爬虫工作区并切换过去。</small>
+        </label>
+
+        <label class="field span-2">
+          <span>忽略目录 / 样本目录</span>
+          <div class="path-row">
+            <input id="hiddenArtifactPath" type="text" placeholder="可指定不参与刮削的目录（可选）" />
+            <button id="browseHiddenArtifacts" class="inline-button" type="button">选择</button>
+          </div>
+          <small>命中该目录的视频会被标记为忽略，避免误刮削广告或样本文件。</small>
+        </label>
+
+        <div class="field span-2">
+          <span>隐藏路径文件</span>
+          <label class="librarymetadata-auto-subscribe-control">
+            <input id="showHiddenFiles" type="checkbox" />
+            <span>显示隐藏路径文件（扫描时包含上方忽略的目录）</span>
+          </label>
+          <small>勾选后，扫描会包含“忽略目录”中的视频，方便查看刚刮削到隐藏目录的影片。</small>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="scanLibrary" class="primary-button" type="button">扫描库</button>
+        <button id="filterComplete" class="secondary-button" type="button">只看已完整</button>
+        <button id="filterMissing" class="secondary-button" type="button">只看缺失</button>
+        <button id="exportIndex" class="ghost-button" type="button">导出索引</button>
+        <button id="toggleLibraryLayout" class="ghost-button" type="button">切换紧凑布局</button>
+      </div>
+    </section>
+
+    <section class="panel stats-panel full-width-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">扫描结果</p>
+          <h2>影片清单</h2>
+        </div>
+        <div class="librarymetadata-list-controls">
+          <button
+            id="toggleLibraryResultScope"
+            class="ghost-button librarymetadata-scope-toggle active"
+            type="button"
+            aria-pressed="true"
+            title="当前仅显示本地已下载并可刮削的影片"
+          >仅显示刮削内容</button>
+          <div id="library-progress-pill" class="status-pill idle">等待扫描</div>
+        </div>
+      </div>
+
+      <div class="librarymetadata-table-wrap">
+        <table class="librarymetadata-table">
+          <colgroup>
+            <col class="col-select" />
+            <col class="col-light" />
+            <col class="col-code" />
+            <col class="col-title" />
+            <col class="col-match" />
+            <col class="col-status" />
+            <col class="col-flag" />
+            <col class="col-flag" />
+            <col class="col-flag" />
+            <col class="col-flag" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>选择</th>
+              <th>状态</th>
+              <th>番号</th>
+              <th>标题</th>
+              <th>本地匹配</th>
+              <th>状态</th>
+              <th>NFO</th>
+              <th>封面</th>
+              <th>背景</th>
+              <th>横图</th>
+            </tr>
+          </thead>
+          <tbody id="libraryResultList">
+            <tr class="librarymetadata-empty-row">
+              <td colspan="10">点击“扫描库”后在此处显示影片列表。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="librarymetadata-status-legend">
+        <span class="librarymetadata-legend-item"><span class="librarymetadata-status-light complete"></span>已完整</span>
+        <span class="librarymetadata-legend-item"><span class="librarymetadata-status-light missing"></span>缺某项 / 待刮削</span>
+        <span class="librarymetadata-legend-item"><span class="librarymetadata-status-light failed"></span>刮削失败</span>
+        <span class="librarymetadata-legend-item"><span class="librarymetadata-status-light no-media"></span>缺失本地视频</span>
+      </div>
+
+      <div class="panel-actions">
+        <button id="scrapeSelected" class="primary-button" type="button">补齐当前</button>
+        <button id="scanAndScrapeAll" class="primary-button" type="button">扫描并自动刮削全部</button>
+        <button id="generateNfoOnly" class="ghost-button" type="button">仅生成 NFO</button>
+        <button id="downloadImagesOnly" class="ghost-button" type="button">仅下载图片</button>
+        <button id="scrapeUnfinished" class="ghost-button" type="button">补刮未完成</button>
+        <button id="stopLibraryScrape" class="danger-button" type="button" disabled>停止刮削</button>
+        <button id="openLibraryLog" class="ghost-button" type="button">打开日志</button>
+      </div>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">刮削日志</p>
+          <h2>执行明细</h2>
+        </div>
+      </div>
+      <div id="libraryLogView" class="log-view"></div>
+    </section>
+  </main>
+</section>

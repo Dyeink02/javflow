@@ -1,0 +1,439 @@
+<!--
+  partials/crawler-body.html - JAV爬虫板块主体区域
+  布局: 2列CSS Grid (.layout)
+    Col1 ─ layout-main-column (抓取设置面板)
+    Col2 ─ ranking-card (女优排行榜，grid-row:1 与左侧齐平)
+    全宽 ─ layout-main-body (抓取阶段面板 + 结果入口面板 + 状态说明)
+    全宽 ─ log-panel (抓取日志)
+  由 [CRAWLER_BODY] 占位符替换
+-->
+
+      <main class="layout" id="crawler-layout">
+        <!-- 左列: 抓取设置面板 -->
+        <div class="layout-main-column">
+        <section class="panel form-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker" data-ui-text="panels.setupKicker"></p>
+              <h2 data-ui-text="panels.setupTitle"></h2>
+            </div>
+            <div id="status-pill" class="status-pill idle">待命</div>
+          </div>
+
+          <div class="grid">
+            <label class="field">
+              <span data-ui-text="fields.taskTemplate"></span>
+              <select id="taskTemplate"></select>
+              <small data-ui-text="fields.taskTemplateHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.limit"></span>
+              <input id="limit" type="number" min="0" step="1" />
+              <small data-ui-text="fields.limitHelp"></small>
+            </label>
+
+            <label class="field span-2">
+              <span data-ui-text="fields.base"></span>
+              <input id="base" type="text" data-ui-placeholder="placeholders.base" />
+              <div id="base-url-hints" class="base-url-hints"></div>
+            </label>
+
+            <label class="field span-2">
+              <span data-ui-text="fields.output"></span>
+              <div class="path-row">
+                <input id="output" type="text" data-ui-placeholder="placeholders.output" />
+                <button id="browse-output" class="inline-button" type="button" data-ui-text="actions.browseOutput"></button>
+              </div>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.totalPages"></span>
+              <input id="totalPages" type="number" min="0" step="1" />
+              <small data-ui-text="fields.totalPagesHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.itemsPerPage"></span>
+              <input id="itemsPerPage" type="number" min="1" step="1" />
+              <small data-ui-text="fields.itemsPerPageHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.parallel"></span>
+              <input id="parallel" type="number" min="1" step="1" />
+              <small data-ui-text="fields.parallelHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.delay"></span>
+              <input id="delay" type="number" min="0" step="1" />
+              <small data-ui-text="fields.delayHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.timeout"></span>
+              <input id="timeout" type="number" min="1000" step="1000" />
+              <small data-ui-text="fields.timeoutHelp"></small>
+            </label>
+
+            <label class="field span-2">
+              <div class="field-header">
+                <span data-ui-text="fields.proxy"></span>
+                <span id="proxy-status" class="proxy-status-chip empty" data-ui-text="proxyStatus.empty"></span>
+              </div>
+              <input id="proxy" type="text" data-ui-placeholder="placeholders.proxy" />
+              <small id="proxy-status-detail" data-ui-text="fields.proxyHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.magnetExcludeKeywords"></span>
+              <input
+                id="magnetExcludeKeywords"
+                type="text"
+                data-ui-placeholder="placeholders.magnetExcludeKeywords"
+                autocomplete="off"
+              />
+              <small data-ui-text="fields.magnetExcludeKeywordsHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.minReleaseDate"></span>
+              <input
+                id="minReleaseDate"
+                type="text"
+                data-ui-placeholder="placeholders.minReleaseDate"
+                autocomplete="off"
+              />
+              <small data-ui-text="fields.minReleaseDateHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.actressCountFilterThreshold"></span>
+              <input id="actressCountFilterThreshold" type="text" inputmode="numeric" autocomplete="off" />
+              <small data-ui-text="fields.actressCountFilterThresholdHelp"></small>
+            </label>
+
+            <label class="field">
+              <span data-ui-text="fields.filmCodeFilterThreshold"></span>
+              <input id="filmCodeFilterThreshold" type="text" data-ui-placeholder="placeholders.filmCodeFilterThreshold" autocomplete="off" />
+              <small data-ui-text="fields.filmCodeFilterThresholdHelp"></small>
+            </label>
+          </div>
+
+          <section class="tip-card">
+            <div class="tip-head">
+              <div>
+                <p class="tip-kicker" data-ui-text="advice.kicker"></p>
+                <h3 data-ui-text="advice.title"></h3>
+              </div>
+              <button id="use-suggested-pages" class="ghost-button" type="button" data-ui-text="advice.applyButton"></button>
+            </div>
+
+            <p id="total-pages-advice" class="tip-primary"></p>
+            <p id="total-pages-meta" class="tip-secondary"></p>
+          </section>
+
+          <div class="toggles">
+            <label class="toggle-card">
+              <input id="cloudflare" type="checkbox" />
+              <span data-ui-text="toggles.cloudflareTitle"></span>
+              <small data-ui-text="toggles.cloudflareHelp"></small>
+            </label>
+
+            <label class="toggle-card">
+              <input id="secondValidation" type="checkbox" />
+              <span data-ui-text="toggles.secondValidationTitle"></span>
+              <small data-ui-text="toggles.secondValidationHelp"></small>
+            </label>
+
+            <label class="toggle-card">
+              <input id="nomag" type="checkbox" />
+              <span data-ui-text="toggles.nomagTitle"></span>
+              <small data-ui-text="toggles.nomagHelp"></small>
+            </label>
+
+            <label class="toggle-card">
+              <input id="allmag" type="checkbox" />
+              <span data-ui-text="toggles.allmagTitle"></span>
+              <small data-ui-text="toggles.allmagHelp"></small>
+            </label>
+
+            <label class="toggle-card">
+              <input id="magnetContentValidation" type="checkbox" />
+              <span data-ui-text="toggles.magnetContentValidationTitle"></span>
+              <small data-ui-text="toggles.magnetContentValidationHelp"></small>
+            </label>
+
+            <label class="toggle-card">
+              <input id="nopic" type="checkbox" />
+              <span data-ui-text="toggles.nopicTitle"></span>
+              <small data-ui-text="toggles.nopicHelp"></small>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="start" class="primary-button" type="button" data-ui-text="actions.start"></button>
+            <button id="stop" class="danger-button" type="button" data-ui-text="actions.stop" disabled></button>
+            <button id="restart" class="secondary-button" type="button" data-ui-text="actions.restart"></button>
+            <button id="clear-log" class="ghost-button" type="button" data-ui-text="actions.clearLog"></button>
+          </div>
+        </section>
+
+        </div>
+
+        <!-- 全宽主干区：抓取阶段、结果入口、状态说明 -->
+        <div class="layout-main-body">
+
+        <section class="crawl-ops-grid">
+            <article class="ops-card">
+              <div class="ops-card-head">
+                <div>
+                  <p class="message-label">抓取阶段面板</p>
+                  <strong id="crawl-stage-title">等待开始抓取</strong>
+                </div>
+                <div class="ops-chip-row">
+                  <span id="crawl-stage-status" class="mini-status idle">待机</span>
+                  <span id="crawl-stage-progress" class="ops-chip">阶段 1/10</span>
+                </div>
+              </div>
+              <div class="stage-progress-bar" id="crawl-stage-bar">
+                <div id="crawl-stage-bar-fill" class="stage-progress-bar-fill"></div>
+              </div>
+              <p id="crawl-stage-description" class="ops-description">加载配置并初始化本次抓取运行环境。</p>
+              <p id="crawl-stage-message" class="ops-summary">等待开始抓取。</p>
+              <div class="ops-metric-grid">
+                <div class="ops-metric">
+                  <span>当前页</span>
+                  <strong id="stat-page">0</strong>
+                </div>
+                <div class="ops-metric">
+                  <span>已入队</span>
+                  <strong id="stat-queued">0</strong>
+                </div>
+                <div class="ops-metric">
+                  <span>已尝试</span>
+                  <strong id="stat-attempted">0</strong>
+                </div>
+                <div class="ops-metric">
+                  <span>已完成</span>
+                  <strong id="stat-completed">0</strong>
+                </div>
+              </div>
+              <div class="ops-path-block">
+                <span class="ops-path-label">当前输出目录</span>
+                <p id="crawl-stage-output" class="ops-path">尚未生成</p>
+              </div>
+            </article>
+
+            <article class="ops-card">
+              <div class="ops-card-head">
+                <div>
+                  <p class="message-label">结果入口面板</p>
+                  <strong>抓取产物与复盘入口</strong>
+                </div>
+                <span id="crawl-result-quality" class="mini-status idle">尚未生成复盘</span>
+              </div>
+              <p id="crawl-result-summary" class="ops-summary">等待抓取完成后生成复盘摘要。</p>
+              <div class="result-history-header">
+                <p class="result-history-hint">默认展示最近 2 次，剩余历史记录可用滚轮下拉查看。</p>
+                <button id="crawl-clear-history" class="ghost-button ghost-button-danger" type="button" style="font-size:12px;padding:4px 12px;">删除历史记录</button>
+              </div>
+              <div id="crawl-result-history" class="result-history-list"></div>
+              <div class="result-path-list">
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>输出目录</span>
+                    <p id="crawl-result-output" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-output" class="inline-button" type="button" disabled>打开</button>
+                </div>
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>filmData.json</span>
+                    <p id="crawl-result-film-data" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-film-data" class="inline-button" type="button" disabled>打开</button>
+                </div>
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>磁力文档</span>
+                    <p id="crawl-result-magnet" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-magnet" class="inline-button" type="button" disabled>打开</button>
+                </div>
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>日志目录</span>
+                    <p id="crawl-result-log-dir" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-log-dir" class="inline-button" type="button" disabled>打开</button>
+                </div>
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>latest-log.txt</span>
+                    <p id="crawl-result-latest-log" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-latest-log" class="inline-button" type="button" disabled>打开</button>
+                </div>
+                <div class="result-path-row">
+                  <div class="result-path-copy">
+                    <span>复盘报告</span>
+                    <p id="crawl-result-report" class="ops-path">尚未生成</p>
+                  </div>
+                  <button id="crawl-result-open-report" class="inline-button" type="button" disabled>打开</button>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <!-- 状态说明：待抓取 / 已抓取 / 未抓取（整合至链路总览内） -->
+          <section class="state-section">
+            <div class="state-section-header">
+              <span>状态说明</span>
+            </div>
+            <!-- 实时状态消息：由 stateController.setStatus 写入 -->
+            <p id="state-message" style="margin:0 0 14px;color:#9eb4cb;font-size:13px;line-height:1.6">等待开始抓取。</p>
+            <div class="state-grid">
+              <div id="unfinished-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.unfinishedLabel">待抓取</span>
+                  <span id="unfinished-total" class="state-card-count">0</span>
+                </div>
+                <div id="unfinished-items" class="state-card-body">
+                  <span class="state-chip chip-pending">ABP-123</span>
+                  <span class="state-chip chip-pending">SSIS-456</span>
+                </div>
+              </div>
+              <div id="current-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.currentLabel">已抓取</span>
+                  <span id="current-total" class="state-card-count" style="background:rgba(52,211,153,0.12);color:var(--accent-success);">0</span>
+                </div>
+                <div id="current-items" class="state-card-body">
+                  <span class="state-chip chip-done">IPX-789</span>
+                </div>
+              </div>
+              <div id="failed-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.failedLabel">未抓取说明</span>
+                  <span id="failed-total" class="state-card-count" style="background:rgba(255,110,157,0.12);color:var(--accent-danger);">0</span>
+                </div>
+                <div id="failed-items" class="state-card-body">
+                  <span class="state-chip chip-missing">MIAA-001</span>
+                </div>
+              </div>
+              <div id="filtered-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.filteredLabel">过滤影片番号</span>
+                  <span id="filtered-total" class="state-card-count" style="background:rgba(125,211,252,0.12);color:#bae6fd;">0</span>
+                </div>
+                <div id="filtered-items" class="state-card-body">
+                  <span class="state-chip chip-filtered">暂无过滤影片番号</span>
+                </div>
+              </div>
+              <div id="completed-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.completedLabel">已完成番号</span>
+                  <span id="completed-total" class="state-card-count" style="background:rgba(52,211,153,0.12);color:var(--accent-success);">0</span>
+                </div>
+                <div id="completed-items" class="state-card-body">
+                  <span class="state-chip chip-done">暂无已完成番号</span>
+                </div>
+              </div>
+            </div>
+            <!-- 隐藏容器：供stateController写入重复/分页缺口数据 -->
+            <div id="duplicate-box" class="task-box hidden">
+              <p class="message-label message-label-row">
+                <span data-ui-text="state.duplicateLabel"></span>
+                <span id="duplicate-total" class="message-count">0</span>
+              </p>
+              <div id="duplicate-items" class="item-grid"></div>
+            </div>
+            <div id="page-gap-box" class="page-gap-box hidden">
+              <p class="message-label" data-ui-text="state.pageGapLabel"></p>
+              <div id="page-gap-items" class="item-grid"></div>
+            </div>
+          </section>
+
+        </div>
+        <!-- /全宽主干区 -->
+
+        <section class="ranking-card">
+          <div class="ranking-head">
+            <div>
+              <p class="message-label" data-ui-text="ranking.label"></p>
+              <h3 data-ui-text="ranking.title"></h3>
+            </div>
+            <button id="refresh-ranking" class="ghost-button" type="button" data-ui-text="ranking.refreshButton"></button>
+          </div>
+
+          <div class="ranking-controls">
+            <label class="field compact-field">
+              <span data-ui-text="ranking.channelLabel"></span>
+              <select id="ranking-source-channel"></select>
+            </label>
+
+            <label class="field compact-field">
+              <span data-ui-text="ranking.modeLabel"></span>
+              <select id="ranking-mode"></select>
+            </label>
+
+            <label id="ranking-year-field" class="field compact-field hidden">
+              <span data-ui-text="ranking.yearLabel"></span>
+              <select id="ranking-year"></select>
+            </label>
+
+            <label id="ranking-month-field" class="field compact-field hidden">
+              <span data-ui-text="ranking.monthLabel"></span>
+              <select id="ranking-month"></select>
+            </label>
+          </div>
+
+          <p id="ranking-help" class="ranking-help" data-ui-text="ranking.monthHelp"></p>
+          <p id="ranking-channel-tip" class="ranking-note" data-ui-text="ranking.officialProxyTip"></p>
+          <div id="ranking-meta" class="ranking-meta"></div>
+          <div id="ranking-source" class="ranking-source hidden">
+            <span id="ranking-source-text"></span>
+            <button id="open-ranking-source" class="inline-button" type="button" data-ui-text="ranking.openSource"></button>
+          </div>
+          <section class="ranking-cache-panel">
+            <div class="ranking-cache-head">
+              <div>
+                <p class="message-label">内部缓存管理</p>
+                <strong>最近爬取快照</strong>
+              </div>
+              <button id="crawl-cache-refresh" class="ghost-button" type="button">刷新</button>
+            </div>
+            <label class="field compact-field">
+              <span>缓存选择</span>
+              <select id="crawl-cache-select">
+                <option value="">请选择缓存快照</option>
+              </select>
+            </label>
+            <p id="crawl-cache-summary" class="ranking-meta">当前没有内部缓存快照。</p>
+            <div class="actions" style="margin-top:0;">
+              <button id="crawl-cache-remove" class="ghost-button" type="button">清除所选缓存</button>
+              <button id="crawl-cache-clear" class="danger-button" type="button">清空全部缓存</button>
+            </div>
+          </section>
+          <div id="ranking-view" class="ranking-view"></div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker" data-ui-text="panels.logKicker"></p>
+              <h2 data-ui-text="panels.logTitle"></h2>
+            </div>
+            <div class="log-panel-actions">
+              <button id="open-log-output" class="ghost-button" type="button">打开输出目录</button>
+              <button id="open-log-magnet" class="ghost-button" type="button">打开磁力文档</button>
+              <button id="open-log-folder" class="ghost-button" type="button" data-ui-text="actions.openLogFolder"></button>
+            </div>
+          </div>
+          <p id="log-file-path" class="log-file-path"></p>
+          <div id="log-view" class="log-view"></div>
+        </section>
+      </main>
+</section>

@@ -1,0 +1,639 @@
+/*
+  ============================================================
+  panels.css - 面板组件与模块样式
+  ============================================================
+  关键规则:
+    .crawl-ops-grid    - 抓取阶段+结果入口面板 (grid-column:1/-1 全宽)
+    .state-section     - 状态说明(待抓取/已抓取/未抓取) (grid-column:1/-1 全宽)
+    .state-grid        - 3列状态卡片布局
+    .ranking-card      - 女优排行榜 (grid-column:2 右侧栏)
+    .ops-card          - 操作面板卡片(抓取阶段/结果入口)
+*/
+
+.stat-card {
+  padding: 18px;
+}
+
+.stat-card span,
+.message-label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stat-card strong {
+  font-size: 34px;
+}
+
+.message-box {
+  margin-top: 16px;
+  padding: 20px;
+}
+
+.message-box p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.current-box,
+.task-box,
+.page-gap-box,
+.failed-box {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+.item-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 6px;
+  align-content: flex-start;
+}
+
+.item-grid-tall {
+  max-height: 210px;
+}
+
+.current-chip,
+.duplicate-chip,
+.unfinished-chip,
+.page-gap-chip,
+.task-empty-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.current-chip {
+  background: rgba(86, 224, 255, 0.14);
+  color: #b9f6ff;
+}
+
+.unfinished-chip {
+  background: rgba(255, 110, 157, 0.16);
+  color: #ffd2e4;
+}
+
+.duplicate-chip {
+  background: rgba(186, 128, 255, 0.18);
+  color: #ecd7ff;
+}
+
+.page-gap-chip {
+  background: rgba(255, 178, 107, 0.18);
+  color: #ffe3c4;
+}
+
+.task-empty-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.failed-items {
+  display: grid;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.failed-card,
+.failed-summary {
+  border-radius: 18px;
+}
+
+.failed-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(255, 125, 119, 0.16);
+  background: linear-gradient(145deg, rgba(255, 125, 119, 0.08), rgba(255, 255, 255, 0.04));
+}
+
+.failed-card strong {
+  color: #fff0f2;
+  line-height: 1.4;
+}
+
+.failed-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.failed-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.failed-next-retry {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.failed-summary {
+  padding: 10px 12px;
+  background: rgba(255, 125, 119, 0.12);
+  color: #ffd9dd;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.crawl-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+  grid-column: 1 / -1;
+}
+
+.ops-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    rgba(7, 15, 27, 0.58);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+
+.ops-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-card-head strong {
+  display: block;
+  color: #f6fbff;
+  line-height: 1.5;
+}
+
+.ops-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mini-status,
+.ops-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mini-status {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.mini-status.idle {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.mini-status.starting,
+.mini-status.running {
+  background: rgba(86, 224, 255, 0.16);
+  color: #b9f6ff;
+}
+
+.mini-status.completed {
+  background: rgba(101, 214, 173, 0.18);
+  color: #d9fff0;
+}
+
+.mini-status.stopping,
+.mini-status.incomplete {
+  background: rgba(255, 178, 107, 0.18);
+  color: #ffe3c4;
+}
+
+.mini-status.error,
+.mini-status.stopped {
+  background: rgba(255, 110, 157, 0.16);
+  color: #ffd2e4;
+}
+
+.ops-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef6ff;
+}
+
+.ops-description,
+.ops-summary {
+  margin: 0;
+  color: #eef6ff;
+  line-height: 1.7;
+}
+
+.ops-description {
+  color: #d6e4f1;
+}
+
+.ops-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ops-metric {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ops-metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ops-metric strong {
+  color: #ffffff;
+  font-size: 20px;
+}
+
+.ops-path-block {
+  display: grid;
+  gap: 6px;
+}
+
+.ops-path-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-path {
+  margin: 0;
+  color: #f4f8ff;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.result-path-list {
+  display: grid;
+  gap: 10px;
+}
+
+.result-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.result-path-copy {
+  min-width: 0;
+}
+
+.result-path-copy span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hidden {
+  display: none;
+}
+
+.crawl-ops-panel {
+  grid-column: 1 / -1;
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  border-color: rgba(86, 224, 255, 0.24);
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(86, 224, 255, 0.16), transparent 42%),
+    radial-gradient(120% 140% at 100% 100%, rgba(255, 76, 134, 0.12), transparent 44%),
+    rgba(8, 14, 28, 0.78);
+}
+
+.crawl-ops-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%);
+}
+
+.crawl-ops-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.crawl-ops-grid {
+  align-items: stretch;
+}
+
+.ops-card {
+  min-height: 100%;
+}
+
+.ops-progress-track {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.ops-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(86, 224, 255, 0.95), rgba(255, 76, 134, 0.92)),
+    rgba(86, 224, 255, 0.6);
+  box-shadow: 0 0 22px rgba(86, 224, 255, 0.32);
+  transition: width 0.25s ease;
+}
+
+.stage-ops-card {
+  background:
+    linear-gradient(145deg, rgba(86, 224, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(7, 15, 27, 0.64);
+}
+
+.result-ops-card {
+  background:
+    linear-gradient(145deg, rgba(255, 76, 134, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(7, 15, 27, 0.64);
+}
+
+.result-history-hint {
+  margin: -2px 0 0;
+  color: #9eb4cb;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.result-history-list {
+  display: grid;
+  gap: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 6px;
+  align-content: start;
+}
+
+.result-history-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03)),
+    rgba(9, 17, 33, 0.72);
+}
+
+.result-history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.result-history-head strong {
+  display: block;
+  color: #f8fbff;
+  line-height: 1.45;
+}
+
+.result-history-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.icon-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 110, 157, 0.2);
+  border-radius: 50%;
+  background: rgba(255, 110, 157, 0.08);
+  color: rgba(255, 110, 157, 0.65);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-delete-button:hover {
+  background: rgba(255, 110, 157, 0.2);
+  color: rgba(255, 110, 157, 0.95);
+  border-color: rgba(255, 110, 157, 0.4);
+  transform: scale(1.1);
+}
+
+.result-history-meta {
+  margin: 6px 0 0;
+  color: #95acc5;
+  font-size: 12px;
+}
+
+.result-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.result-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.result-history-copy {
+  min-width: 0;
+}
+
+.result-history-copy span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.result-history-empty {
+  margin: 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.result-path-list {
+  display: none;
+}
+
+/* ============================================================
+   状态说明 - 整合到链路总览板块内（位于抓取阶段下方）
+   ============================================================ */
+.state-section {
+  margin-top: 22px;
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+}
+
+/* 视觉桥接 - 分隔线 */
+.state-section::before {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 2px;
+  margin-bottom: 18px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, rgba(86, 224, 255, 0.3), rgba(139, 123, 255, 0.3), rgba(86, 224, 255, 0.3), transparent);
+}
+
+/* 副标题 */
+.state-section-header {
+  margin-bottom: 14px;
+}
+
+.state-section-header span {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(86, 224, 255, 0.08);
+  border: 1px solid rgba(86, 224, 255, 0.14);
+  color: var(--accent-cyan);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.state-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1400px) {
+  .state-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .state-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.state-card {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.state-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-violet));
+  opacity: 0.6;
+}
+
+.state-card:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.state-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.state-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.state-card-count {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(86, 224, 255, 0.12);
+  color: var(--accent-cyan);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.state-card-body {
+  max-height: 120px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 2px;
+  animation: chipIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chipIn {
+  from { opacity: 0; transform: scale(0.8) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.chip-pending { background: rgba(255, 178, 107, 0.14); color: #ffe3c4; }
+.chip-done { background: rgba(52, 211, 153, 0.14); color: #a7f3d0; }
+.chip-missing { background: rgba(255, 110, 157, 0.14); color: #ffd2e4; }
+.chip-filtered { background: rgba(125, 211, 252, 0.14); color: #d7f3ff; }

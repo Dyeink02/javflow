@@ -1,0 +1,19 @@
+:root {
+  --bg: #060814;
+  --panel: rgba(10, 15, 31, 0.64);
+  --panel-strong: rgba(13, 19, 39, 0.82);
+  --panel-soft: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f8f5ff;
+  --muted: #c1bdd3;
+  --muted-soft: rgba(232, 227, 255, 0.74);
+  --accent: #ff6e9d;
+  --accent-strong: #ff4c86;
+  --accent-warm: #ffb26b;
+  --accent-cyan: #56e0ff;
+  --accent-violet: #8b7bff;
+  --accent-success: #55d5a3;
+  --accent-danger: #ff7d77;
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.38);
+  --page-backdrop-image: url('../assets/yua-mikami-bg.jpg');
+}

@@ -1,0 +1,66 @@
+.log-view {
+  height: 380px;
+  overflow: auto;
+  border-radius: 24px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top right, rgba(86, 224, 255, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(5, 9, 18, 0.98), rgba(9, 11, 24, 0.96));
+  color: #eef6ff;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.log-line {
+  margin-bottom: 10px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-line.info {
+  color: #d7f4ff;
+}
+
+.log-line.warn {
+  color: #ffe0aa;
+}
+
+.log-line.error {
+  color: #ffb5c2;
+}
+
+.hero-note-scroll::-webkit-scrollbar,
+.item-grid::-webkit-scrollbar,
+.failed-items::-webkit-scrollbar,
+.ranking-view::-webkit-scrollbar,
+.log-view::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.hero-note-scroll::-webkit-scrollbar-track,
+.item-grid::-webkit-scrollbar-track,
+.failed-items::-webkit-scrollbar-track,
+.ranking-view::-webkit-scrollbar-track,
+.log-view::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+}
+
+.hero-note-scroll::-webkit-scrollbar-thumb,
+.item-grid::-webkit-scrollbar-thumb,
+.failed-items::-webkit-scrollbar-thumb,
+.ranking-view::-webkit-scrollbar-thumb,
+.log-view::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  border: 2px solid rgba(7, 11, 23, 0.72);
+}
+
+.log-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}

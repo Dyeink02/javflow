@@ -1,0 +1,279 @@
+/* ============================================================
+   librarymetadata.css - 媒体库刮削板块专用样式
+   ============================================================ */
+
+.librarymetadata-priority-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  color: var(--muted-soft);
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.librarymetadata-priority-list li::marker {
+  color: var(--accent-cyan);
+}
+
+.librarymetadata-results-filter {
+  min-width: 160px;
+}
+
+.librarymetadata-results-filter select {
+  padding: 11px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+}
+
+.librarymetadata-table-wrap {
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 520px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.librarymetadata-list-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.librarymetadata-scope-toggle {
+  min-width: 132px;
+}
+
+.librarymetadata-scope-toggle.active {
+  border-color: rgba(52, 211, 153, 0.42);
+  background: rgba(52, 211, 153, 0.12);
+  color: #a7f3d0;
+}
+
+.librarymetadata-table-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.librarymetadata-table-wrap::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+
+.librarymetadata-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.librarymetadata-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.librarymetadata-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.librarymetadata-table thead {
+  position: relative;
+  z-index: 3;
+}
+
+.librarymetadata-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #1b2030;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.14), 0 4px 10px rgba(0, 0, 0, 0.28);
+}
+
+.librarymetadata-table th,
+.librarymetadata-table td {
+  padding: 14px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.librarymetadata-table th {
+  color: var(--muted);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.librarymetadata-table td {
+  color: var(--text);
+}
+
+.librarymetadata-table .col-select {
+  width: 54px;
+}
+
+.librarymetadata-table .col-light {
+  width: 52px;
+}
+
+.librarymetadata-table .col-code {
+  width: 100px;
+}
+
+.librarymetadata-table .col-title {
+  width: auto;
+}
+
+.librarymetadata-table .col-match {
+  width: 98px;
+}
+
+.librarymetadata-table .col-status {
+  width: 92px;
+}
+
+.librarymetadata-table .col-flag {
+  width: 58px;
+}
+
+.librarymetadata-title-cell {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-count-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.artifact-count-badge.loading {
+  color: #d7f3ff;
+  border-color: rgba(125, 211, 252, 0.32);
+}
+
+.artifact-count-badge.ready {
+  color: #9ff5cd;
+  border-color: rgba(52, 211, 153, 0.34);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.artifact-count-badge.error {
+  color: #ffd2e4;
+  border-color: rgba(255, 110, 157, 0.38);
+  background: rgba(255, 110, 157, 0.1);
+}
+
+.librarymetadata-auto-subscribe-field {
+  align-content: start;
+}
+
+.librarymetadata-auto-subscribe-control {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.librarymetadata-auto-subscribe-control input {
+  flex: 0 0 auto;
+}
+
+.librarymetadata-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.librarymetadata-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.librarymetadata-empty-row td {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px 14px;
+}
+
+.librarymetadata-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.librarymetadata-status-complete {
+  background: rgba(52, 211, 153, 0.14);
+  color: #a7f3d0;
+}
+
+.librarymetadata-status-missing-nfo,
+.librarymetadata-status-missing-poster,
+.librarymetadata-status-missing-backdrop {
+  background: rgba(255, 178, 107, 0.14);
+  color: #ffe3c4;
+}
+
+.librarymetadata-status-pending,
+.librarymetadata-status-needs-recrawl {
+  background: rgba(125, 211, 252, 0.14);
+  color: #d7f3ff;
+}
+
+.librarymetadata-status-unrecognized {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.librarymetadata-status-failed {
+  background: rgba(255, 110, 157, 0.14);
+  color: #ffd2e4;
+}
+
+.librarymetadata-yes,
+.librarymetadata-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.librarymetadata-yes {
+  background: rgba(52, 211, 153, 0.16);
+  color: #a7f3d0;
+}
+
+.librarymetadata-no {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+/* 紧凑布局：配置面板与影片清单并排显示，日志仍占全宽 */
+.librarymetadata-layout.compact-layout .full-width-panel {
+  grid-column: auto;
+}

@@ -1,0 +1,264 @@
+<!--
+  partials/subscription-body.html - AV订阅板块主体区域
+  当前结构按维护优先级重组：
+  - 顶部：标题区
+  - 左列：订阅列表 / AV爬取 / 日志
+  - 右列：订阅来源与基线建立 / 当前选中项与预载项
+-->
+
+<main class="layout subscription-layout">
+  <section class="panel subscription-title-panel">
+    <div class="panel-head">
+      <div>
+          <p class="panel-kicker">AV 订阅</p>
+          <h2>女优订阅与更新追踪</h2>
+          <p class="subscription-sort-tip">先建立基线，再检测更新，最后只抓新增番号。</p>
+        </div>
+      </div>
+    <div class="message-box subscription-message-box subscription-title-box">
+      <p id="subscription-summary-message">等待检测订阅更新。</p>
+    </div>
+  </section>
+
+  <section class="subscription-main-stack">
+    <section class="panel subscription-master-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">我的订阅</p>
+          <h2>AV 女优订阅列表</h2>
+          <p class="subscription-sort-tip">拖拽卡片或使用上下按钮调整顺序；排序会自动保存。</p>
+        </div>
+        <div class="subscription-master-head-side">
+          <div class="subscription-mini-stats">
+            <article class="subscription-mini-stat">
+              <span>总数</span>
+              <strong id="subscription-stat-total">0</strong>
+            </article>
+            <article class="subscription-mini-stat">
+              <span>待更新</span>
+              <strong id="subscription-stat-updated">0</strong>
+            </article>
+            <article class="subscription-mini-stat">
+              <span>已检查</span>
+              <strong id="subscription-stat-checked">0</strong>
+            </article>
+          </div>
+          <div class="subscription-top-actions">
+            <button id="subscription-batch-crawl" class="primary-button subscription-batch-crawl-button" type="button">&#19968;&#38190;&#20840;&#37096;&#26356;&#26032;</button>
+            <button id="subscription-detect-all" class="secondary-button subscription-top-refresh-button" type="button">检测全部订阅</button>
+            <button id="subscription-refresh" class="secondary-button subscription-top-refresh-button" type="button">检测更新</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="subscription-list" class="subscription-list subscription-master-list"></div>
+    </section>
+
+    <section class="panel subscription-crawler-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">AV 爬取</p>
+          <h2>AV 爬取</h2>
+          <p class="subscription-sort-tip">更新抓取会桥接订阅基线，只抓新增番号，默认输出到软件目录内的 AV订阅 文件夹。</p>
+        </div>
+        <div class="subscription-crawler-status">
+          <span>状态</span>
+          <strong id="subscription-crawler-status">待启动</strong>
+        </div>
+      </div>
+      <div class="grid subscription-crawler-grid">
+        <label class="field span-2">
+          <span>爬取地址</span>
+          <input id="subscription-crawler-url" type="text" placeholder="例如：https://www.javbus.com/star/okq" />
+        </label>
+
+        <label class="field">
+          <span>爬取数量</span>
+          <input id="subscription-crawler-count" type="number" min="1" step="1" />
+        </label>
+
+        <label class="field">
+          <span>女优名称</span>
+          <input id="subscription-crawler-actress-name" type="text" placeholder="例如：三上悠亚" />
+        </label>
+
+        <label class="field">
+          <span>并行量</span>
+          <input id="subscription-crawler-parallel" type="number" min="1" step="1" value="2" />
+        </label>
+
+        <label class="field">
+          <span>请求延迟（秒）</span>
+          <input id="subscription-crawler-delay" type="number" min="0" step="1" value="2" />
+        </label>
+
+        <label class="field">
+          <span>超时时间（毫秒）</span>
+          <input id="subscription-crawler-timeout" type="number" min="1000" step="1000" value="30000" />
+        </label>
+
+        <label class="field span-2">
+          <span>代理地址</span>
+          <input id="subscription-crawler-proxy" type="text" placeholder="例如：http://127.0.0.1:7897" />
+          <div class="field-inline-status">
+            <span id="subscription-proxy-status" class="proxy-status-chip empty">未检测</span>
+          </div>
+          <small id="subscription-proxy-status-detail">订阅抓取默认使用 127.0.0.1:7897，可手动修改。</small>
+        </label>
+
+        <label class="toggle-line subscription-runtime-toggle">
+          <input id="subscription-crawler-cloudflare" type="checkbox" checked />
+          <span>
+            <strong>Cloudflare 兼容</strong>
+            <small>复用 JAV 爬虫的 Cloudflare / 年龄检测兼容链路。</small>
+          </span>
+        </label>
+      </div>
+      <p class="subscription-runtime-note">输出目录已改为系统默认路径，无需手动选择。</p>
+
+      <div class="actions subscription-crawler-toolbar">
+        <button id="subscription-update-antiblock" class="secondary-button" type="button">更新反屏蔽</button>
+        <button id="subscription-start-crawl" class="primary-button" type="button">开始更新</button>
+        <button id="subscription-stop-crawl" class="secondary-button" type="button">停止</button>
+        <button id="subscription-open-output" class="ghost-button" type="button">打开磁力文件</button>
+        <button id="subscription-open-folder" class="ghost-button" type="button">打开文件位置</button>
+      </div>
+    </section>
+
+    <section class="panel subscription-log-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">订阅日志</p>
+          <h2>执行记录</h2>
+        </div>
+      </div>
+      <div id="subscription-log-view" class="log-view"></div>
+    </section>
+  </section>
+
+  <aside class="subscription-side-stack">
+    <section class="panel subscription-actions-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">订阅来源</p>
+          <h2>新增订阅</h2>
+          <p class="subscription-sort-tip">可从最近爬取结果、JSON 快照或手动填写演员信息建立订阅。</p>
+        </div>
+      </div>
+
+      <div class="grid subscription-form-grid">
+        <label class="field span-2">
+          <span>订阅快照或抓取结果输入</span>
+          <div class="path-row">
+            <input id="subscription-output" type="text" placeholder="请选择 crawl-profile.json、filmData.json 或抓取结果目录" />
+            <button id="subscription-browse-output" class="inline-button" type="button">浏览</button>
+          </div>
+        </label>
+
+        <label class="field span-2">
+          <span>最近爬取选择</span>
+          <select id="subscription-recent-crawl-select">
+            <option value="">请选择最近抓取记录</option>
+          </select>
+          <small>显示最近用户抓取过的女优名称，便于快速回填订阅输入。</small>
+        </label>
+
+        <div class="organizer-inline-actions subscription-inline-actions span-2">
+          <button id="subscription-use-recent-crawl" class="ghost-button" type="button">载入最近爬取</button>
+          <button id="subscription-use-latest-output" class="ghost-button" type="button">回填最近结果</button>
+          <button id="subscription-scan-output" class="ghost-button" type="button">扫描生成订阅</button>
+        </div>
+
+        <label class="field span-2">
+          <span>女优名称</span>
+          <input id="subscription-actress-name" type="text" placeholder="例如：三上悠亚" />
+        </label>
+
+        <label class="field span-2">
+          <span>女优地址</span>
+          <input id="subscription-target-url" type="text" placeholder="例如：https://www.javbus.com/star/okq" />
+        </label>
+
+        <label class="field">
+          <span>当前总量</span>
+          <input id="subscription-synced-count" type="number" min="0" step="1" />
+        </label>
+
+        <label class="field">
+          <span>每页条数</span>
+          <input id="subscription-items-per-page" type="number" min="1" step="1" value="30" />
+        </label>
+
+        <label class="field">
+          <span>总页数</span>
+          <input id="subscription-total-pages" type="number" min="1" step="1" value="1" />
+        </label>
+      </div>
+
+      <div class="actions subscription-actions-toolbar">
+        <button id="subscription-add" class="primary-button" type="button">保存订阅</button>
+        <button id="subscription-create-manual" class="primary-button" type="button">手动新建</button>
+        <button id="subscription-clear-form" class="ghost-button" type="button">清空输入</button>
+        <button id="subscription-clear-all" class="danger-button" type="button">清空订阅</button>
+      </div>
+    </section>
+
+    <section class="panel subscription-detail-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">预载与详情</p>
+          <h2>当前选中项 / 当前预载项</h2>
+        </div>
+      </div>
+      <div id="subscription-detail-empty" class="subscription-empty">当前未选中任何订阅。</div>
+      <div id="subscription-detail-card" class="detail-card hidden"></div>
+    </section>
+
+    <section class="panel subscription-overview-panel">
+      <div class="panel-head">
+        <div>
+          <p class="panel-kicker">订阅统计</p>
+          <h2>更新总览</h2>
+        </div>
+      </div>
+      <div class="stat-grid organizer-stat-grid subscription-overview-grid">
+        <article class="stat-card">
+          <span>订阅总数</span>
+          <strong id="subscription-stat-total-side">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>有更新女优</span>
+          <strong id="subscription-stat-updated-side">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>待抓新增</span>
+          <strong id="subscription-stat-pending">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>已检查订阅</span>
+          <strong id="subscription-stat-checked-side">0</strong>
+        </article>
+      </div>
+    </section>
+  </aside>
+</main>
+<dialog id="subscription-batch-dialog" class="subscription-batch-dialog">
+  <form method="dialog" class="subscription-batch-dialog-body">
+    <div class="panel-head">
+      <div>
+        <p class="panel-kicker">AV &#35746;&#38405;</p>
+        <h2>&#19968;&#38190;&#20840;&#37096;&#26356;&#26032;</h2>
+      </div>
+    </div>
+    <label class="field">
+      <span>&#21516;&#26102;&#26356;&#26032;&#28436;&#21592;&#25968;</span>
+      <input id="subscription-batch-concurrency" type="number" min="1" max="3" step="1" value="2" />
+      <small>&#25512;&#33616; 2&#65292;&#21487;&#35774;&#32622; 1-3&#12290;&#25968;&#20540;&#36234;&#22823;&#65292;&#31449;&#28857;&#38480;&#21046;&#39118;&#38505;&#36234;&#39640;&#12290;</small>
+    </label>
+    <div class="actions subscription-batch-dialog-actions">
+      <button id="subscription-batch-cancel" class="secondary-button" type="button">&#21462;&#28040;</button>
+      <button id="subscription-batch-confirm" class="primary-button" type="button">&#24320;&#22987;&#26356;&#26032;</button>
+    </div>
+  </form>
+</dialog>
+</section>

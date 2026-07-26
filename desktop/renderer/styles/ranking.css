@@ -1,0 +1,228 @@
+.ranking-card {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  min-width: 0;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(8, 13, 29, 0.52);
+  container-type: inline-size;
+}
+
+.ranking-head,
+.ranking-source {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ranking-head > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ranking-head h3 {
+  overflow-wrap: anywhere;
+}
+
+.ranking-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+  min-width: 0;
+}
+
+.ranking-controls .field span {
+  white-space: nowrap;
+}
+
+.ranking-controls .field,
+.ranking-controls .compact-field,
+.ranking-controls select,
+.ranking-controls option {
+  min-width: 0;
+}
+
+.ranking-controls select {
+  padding: 13px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+}
+
+.ranking-help,
+.ranking-meta,
+.ranking-source {
+  margin: 0;
+  color: var(--muted-soft);
+  line-height: 1.6;
+}
+
+.ranking-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 170, 124, 0.14);
+  background: rgba(255, 170, 124, 0.08);
+  color: var(--muted-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ranking-meta {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.ranking-source {
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.ranking-source span {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+}
+
+.ranking-head .ghost-button,
+.ranking-source .inline-button {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.ranking-source span:hover {
+  color: var(--accent-cyan);
+  text-decoration-color: rgba(86, 224, 255, 0.45);
+}
+
+.ranking-view {
+  display: grid;
+  gap: 10px;
+  max-height: 620px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.ranking-cache-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ranking-cache-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ranking-item,
+.ranking-empty {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ranking-empty {
+  grid-template-columns: 1fr;
+}
+
+.ranking-rank {
+  display: inline-flex;
+  min-width: 54px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 10px;
+  border-radius: 999px;
+  background: rgba(86, 224, 255, 0.12);
+  color: var(--accent-cyan);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.ranking-info {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.ranking-name-link,
+.ranking-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.ranking-name-link {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.ranking-name-link:hover,
+.ranking-link:hover {
+  color: var(--accent-cyan);
+  transform: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.ranking-link {
+  color: var(--muted-soft);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.18);
+  text-underline-offset: 3px;
+}
+
+@container (max-width: 640px) {
+  .ranking-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (min-width: 920px) {
+  .ranking-controls {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
