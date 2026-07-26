@@ -1,0 +1,78 @@
+{
+  "//": "Compatibility note: this package.json remains for Node-side build helpers and sidecar compatibility only. The main desktop app now lives in wails-shell/ (Wails + Go). Node dependencies are retained for compatibility and fallback paths, not as the primary application runtime.",
+  "name": "javflow",
+  "version": "0.4.0",
+  "type": "commonjs",
+  "description": "JavFlow - JAV media library automation workflow (Wails + Go desktop app)",
+  "dependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/tunnel": "^0.0.7",
+    "async": "^3.2.6",
+    "axios": "1.13.2",
+    "axios-retry": "^4.5.0",
+    "chalk": "^5.4.1",
+    "cheerio": "^1.1.2",
+    "cli-progress": "^3.12.0",
+    "commander": "12.1.0",
+    "magnet2torrent-js": "^1.4.0",
+    "puppeteer-core": "24.28.0",
+    "tunnel": "^0.0.6",
+    "winreg": "^1.2.5",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@types/async": "^3.2.25",
+    "@types/cheerio": "^0.22.35",
+    "@types/node": "^24.10.0",
+    "@types/puppeteer-core": "^5.4.0",
+    "@types/winreg": "^1.2.36",
+    "conventional-changelog-cli": "^4.1.0",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "husky": "^9.1.7",
+    "mocha": "^11.7.4",
+    "nodemon": "^3.1.10",
+    "rcedit": "^5.0.1",
+    "temp": "^0.9.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "bin": {
+    "javflow": "dist/jav.js"
+  },
+  "scripts": {
+    "test": "npm run build && mocha test/*.test.js",
+    "build": "npx tsc",
+    "check:encoding": "node scripts/check-encoding.js",
+    "verify:maintainability": "node scripts/verify-maintainability.js",
+    "inspect:utf8": "node scripts/inspect-utf8.js",
+    "build:desktop-frontend": "node scripts/bundle-css.js && node scripts/assemble-html.js && node scripts/bundle-js.js",
+    "sync:wails-frontend": "node scripts/sync-wails-frontend.js",
+    "wails:dev": "node scripts/run-wails-dev.js",
+    "wails:build": "node scripts/run-wails-build.js",
+    "phase1:build:exe": "node scripts/run-wails-build.js",
+    "phase1:dist:dual": "npm run phase1:build:exe && node scripts/build-wails-dual-packages.js",
+    "phase1:dist:go-lite": "npm run phase1:build:exe && node scripts/build-wails-go-lite.js",
+    "smoke:wails:phase1": "node scripts/smoke-wails-phase1.js",
+    "smoke:wails:phase1:crawl": "node scripts/smoke-wails-phase1-crawl.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/javflow-team/javflow.git"
+  },
+  "keywords": [
+    "crawler",
+    "scrapy",
+    "jav",
+    "magnet",
+    "torrent",
+    "wails",
+    "go"
+  ],
+  "homepage": "https://github.com/javflow-team/javflow#readme",
+  "author": "javflow-team",
+  "bugs": {
+    "url": "https://github.com/javflow-team/javflow/issues"
+  }
+}
