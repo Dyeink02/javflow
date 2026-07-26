@@ -1,5 +1,9 @@
 # ✦ JavFlow
 
+<p align="center">
+  <img src="build/icon.png" alt="JavFlow 桌面图标" width="180">
+</p>
+
 > 🎯 **JavFlow 是一款 Windows 桌面工具，用来把 JAV 影片从资料抓取、视频整理、订阅追更，到 Emby / Jellyfin 媒体库刮削串成一条本地工作流。**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg)](https://github.com/Dyeink02/javflow) [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE) [![Desktop](https://img.shields.io/badge/desktop-Wails%20v2-1f6feb.svg)](https://wails.io/)
