@@ -4,7 +4,7 @@
 番号抓取 · 视频整理 · 女优订阅 · 媒体库刮削 · 演员头像自动缓存
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg)](https://github.com/javflow-team/javflow)
-[![GitHub Release](https://img.shields.io/github/v/release/javflow-team/javflow)](https://github.com/javflow-team/javflow/releases/latest)
+[![GitHub Release](https://img.shields.io/github/v/release/javflow-team/javflow)](https://github.com/Dyeink02/javflow/releases/tag/beta)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/javflow-team/javflow/blob/main/LICENSE)
 
 简体中文
@@ -35,27 +35,12 @@
 
 ---
 
-## 截图预览
-
-> 截图目录 `docs/screenshots/` 已预留。发布前请将界面截图放入该目录，再替换下方占位符。
-
-<!-- 占位符：添加截图后取消注释并填入实际路径
-| 爬虫工作区 | 视频整理工作区 |
-| --- | --- |
-| ![爬虫工作区](docs/screenshots/crawler-workspace.png) | ![视频整理工作区](docs/screenshots/organizer-workspace.png) |
-
-| 订阅工作区 | 媒体库刮削工作区 |
-| --- | --- |
-| ![订阅工作区](docs/screenshots/subscription-workspace.png) | ![媒体库刮削工作区](docs/screenshots/library-metadata-workspace.png) |
--->
-
----
 
 ## 安装
 
 ### 推荐方式：下载 EXE
 
-从 [GitHub Releases](https://github.com/javflow-team/javflow/releases/latest) 下载：
+从 [GitHub Releases](https://github.com/Dyeink02/javflow/releases/tag/beta) 下载：
 
 | 平台 | 文件 |
 | --- | --- |
