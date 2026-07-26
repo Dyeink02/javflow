@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location -LiteralPath $repoRoot
+. (Join-Path $repoRoot "github-auth.ps1")
 
 function Invoke-Git {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
@@ -131,5 +132,9 @@ if ($hasChanges) {
     Write-Host "No files to commit."
 }
 
+$isGitHubRemote = $RemoteUrl -match '(^|[/:])github\.com([/:]|$)'
+if ($isGitHubRemote) {
+    $null = Ensure-GitHubAuth
+}
 Invoke-Git push --set-upstream origin $branch
 Write-Host "Pushed: $RemoteUrl ($branch)"
