@@ -1,0 +1,29 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "javflow",
+  "outputfilename": "javflow",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "assetdir": "frontend/desktop/renderer",
+  "author": {
+    "name": "JavFlow"
+  },
+  "info": {
+    "companyName": "JavFlow",
+    "productName": "JavFlow",
+    "productVersion": "0.4.0",
+    "copyright": "Copyright © 2026 JavFlow Contributors",
+    "comments": "JavFlow - JAV media library automation workflow"
+  },
+  "windows": {
+    "icon": "../build/icon.ico",
+    "info": {
+      "companyName": "JavFlow",
+      "productName": "JavFlow",
+      "productVersion": "0.4.0",
+      "copyright": "Copyright © 2026 JavFlow Contributors"
+    }
+  }
+}
