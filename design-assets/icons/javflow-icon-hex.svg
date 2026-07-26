@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#0a0f1c"/>
+  <path d="M256 80 L416 172 V356 L256 448 L96 356 V172 Z" fill="none" stroke="url(#hexGrad)" stroke-width="32"/>
+  <text x="256" y="290" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="140" font-weight="800" fill="url(#hexGrad)">JF</text>
+  <path d="M160 340 L200 340 M312 340 L352 340" stroke="#06b6d4" stroke-width="8" stroke-linecap="round"/>
+</svg>

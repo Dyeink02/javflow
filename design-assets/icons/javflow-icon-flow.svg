@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2ff"/>
+      <stop offset="100%" stop-color="#ff00aa"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#0a0f1c"/>
+  <path d="M128 160 Q220 160 256 256 T384 352" fill="none" stroke="url(#flowGrad)" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="384" cy="352" r="28" fill="#00f2ff"/>
+  <text x="256" y="440" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="48" font-weight="700" fill="#e8f4f8">JavFlow</text>
+</svg>

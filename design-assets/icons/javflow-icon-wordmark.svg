@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 512" width="1024" height="512">
+  <defs>
+    <linearGradient id="wordGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00f2ff"/>
+      <stop offset="100%" stop-color="#ff00aa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="512" rx="96" fill="#0a0f1c"/>
+  <g transform="translate(128, 256)">
+    <path d="M0 -48 Q48 -48 64 0 T128 48" fill="none" stroke="url(#wordGrad)" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="128" cy="48" r="16" fill="#00f2ff"/>
+  </g>
+  <text x="560" y="300" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="160" font-weight="800" fill="#e8f4f8">Jav<tspan fill="url(#wordGrad)">Flow</tspan></text>
+</svg>
