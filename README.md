@@ -3,15 +3,9 @@
 **不需要 Docker、不需要命令列 — Windows 上一键安装的 JAV 媒体库自动化工作流工具。**
 番号抓取 · 视频整理 · 女优订阅 · 媒体库刮削 · 演员头像自动缓存
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6.svg)](https://github.com/javflow-team/javflow)
-[![GitHub Release](https://img.shields.io/github/v/release/javflow-team/javflow)](https://github.com/Dyeink02/javflow/releases/tag/beta)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/javflow-team/javflow/blob/main/LICENSE)
+> 本项目JavFlow 负责从抓片、整理、订阅新片到生成 Emby / Jellyfin 兼容的媒体库，把一整套重复劳动串成一条自动流水线。你按一次按钮，剩下的交给它。
 
-简体中文
-
-> **这不只是又一个「把资料喂给 Jellyfin 的刮削器」。** JavFlow 负责从抓片、整理、订阅新片到生成 Emby / Jellyfin 兼容的媒体库，把一整套重复劳动串成一条自动流水线。你按一次按钮，剩下的交给它。
-
-核心由四个工作区组成：**🕷 爬虫** → **📁 视频整理** → **📌 订阅** → **🎬 媒体库刮削**。
+核心由四个工作区组成：**🕷 JAV爬虫** → **📁 视频整理** → **📌 订阅** → **🎬 媒体库刮削**。
 
 **100% 本地运行** — 不收集数据、不上传任何文件信息，网络请求仅用于刮削公开元数据。
 
