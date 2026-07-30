@@ -30,29 +30,30 @@ import (
 // mutable summary. The phase files operate on this shared context so bugs can
 // be isolated by phase without re-threading a large parameter list.
 type organizerRunContext struct {
-	options              RunOptions
-	preloadedExpected    PreloadedExpectedCodes
-	normalizedRootPath   string
-	dryRun               bool
-	minSizeMB            int
-	minSizeBytes         int64
-	adFileAction         string
-	batchDelete          bool // 是否启用批量删除模式
-	deleteIntervalMs     int  // 删除间隔（毫秒）
-	organizeIntervalMs   int  // 整理间隔（毫秒）
-	adDetectionEnabled   bool
-	adModelType          string
-	adThreshold          int
-	videoExtensionSet    map[string]struct{}
-	videoExtensionsText  string
-	suffixStrategy       conflictSuffixStrategy
-	paths                Paths
-	logf                 func(string, string)
-	progressf            func(ProgressEntry)
-	codeSet              map[string]struct{}
-	tokenSet             map[string]struct{}
-	expectedCodeEntryMap map[string][]MagnetEntry
-	summary              Summary
+	options                RunOptions
+	preloadedExpected      PreloadedExpectedCodes
+	normalizedRootPath     string
+	dryRun                 bool
+	minSizeMB              int
+	minSizeBytes           int64
+	adFileAction           string
+	batchDelete            bool // 是否启用批量删除模式
+	deleteIntervalMs       int  // 删除间隔（毫秒）
+	organizeIntervalMs     int  // 整理间隔（毫秒）
+	adDetectionEnabled     bool
+	adModelType            string
+	adThreshold            int
+	videoExtensionSet      map[string]struct{}
+	videoExtensionsText    string
+	suffixStrategy         conflictSuffixStrategy
+	paths                  Paths
+	logf                   func(string, string)
+	progressf              func(ProgressEntry)
+	codeSet                map[string]struct{}
+	tokenSet               map[string]struct{}
+	expectedCodeAliasIndex expectedCodeAliasIndex
+	expectedCodeEntryMap   map[string][]MagnetEntry
+	summary                Summary
 }
 
 // scanPhaseResult is the pure classification output that later phases consume
@@ -148,6 +149,7 @@ func newOrganizerRunContext(service *Service, options RunOptions) (*organizerRun
 	ctx.videoExtensionsText = formatVideoExtensions(ctx.videoExtensionSet)
 
 	ctx.codeSet, ctx.tokenSet = buildExpectedCodeSets(preloadedExpected.Codes)
+	ctx.expectedCodeAliasIndex = buildExpectedCodeAliasIndex(preloadedExpected.CodeEntries)
 	ctx.expectedCodeEntryMap = buildExpectedCodeEntryMap(preloadedExpected.CodeEntries)
 	for code := range ctx.expectedCodeEntryMap {
 		ctx.codeSet[code] = struct{}{}
@@ -209,6 +211,11 @@ func (ctx *organizerRunContext) emitRunStart() {
 	if len(ctx.codeSet) > 0 {
 		ctx.logf("info", fmt.Sprintf("\u5df2\u52a0\u8f7d\u722c\u866b\u756a\u53f7\u540d\u5355\uff1a%d \u6761\uff0c\u4e25\u683c\u5339\u914d=%s", len(ctx.codeSet), map[bool]string{true: "\u662f", false: "\u5426"}[ctx.options.StrictExpectedCodes]))
 		ctx.logf("info", fmt.Sprintf("\u756a\u53f7\u540d\u5355\u6765\u6e90\uff1a%s", ctx.describeExpectedCodeSource()))
+		aliasCount := len(ctx.expectedCodeAliasIndex.canonicalByKey)
+		ambiguousAliasCount := len(ctx.expectedCodeAliasIndex.ambiguousKeys)
+		if aliasCount > 0 || ambiguousAliasCount > 0 {
+			ctx.logf("info", fmt.Sprintf("\u5df2\u52a0\u8f7d\u78c1\u529b\u756a\u53f7\u522b\u540d\uff1a%d \u6761\uff0c\u6b67\u4e49\u522b\u540d\uff1a%d \u6761", aliasCount, ambiguousAliasCount))
+		}
 	} else {
 		ctx.logf("warn", "\u672a\u52a0\u8f7d\u722c\u866b\u756a\u53f7\u540d\u5355\uff0c\u5c06\u56de\u9000\u4e3a\u4ec5\u6309\u6587\u4ef6\u540d\u63d0\u53d6\u756a\u53f7\u3002")
 	}

@@ -938,6 +938,62 @@
         let totalCount = sortedIndexes.length;
         const failureReasons = new Map();
         let activeAutoRetryRound = 0;
+        // A/B split files keep independent output paths, but share one metadata
+        // lookup. This avoids duplicate provider requests for the same base code.
+        const sharedResolveCache = new Map();
+        const sharedResolveInflight = new Map();
+
+        function buildResolveCacheKey(code, attempt) {
+          const firstAttempt = activeAutoRetryRound === 0 && attempt === 1;
+          return [
+            normalizeText(code).toUpperCase(),
+            firstAttempt ? normalizeText(provider).toLowerCase() : '',
+            firstAttempt ? 'auto' : 'online',
+            normalizeText(proxy).toLowerCase(),
+            normalizeText(crawlOutputDir).toLowerCase()
+          ].join('|');
+        }
+
+        async function resolveMetadataOnce(code, attempt) {
+          const key = buildResolveCacheKey(code, attempt);
+          if (sharedResolveCache.has(key)) {
+            appendLog('info', `复用 ${code} 的共享刮削结果，分集文件仍分别写入`);
+            return sharedResolveCache.get(key);
+          }
+
+          const inflight = sharedResolveInflight.get(key);
+          if (inflight) {
+            appendLog('info', `等待 ${code} 的共享刮削结果`);
+            return inflight;
+          }
+
+          const firstAttempt = activeAutoRetryRound === 0 && attempt === 1;
+          const promise = withTimeout(
+            desktopApi.resolveLibraryMetadata({
+              number: code,
+              provider: firstAttempt ? provider : '',
+              proxy: proxy,
+              crawlOutputDir: crawlOutputDir,
+              preferSource: firstAttempt ? 'auto' : 'online',
+              maxAttempts: 3,
+              jobId
+            }),
+            120000,
+            `解析 ${code} 超时`
+          )
+            .then((result) => {
+              if (result && !result.error && result.info) {
+                sharedResolveCache.set(key, result);
+              }
+              return result;
+            })
+            .finally(() => {
+              sharedResolveInflight.delete(key);
+            });
+
+          sharedResolveInflight.set(key, promise);
+          return promise;
+        }
 
       function updateProgressPill() {
         const current = processedCount;
@@ -1010,19 +1066,7 @@
           appendLog('info', `[${index + 1}/${state.results.length}] 第 ${attempt}/${maxRetries} 次解析：${code}`);
 
           try {
-            const resolveResult = await withTimeout(
-              desktopApi.resolveLibraryMetadata({
-                number: code,
-                provider: activeAutoRetryRound === 0 && attempt === 1 ? provider : '',
-                proxy: proxy,
-                crawlOutputDir: crawlOutputDir,
-                preferSource: activeAutoRetryRound === 0 && attempt === 1 ? 'auto' : 'online',
-                maxAttempts: 3,
-                jobId
-              }),
-              120000,
-              `解析 ${code} 超时`
-            );
+            const resolveResult = await resolveMetadataOnce(code, attempt);
 
             if (resolveResult && resolveResult.error) {
               lastError = resolveResult.error;

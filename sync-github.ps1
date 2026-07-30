@@ -27,8 +27,13 @@ if (-not $pat) {
 # Build authenticated remote URL only in memory; the real URL in .git/config stays clean.
 $remoteUrlWithToken = "https://${pat}@" + $RemoteUrl.Substring(8)
 
-# Common git options: pin GitHub URLs to themselves so local mirror configs cannot redirect them.
-$gitBaseArgs = @("-c", "url.https://github.com/.insteadOf=https://github.com/")
+# Common git options:
+# - pin GitHub URLs to themselves so local mirror configs cannot redirect them
+# - disable credential helper so only the PAT in the URL is used
+$gitBaseArgs = @(
+    "-c", "url.https://github.com/.insteadOf=https://github.com/"
+    "-c", "credential.helper="
+)
 
 function Invoke-ReqGit {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$PassArgs)

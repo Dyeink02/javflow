@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file scans a media library root and emits video entries for metadata scraping.
+//
+//	This file scans a media library root and emits video entries for metadata scraping.
 //
 // File map for maintainers:
-//   1) Video extension set and scan depth constants.
-//   2) Directory walking and progress reporting.
-//   3) Public scan entry point and result collection.
-//
+//  1. Video extension set and scan depth constants.
+//  2. Directory walking and progress reporting.
+//  3. Public scan entry point and result collection.
 package librarymetadata
 
 import (
@@ -79,8 +79,13 @@ func ScanLibrary(options ScanOptions) ScanResult {
 	var crawlSource *CrawlSource
 	restrictToSelectedCrawlSource := strings.TrimSpace(options.CrawlOutputDir) != ""
 	if options.CrawlOutputDir != "" || options.UserDataDir != "" {
-		// Best-effort load; scan should not fail if artifacts are missing.
-		crawlSource, _ = BuildCrawlSource(options.CrawlOutputDir, options.UserDataDir)
+		var sourceErr error
+		crawlSource, sourceErr = BuildCrawlSource(options.CrawlOutputDir, options.UserDataDir)
+		if restrictToSelectedCrawlSource && sourceErr != nil {
+			// A selected artifact is an explicit safety boundary. Never fall back
+			// to scanning every local file when that boundary cannot be loaded.
+			return ScanResult{Error: fmt.Sprintf("选定爬虫产物不可用：%s", sourceErr.Error())}
+		}
 	}
 
 	items := make([]LibraryMediaItem, 0, 128)
@@ -140,9 +145,17 @@ func ScanLibrary(options ScanOptions) ScanResult {
 		if extracted.Code == "" {
 			return nil
 		}
-		if restrictToSelectedCrawlSource && crawlSource != nil {
-			if _, selected := crawlSource.Lookup(extracted.Code); !selected {
+		displayCode := formatDisplayCode(extracted.Code, extracted.Part)
+		if restrictToSelectedCrawlSource {
+			if crawlSource == nil {
+				return fmt.Errorf("选定爬虫产物不可用")
+			}
+			if record, selected := crawlSource.Lookup(extracted.Code); !selected {
 				return nil
+			} else if record.Code != "" {
+				// Keep the original filename/display code for sidecar paths, but
+				// use the canonical crawler code for metadata resolution.
+				extracted.Code = record.Code
 			}
 		}
 
@@ -157,6 +170,10 @@ func ScanLibrary(options ScanOptions) ScanResult {
 		matchedItems++
 
 		item := buildMediaItem(path, filename, ext, extracted, outputMode, crawlSource)
+		// A noisy magnet filename may resolve to a canonical crawler code. Keep
+		// the original display code so sidecar/UI rows remain traceable to the
+		// actual local file (for example MXGS-1183 -> MXGS-118).
+		item.DisplayCode = displayCode
 		items = append(items, item)
 
 		if time.Since(lastProgress) >= progressInterval {
@@ -265,8 +282,15 @@ func buildMediaItem(path, filename, ext string, extracted CodeExtractionResult, 
 
 func formatDisplayCode(code, part string) string {
 	code = strings.TrimSpace(code)
-	part = strings.Trim(strings.TrimSpace(part), "-_")
+	part = strings.TrimSpace(part)
 	if code == "" || part == "" {
+		return code
+	}
+	if strings.HasPrefix(part, "_") {
+		return code + strings.ToUpper(part)
+	}
+	part = strings.Trim(part, "-_")
+	if part == "" {
 		return code
 	}
 	return code + "-" + strings.ToUpper(part)

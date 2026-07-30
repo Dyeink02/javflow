@@ -1148,6 +1148,7 @@ function runMaintainabilityTestGroup(label, groups, familyName) {
 
 function main() {
   runStep('desktop frontend build', 'npm', ['run', 'build:desktop-frontend']);
+  runStep('sync Wails frontend', 'npm', ['run', 'sync:wails-frontend']);
   runStep('encoding check', 'npm', ['run', 'check:encoding']);
   runStep('frontend text check', 'node', ['scripts/verify-frontend-text.js']);
   runFrontendBoundaryCheck();

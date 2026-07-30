@@ -1,6 +1,7 @@
 package organizer
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -90,6 +91,243 @@ func buildExpectedCodeEntryMap(rawEntries []CodeEntry) map[string][]MagnetEntry 
 		result[code] = mergeMagnetEntries(result[code], entry.Magnets)
 	}
 	return result
+}
+
+// expectedCodeAliasIndex maps a release name found in a crawl magnet's `dn`
+// field back to the canonical code of the crawl record that supplied it.
+//
+// Magnet display names are not guaranteed to match the detail-page code. For
+// example, the crawl record MXGS-112 can legitimately carry dn=MXGS1121. The
+// mapping is deliberately kept separate from codeSet: an alias is evidence for
+// an existing crawl code, never a new code that should be organized by itself.
+type expectedCodeAliasIndex struct {
+	canonicalByKey map[string]string
+	aliasByKey     map[string]string
+	ambiguousKeys  map[string]struct{}
+}
+
+func newExpectedCodeAliasIndex() expectedCodeAliasIndex {
+	return expectedCodeAliasIndex{
+		canonicalByKey: map[string]string{},
+		aliasByKey:     map[string]string{},
+		ambiguousKeys:  map[string]struct{}{},
+	}
+}
+
+// buildExpectedCodeAliasIndex builds aliases only from persisted magnet
+// evidence. An alias is accepted only when it maps to one canonical code. If
+// two records claim the same alias, the alias is removed and treated as
+// ambiguous by the strict matcher.
+func buildExpectedCodeAliasIndex(rawEntries []CodeEntry) expectedCodeAliasIndex {
+	index := newExpectedCodeAliasIndex()
+	canonicalByKey := map[string]string{}
+	for _, entry := range rawEntries {
+		canonical := normalizeFilmID(entry.Code)
+		key := numericCodeIdentityKey(canonical)
+		if canonical == "" || key == "" {
+			continue
+		}
+		if existing, ok := canonicalByKey[key]; !ok || existing == canonical {
+			canonicalByKey[key] = canonical
+		} else {
+			// This is already a malformed/ambiguous expected list. Keep the
+			// key unavailable for alias mapping rather than guessing a target.
+			delete(canonicalByKey, key)
+		}
+	}
+
+	for _, entry := range rawEntries {
+		canonical := normalizeFilmID(entry.Code)
+		canonicalKey := numericCodeIdentityKey(canonical)
+		if canonical == "" || canonicalKey == "" {
+			continue
+		}
+		for _, magnet := range entry.Magnets {
+			for _, candidate := range extractMagnetCodeCandidates(magnet.Link) {
+				alias := normalizeFilmID(candidate)
+				aliasKey := numericCodeIdentityKey(alias)
+				if alias == "" || aliasKey == "" || aliasKey == canonicalKey || !likelyExpectedMagnetAlias(alias, canonical) {
+					continue
+				}
+
+				// A display name that is itself a canonical code for another
+				// record cannot be silently reassigned to this record.
+				if canonicalOwner, isCanonical := canonicalByKey[aliasKey]; isCanonical && canonicalOwner != canonical {
+					index.ambiguousKeys[aliasKey] = struct{}{}
+					delete(index.canonicalByKey, aliasKey)
+					delete(index.aliasByKey, aliasKey)
+					continue
+				}
+				if _, ambiguous := index.ambiguousKeys[aliasKey]; ambiguous {
+					continue
+				}
+				if existing, exists := index.canonicalByKey[aliasKey]; exists && existing != canonical {
+					index.ambiguousKeys[aliasKey] = struct{}{}
+					delete(index.canonicalByKey, aliasKey)
+					delete(index.aliasByKey, aliasKey)
+					continue
+				}
+				index.canonicalByKey[aliasKey] = canonical
+				if _, exists := index.aliasByKey[aliasKey]; !exists {
+					index.aliasByKey[aliasKey] = alias
+				}
+			}
+		}
+	}
+
+	return index
+}
+
+// likelyExpectedMagnetAlias keeps magnet evidence within the same code family.
+// Providers commonly append one or two release digits (MXGS-112 -> MXGS-1121),
+// while a different prefix or an unrelated number must not become an alias.
+func likelyExpectedMagnetAlias(alias, canonical string) bool {
+	aliasMatch := looseExpectedCodePattern.FindStringSubmatch(normalizeFilmID(alias))
+	canonicalMatch := looseExpectedCodePattern.FindStringSubmatch(normalizeFilmID(canonical))
+	if len(aliasMatch) < 3 || len(canonicalMatch) < 3 {
+		return false
+	}
+	if aliasMatch[0] != normalizeFilmID(alias) || canonicalMatch[0] != normalizeFilmID(canonical) {
+		return false
+	}
+	if !strings.EqualFold(aliasMatch[1], canonicalMatch[1]) {
+		return false
+	}
+	aliasNumber := strings.TrimLeft(aliasMatch[2], "0")
+	canonicalNumber := strings.TrimLeft(canonicalMatch[2], "0")
+	if aliasNumber == "" {
+		aliasNumber = "0"
+	}
+	if canonicalNumber == "" {
+		canonicalNumber = "0"
+	}
+	if aliasNumber == canonicalNumber {
+		return false
+	}
+	return len(aliasNumber) > len(canonicalNumber) &&
+		len(aliasNumber)-len(canonicalNumber) <= 2 &&
+		strings.HasPrefix(aliasNumber, canonicalNumber)
+}
+
+// extractMagnetCodeCandidates reads only the magnet display name (`dn`). The
+// info hash and tracker query parameters are not film identity evidence and
+// must never enter the organizer's alias set.
+func extractMagnetCodeCandidates(link string) []string {
+	trimmed := strings.TrimSpace(link)
+	if trimmed == "" {
+		return nil
+	}
+
+	displayNames := make([]string, 0, 1)
+	if parsed, err := url.Parse(trimmed); err == nil {
+		query := parsed.Query()
+		for key, values := range query {
+			if !strings.EqualFold(key, "dn") {
+				continue
+			}
+			displayNames = append(displayNames, values...)
+		}
+	}
+	if len(displayNames) == 0 {
+		// Keep compatibility with malformed/partially escaped magnet links.
+		lower := strings.ToLower(trimmed)
+		if marker := strings.Index(lower, "dn="); marker >= 0 {
+			value := trimmed[marker+3:]
+			if separator := strings.IndexAny(value, "&"); separator >= 0 {
+				value = value[:separator]
+			}
+			if decoded, err := url.QueryUnescape(value); err == nil {
+				value = decoded
+			}
+			displayNames = append(displayNames, value)
+		}
+	}
+
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(displayNames))
+	for _, displayName := range displayNames {
+		for _, candidate := range extractFilmCodeCandidates(displayName) {
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+// extractFilmCodeCandidates is intentionally independent from the expected
+// list. It is used only to parse magnet display names before those candidates
+// are checked against a canonical CodeEntry mapping.
+func extractFilmCodeCandidates(value string) []string {
+	cleaned := stripDomainNoise(value)
+	normalized := strings.TrimSpace(nonAlphaNumericPattern.ReplaceAllString(strings.ToUpper(cleaned), " "))
+	if normalized == "" {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	result := make([]string, 0, 2)
+	appendCandidate := func(candidate string) {
+		candidate = normalizeFilmID(candidate)
+		if candidate == "" {
+			return
+		}
+		if _, exists := seen[candidate]; exists {
+			return
+		}
+		seen[candidate] = struct{}{}
+		result = append(result, candidate)
+	}
+
+	if matches := fc2CodePattern.FindAllStringSubmatch(normalized, -1); len(matches) > 0 {
+		for _, match := range matches {
+			if len(match) >= 2 {
+				appendCandidate("FC2-PPV-" + match[1])
+			}
+		}
+	}
+	for _, match := range standardCodePattern.FindAllStringSubmatch(normalized, -1) {
+		if len(match) >= 3 {
+			appendCandidate(strings.ToUpper(match[1]) + "-" + match[2])
+		}
+	}
+	for _, match := range compactCodePattern.FindAllStringSubmatch(normalized, -1) {
+		if len(match) >= 3 {
+			appendCandidate(strings.ToUpper(match[1]) + "-" + match[2])
+		}
+	}
+	return result
+}
+
+// matchExpectedCodeAliasFromValue resolves one path/name fragment through the
+// magnet-derived alias index. Multiple canonical targets are always rejected.
+func matchExpectedCodeAliasFromValue(value string, index expectedCodeAliasIndex) (string, string, bool) {
+	if len(index.canonicalByKey) == 0 && len(index.ambiguousKeys) == 0 {
+		return "", "", false
+	}
+	matchedCanonical := ""
+	matchedAlias := ""
+	for _, candidate := range extractFilmCodeCandidates(value) {
+		key := numericCodeIdentityKey(candidate)
+		if key == "" {
+			continue
+		}
+		if _, ambiguous := index.ambiguousKeys[key]; ambiguous {
+			return "", "", true
+		}
+		canonical, exists := index.canonicalByKey[key]
+		if !exists {
+			continue
+		}
+		if matchedCanonical != "" && matchedCanonical != canonical {
+			return "", "", true
+		}
+		matchedCanonical = canonical
+		matchedAlias = firstNonEmpty(index.aliasByKey[key], candidate)
+	}
+	return matchedCanonical, matchedAlias, false
 }
 
 func normalizeVideoExtensionToken(value string) string {
@@ -271,6 +509,25 @@ func matchExpectedNumericVariantDetailed(value string, expectedCodeSet map[strin
 		matchedCode = candidate
 	}
 	return matchedCode, false, sawCodeLike
+}
+
+// matchExpectedCodeFallback is a last-resort matcher for noisy paths. The
+// primary extractor intentionally works on one filename at a time; this
+// fallback is only used when that result did not match the loaded crawl list.
+// It reuses the numeric identity matcher over the cleaned full path so names
+// such as "site.example@MXGS1358" and "mxgs01121" can resolve to the
+// canonical code already present in the expected-code set.
+func matchExpectedCodeFallback(value string, expectedCodeSet map[string]struct{}) string {
+	if len(expectedCodeSet) == 0 {
+		return ""
+	}
+
+	cleanedValue := strings.ToUpper(stripDomainNoise(value))
+	matched, ambiguous, _ := matchExpectedNumericVariantDetailed(cleanedValue, expectedCodeSet)
+	if ambiguous {
+		return ""
+	}
+	return matched
 }
 
 func numericCodeIdentityKey(code string) string {

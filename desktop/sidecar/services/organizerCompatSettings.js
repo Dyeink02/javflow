@@ -61,6 +61,11 @@ function resolveVideoExtensions(rawValue, fallbackValue) {
   );
 }
 
+function normalizeOrganizerSuffix(rawValue) {
+  const value = String(rawValue || '').trim().toUpperCase();
+  return ['-A', '-1', '_DUP1'].includes(value) ? value : '-A';
+}
+
 function resolveOrganizerCompatibilitySettings(currentSettings = {}, options = {}) {
   // This helper owns compatibility-level coercion only. It should not absorb
   // organizer workflow policy or scan/judge behavior.
@@ -99,7 +104,7 @@ function buildOrganizerSettingsPatch(currentSettings = {}, options = {}, resolve
     ...currentSettings,
     organizerRoot: String(options.rootPath || '').trim(),
     organizerMinSizeMB: Number(options.minSizeMB || currentSettings.organizerMinSizeMB || 100),
-    organizerSuffix: String(options.suffix || currentSettings.organizerSuffix || '-A').trim() || '-A',
+    organizerSuffix: normalizeOrganizerSuffix(options.suffix || currentSettings.organizerSuffix),
     organizerVideoExtensions: resolved.videoExtensions,
     organizerAdFileAction: resolved.adFileAction,
     organizerDryRun: Boolean(options.dryRun),

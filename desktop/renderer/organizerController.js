@@ -35,6 +35,13 @@
     throw new Error('desktopRendererHelpers must be loaded before organizerController');
   }
 
+  const ORGANIZER_SUFFIX_OPTIONS = Object.freeze(['-A', '-1', '_DUP1']);
+
+  function normalizeOrganizerSuffix(rawValue) {
+    const normalized = String(rawValue || '').trim().toUpperCase();
+    return ORGANIZER_SUFFIX_OPTIONS.includes(normalized) ? normalized : '-A';
+  }
+
   function normalizeKeywordText(rawValue) {
     const rawText = String(rawValue || '').trim();
     if (!rawText) {
@@ -524,7 +531,7 @@
       return {
         rootPath: String(elements.organizerRoot && elements.organizerRoot.value ? elements.organizerRoot.value : '').trim(),
         minSizeMB: toSafeInteger(elements.organizerMinSize && elements.organizerMinSize.value, 100, 1),
-        suffix: String(elements.organizerSuffix && elements.organizerSuffix.value ? elements.organizerSuffix.value : '').trim() || '-A',
+        suffix: normalizeOrganizerSuffix(elements.organizerSuffix && elements.organizerSuffix.value),
         videoExtensions:
           String(
             elements.organizerVideoExtensions && elements.organizerVideoExtensions.value
@@ -537,6 +544,7 @@
           elements.organizerIncludeSubdirectories && elements.organizerIncludeSubdirectories.checked
         ),
         strictExpectedCodes: Boolean(elements.organizerStrictCodeMatch && elements.organizerStrictCodeMatch.checked),
+        retryMissingMagnets: Boolean(elements.organizerRetryMissingMagnets && elements.organizerRetryMissingMagnets.checked),
         preloadedExpected: inputState.preloadedExpected,
         crawlOutputDir: inputState.crawlOutputDir,
         adDetectionEnabled: learningConfig.adDetectionEnabled,
@@ -963,7 +971,7 @@
             elements.organizerMinSize.value = String(toSafeInteger(settings.organizerMinSizeMB, 100, 1));
           }
           if (elements.organizerSuffix) {
-            elements.organizerSuffix.value = String(settings.organizerSuffix || '-A');
+            elements.organizerSuffix.value = normalizeOrganizerSuffix(settings.organizerSuffix);
           }
           if (elements.organizerVideoExtensions) {
             elements.organizerVideoExtensions.value = String(
@@ -985,6 +993,9 @@
           }
           if (elements.organizerStrictCodeMatch) {
             elements.organizerStrictCodeMatch.checked = settings.organizerStrictCodeMatch !== false;
+          }
+          if (elements.organizerRetryMissingMagnets) {
+            elements.organizerRetryMissingMagnets.checked = Boolean(settings.organizerRetryMissingMagnets);
           }
           if (elements.organizerCrawlOutput) {
             elements.organizerCrawlOutput.value =

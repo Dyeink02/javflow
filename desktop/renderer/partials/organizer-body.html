@@ -50,9 +50,12 @@
 
                   <label class="field">
                     <span>冲突后缀</span>
-                    <input id="organizer-suffix" type="text" placeholder="-A" />
-                    <small>同下方"视频文件后缀判定"配合使用。</small>
-                    <small>同番号多文件时依次附加后缀，例如 -A / -B。</small>
+                    <select id="organizer-suffix">
+                      <option value="-A">A、B</option>
+                      <option value="-1">1、2</option>
+                      <option value="_DUP1">_DUP1、_DUP2</option>
+                    </select>
+                    <small>固定三种命名方式，同番号多文件时按所选顺序自动编号。</small>
                   </label>
 
                   <label class="field span-2">
@@ -136,6 +139,12 @@
                     <input id="organizer-strict-code-match" type="checkbox" checked />
                     <span>严格匹配爬虫番号名单</span>
                     <small>仅整理能由名单唯一确认的番号；无法确认的视频移入“未命中”，绝不猜测命名。</small>
+                  </label>
+
+                  <label class="toggle-card">
+                    <input id="organizer-retry-missing-magnets" type="checkbox" />
+                    <span>遗漏番号补爬磁力</span>
+                    <small>开启后，整理时发现名单中有但本地缺少的番号，会自动生成补抓磁力报告；关闭时仅记录遗漏番号。</small>
                   </label>
                 </div>
 

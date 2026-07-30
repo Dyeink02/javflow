@@ -3,6 +3,7 @@ package organizer
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -108,12 +109,29 @@ func (ctx *organizerRunContext) scanFiles() scanPhaseResult {
 
 		ctx.summary.NonAdVideo++
 		normalizedFilmCode := ""
-		if expectedFilmCode := matchExpectedCodeFromPath(item.Src, ctx.normalizedRootPath, ctx.codeSet, ctx.tokenSet); expectedFilmCode != "" {
+		matchedMagnetAlias := ""
+		if expectedFilmCode, alias, _ := matchExpectedCodeFromPathWithAliases(item.Src, ctx.normalizedRootPath, ctx.codeSet, ctx.tokenSet, ctx.expectedCodeAliasIndex); expectedFilmCode != "" {
 			normalizedFilmCode = normalizeFilmID(expectedFilmCode)
+			matchedMagnetAlias = alias
 		} else if extractedFilmCode := extractFilmCodeFromFile(item.Src, ctx.codeSet, ctx.tokenSet); extractedFilmCode != "" {
 			normalizedFilmCode = normalizeFilmID(extractedFilmCode)
 		}
 		expectedMatched := normalizedFilmCode != "" && (!hasExpectedCodes || containsCode(ctx.codeSet, normalizedFilmCode))
+		if matchedMagnetAlias != "" {
+			expectedMatched = true
+			ctx.logf("info", fmt.Sprintf("磁力别名命中爬虫名单：%s -> %s", matchedMagnetAlias, normalizedFilmCode))
+		}
+		if hasExpectedCodes && !expectedMatched {
+			fallbackValue := filepath.Base(item.Src)
+			if relativePath, err := filepath.Rel(ctx.normalizedRootPath, item.Src); err == nil && relativePath != "." {
+				fallbackValue = relativePath
+			}
+			if fallbackFilmCode := matchExpectedCodeFallback(fallbackValue, ctx.codeSet); fallbackFilmCode != "" {
+				normalizedFilmCode = fallbackFilmCode
+				expectedMatched = true
+				ctx.logf("info", fmt.Sprintf("兜底识别番号并按爬虫名单规范化：%s -> %s", item.Src, normalizedFilmCode))
+			}
+		}
 		if normalizedFilmCode != "" {
 			item.FilmCode = normalizedFilmCode
 			item.ExpectedCodeMatched = expectedMatched

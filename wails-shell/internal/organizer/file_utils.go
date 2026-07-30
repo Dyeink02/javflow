@@ -55,11 +55,13 @@ func toSafeInteger(value int, fallback int, minimum int) int {
 }
 
 func normalizeSuffixInput(rawInput string) string {
-	normalized := strings.TrimSpace(rawInput)
-	if normalized == "" {
+	normalized := strings.ToUpper(strings.TrimSpace(rawInput))
+	switch normalized {
+	case "-1", "_DUP1":
+		return normalized
+	default:
 		return "-A"
 	}
-	return normalized
 }
 
 func alphaIndexToText(n int) string {
@@ -83,7 +85,7 @@ func isAlphaNumericASCII(value byte) bool {
 func parseConflictSuffixStrategy(rawInput string) (conflictSuffixStrategy, error) {
 	raw := normalizeSuffixInput(rawInput)
 	if strings.ContainsAny(raw, " \t\r\n") {
-		return conflictSuffixStrategy{}, errors.New("\u51b2\u7a81\u540e\u7f00\u4e0d\u80fd\u5305\u542b\u7a7a\u683c\uff0c\u8bf7\u4f7f\u7528\u7c7b\u4f3c -A\u3001-1 \u6216 _DUP \u7684\u683c\u5f0f\u3002")
+		return conflictSuffixStrategy{}, errors.New("\u51b2\u7a81\u540e\u7f00\u53ea\u80fd\u9009\u62e9 A\u3001B\u30011\u30012 \u6216 _DUP1\u3001_DUP2\u3002")
 	}
 
 	if len(raw) > 0 {

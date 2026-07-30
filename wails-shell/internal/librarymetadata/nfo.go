@@ -97,9 +97,15 @@ func BuildNFO(info *MovieInfo) ([]byte, error) {
 		}
 	}
 
+	title := strings.TrimSpace(info.Title)
+	number := strings.TrimSpace(info.Number)
+	if number != "" && !strings.HasPrefix(strings.ToUpper(title), strings.ToUpper(number)+" ") && !strings.EqualFold(title, number) {
+		title = number + " " + title
+	}
+
 	data := NFOData{
-		Title:         info.Title,
-		OriginalTitle: info.Title,
+		Title:         title,
+		OriginalTitle: title,
 		SortTitle:     info.Number,
 		Plot:          info.Plot,
 		Outline:       info.Outline,

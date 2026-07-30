@@ -16,10 +16,12 @@
 package settings
 
 import (
+	"encoding/base64"
 	"encoding/json"
-	"net/url"
+	"mime"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	runtimepaths "javflow/internal/runtime"
@@ -28,6 +30,12 @@ import (
 // Keep this path label stable and UTF-8-safe because it is used by default
 // settings, fallback output discovery, and later file-path diagnostics.
 const defaultCrawlerOutputDirName = "\u004A\u0041\u0056\u81EA\u52A8\u5316\u722C\u866B\u5DE5\u5177\u8F93\u51FA"
+
+// defaultBackgroundImageURL points at the mirrored renderer asset. The
+// frontend sync step copies desktop/renderer/assets into the Wails renderer
+// directory, so this relative URL works in both source-portable and packaged
+// builds without exposing a developer machine's absolute path.
+const defaultBackgroundImageURL = "./assets/javflow-default-background.jpg"
 
 // Store owns desktop-settings persistence and default-value hydration.
 type Store struct {
@@ -165,25 +173,48 @@ func (s *Store) Save(next map[string]any) error {
 	return os.WriteFile(filePath, payload, 0o644)
 }
 
-// AttachBackgroundURL derives the file:// URL consumed by the renderer from the
-// persisted background path.
+// imagePathToDataURL reads an image file and returns a base64 data URL that
+// the renderer can use directly in CSS, avoiding file:// cross-protocol issues
+// inside the Wails WebView2 container.
+func imagePathToDataURL(imagePath string) (string, error) {
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		return "", err
+	}
+
+	ext := strings.ToLower(filepath.Ext(imagePath))
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+// AttachBackgroundURL derives the data URL consumed by the renderer from the
+// persisted background path. Using an inline data URL avoids WebView2 file://
+// restrictions and keeps the background working regardless of where the
+// frontend assets are served from.
 func (s *Store) AttachBackgroundURL(settings map[string]any) map[string]any {
 	next := cloneMap(settings)
 	backgroundImage, _ := next["backgroundImage"].(string)
 	if backgroundImage == "" {
-		next["backgroundImageUrl"] = ""
+		next["backgroundImageUrl"] = defaultBackgroundImageURL
 		return next
 	}
 
 	if _, err := os.Stat(backgroundImage); err != nil {
-		next["backgroundImageUrl"] = ""
+		next["backgroundImageUrl"] = defaultBackgroundImageURL
 		return next
 	}
 
-	next["backgroundImageUrl"] = (&url.URL{
-		Scheme: "file",
-		Path:   filepath.ToSlash(backgroundImage),
-	}).String()
+	dataURL, err := imagePathToDataURL(backgroundImage)
+	if err != nil {
+		next["backgroundImageUrl"] = defaultBackgroundImageURL
+		return next
+	}
+
+	next["backgroundImageUrl"] = dataURL
 	return next
 }
 

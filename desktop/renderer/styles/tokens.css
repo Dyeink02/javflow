@@ -15,5 +15,5 @@
   --accent-success: #55d5a3;
   --accent-danger: #ff7d77;
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.38);
-  --page-backdrop-image: url('../assets/yua-mikami-bg.jpg');
+  --page-backdrop-image: none;
 }

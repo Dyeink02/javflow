@@ -23,6 +23,31 @@ func TestResolveTargetPath(t *testing.T) {
 	}
 }
 
+func TestParseConflictSuffixStrategyUsesOnlyFixedOptions(t *testing.T) {
+	cases := []struct {
+		input string
+		want  []string
+	}{
+		{input: "-A", want: []string{"-A", "-B"}},
+		{input: "-1", want: []string{"-1", "-2"}},
+		{input: "_DUP1", want: []string{"_DUP1", "_DUP2"}},
+		{input: "-C", want: []string{"-A", "-B"}},
+		{input: "custom", want: []string{"-A", "-B"}},
+	}
+
+	for _, tc := range cases {
+		strategy, err := parseConflictSuffixStrategy(tc.input)
+		if err != nil {
+			t.Fatalf("parseConflictSuffixStrategy(%q) failed: %v", tc.input, err)
+		}
+		for index, want := range tc.want {
+			if got := formatSuffix(strategy, index); got != want {
+				t.Errorf("formatSuffix(%q, %d) = %q, want %q", tc.input, index, got, want)
+			}
+		}
+	}
+}
+
 func writeSparseFile(t *testing.T, filePath string, size int64) {
 	t.Helper()
 	file, err := os.Create(filePath)
@@ -83,6 +108,47 @@ func TestRunOrganizerMovesQualifiedVideoAndDeletesSourceFolder(t *testing.T) {
 		if _, err := os.Stat(reportPath); err != nil {
 			t.Fatalf("expected report file %s: %v", reportPath, err)
 		}
+	}
+}
+
+func TestRunOrganizerMatchesMagnetDisplayNameAliasInStrictMode(t *testing.T) {
+	service := NewService()
+	rootDir := t.TempDir()
+	sourceDir := filepath.Join(rootDir, "MXGS1121")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	videoPath := filepath.Join(sourceDir, "mxgs01121.mp4")
+	writeSparseFile(t, videoPath, 2*1024*1024)
+
+	result, err := service.RunOrganizer(RunOptions{
+		RootPath:              rootDir,
+		MinSizeMB:             1,
+		VideoExtensions:       "mp4",
+		AdFileAction:          adFileActionDeleteDirectly,
+		IncludeSubdirectories: true,
+		StrictExpectedCodes:   true,
+		ExpectedCodes:         []string{"MXGS-112"},
+		ExpectedCodeEntries: []CodeEntry{{
+			Code:    "MXGS-112",
+			Magnets: []MagnetEntry{{Link: "magnet:?xt=urn:btih:AAA&dn=MXGS1121"}},
+		}},
+		AdDetectionEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("RunOrganizer returned error: %v", err)
+	}
+	if result.Summary.MatchedToCrawlCode != 1 {
+		t.Fatalf("expected one canonical crawl match, got %d", result.Summary.MatchedToCrawlCode)
+	}
+	if result.Summary.MovedToWaiting != 1 {
+		t.Fatalf("expected one waiting move, got %d", result.Summary.MovedToWaiting)
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, "待整理", "MXGS-112.mp4")); err != nil {
+		t.Fatalf("expected canonical renamed video: %v", err)
+	}
+	if len(result.Preview.UnmatchedRecords) != 0 {
+		t.Fatalf("expected no unmatched records, got %+v", result.Preview.UnmatchedRecords)
 	}
 }
 

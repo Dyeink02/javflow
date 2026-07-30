@@ -252,3 +252,45 @@ func TestBuildCrawlSource_FromFilePath(t *testing.T) {
 		t.Errorf("expected outputDir to be parent directory, got %s", source.outputDir)
 	}
 }
+
+func TestBuildCrawlSource_ParsesWhitespaceTitlesDatedURLsAndMagnetAliases(t *testing.T) {
+	parent := t.TempDir()
+	outputDir := filepath.Join(parent, "佐山愛")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	filmData := `[
+  {"title":"DV-803 【AIリマスター版】18 Boin 佐山愛","sourceLink":"https://www.javbus.com/DV-803_2024-10-11","actress":["佐山愛"]},
+  {"title":"DV-859 【AIリマスター版】デカパイ接写！ 佐山愛","sourceLink":"https://www.javbus.com/DV-859_2025-08-28","actress":["佐山愛"]},
+  {"title":"MXGS-118 【AIリマスター版】SUMMER GIRL 佐山愛","sourceLink":"https://www.javbus.com/MXGS-118_2024-04-16","actress":["佐山愛"],"magnetLinks":[{"link":"magnet:?xt=urn:btih:1&dn=MXGS-1183"}]},
+  {"title":"MXGS-135 【AIリマスター版】オッパイインベーダー 佐山愛","sourceLink":"https://www.javbus.com/MXGS-135_2025-04-16","actress":["佐山愛"],"magnetLinks":[{"link":"magnet:?xt=urn:btih:2&dn=MXGS1358"}]},
+  {"title":"GOMK-51 ミス・マーキュリー 佐山愛","sourceLink":"https://www.javbus.com/GOMK-51","actress":["佐山愛"],"magnetLinks":[{"link":"magnet:?xt=urn:btih:3&dn=GOMK-51"}]},
+  {"title":"OTHER-001 unrelated","sourceLink":"https://www.javbus.com/OTHER-001","actress":["其他演员"]}
+]`
+	if err := os.WriteFile(filepath.Join(outputDir, "filmData.json"), []byte(filmData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	source, err := BuildCrawlSource(outputDir, "")
+	if err != nil {
+		t.Fatalf("BuildCrawlSource failed: %v", err)
+	}
+	for _, code := range []string{"DV-803", "DV-859"} {
+		if _, ok := source.Lookup(code); !ok {
+			t.Fatalf("expected %s in source", code)
+		}
+	}
+	for alias, canonical := range map[string]string{
+		"MXGS-1183": "MXGS-118",
+		"MXGS-1358": "MXGS-135",
+		"GOMK-051":  "GOMK-51",
+	} {
+		record, ok := source.Lookup(alias)
+		if !ok || record.Code != canonical {
+			t.Fatalf("expected alias %s -> %s, got %#v (ok=%v)", alias, canonical, record, ok)
+		}
+	}
+	if _, ok := source.Lookup("OTHER-001"); ok {
+		t.Fatal("record owned by another actress leaked into selected source")
+	}
+}

@@ -155,8 +155,8 @@ function createOrganizerService({ fs, path }) {
   }
 
   function normalizeSuffixInput(rawInput) {
-    const normalized = String(rawInput || '').trim();
-    return normalized || '-A';
+    const normalized = String(rawInput || '').trim().toUpperCase();
+    return ['-A', '-1', '_DUP1'].includes(normalized) ? normalized : '-A';
   }
 
   function normalizeFilmId(rawValue) {
@@ -674,6 +674,40 @@ function createOrganizerService({ fs, path }) {
     return '';
   }
 
+  // Last-resort matching for a noisy filename/path. The regular extraction
+  // remains authoritative; this only runs when its result misses the loaded
+  // expected-code set, so the fallback cannot invent an unrelated code.
+  function matchExpectedCodeFallback(value, expectedCodeSet) {
+    const expectedCodes = expectedCodeSet instanceof Set ? Array.from(expectedCodeSet) : [];
+    if (expectedCodes.length === 0) {
+      return '';
+    }
+
+    const cleanedValue = stripDomainNoise(String(value || '').toUpperCase());
+    const matchedCodes = new Set();
+
+    expectedCodes.forEach((expectedCode) => {
+      const normalizedCode = normalizeFilmId(expectedCode);
+      const match = normalizedCode.match(/^([A-Z]{2,12})-?(\d{1,8})([A-Z]*)$/);
+      if (!match) {
+        return;
+      }
+
+      const prefix = match[1];
+      const number = String(Number(match[2]));
+      const suffix = match[3] || '';
+      const pattern = new RegExp(
+        `(?:^|[^A-Z0-9])${prefix}[-_ ]*0*${number}${suffix}(?:$|[^A-Z0-9])`,
+        'i'
+      );
+      if (pattern.test(cleanedValue)) {
+        matchedCodes.add(normalizedCode);
+      }
+    });
+
+    return matchedCodes.size === 1 ? Array.from(matchedCodes)[0] : '';
+  }
+
   function alphaIndexToText(n) {
     let index = Math.max(1, n);
     let output = '';
@@ -697,7 +731,7 @@ function createOrganizerService({ fs, path }) {
     const raw = normalizeSuffixInput(rawInput);
 
     if (/\s/.test(raw)) {
-      throw new Error('冲突后缀不能包含空格，请使用类似 -A、-1 或 _DUP 的格式。');
+      throw new Error('冲突后缀只能选择 A、B、1、2 或 _DUP1、_DUP2。');
     }
 
     const alphaMatch = raw.match(/^(.*?)([A-Za-z])$/);
@@ -1682,6 +1716,9 @@ function createOrganizerService({ fs, path }) {
       adFileAction,
       expectedCodeSets,
       extractFilmCodeFromFile,
+      matchExpectedCodeFallback,
+      rootPath: normalizedRootPath,
+      path,
       normalizeFilmId,
       shouldReportProgress,
       emitLog,

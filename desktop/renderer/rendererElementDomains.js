@@ -163,6 +163,7 @@
       organizerDryRun: scope.getElementById('organizer-dry-run'),
       organizerIncludeSubdirectories: scope.getElementById('organizer-include-subdirectories'),
       organizerStrictCodeMatch: scope.getElementById('organizer-strict-code-match'),
+      organizerRetryMissingMagnets: scope.getElementById('organizer-retry-missing-magnets'),
       organizerAdDetectionEnabled: scope.getElementById('organizer-ad-detection-enabled'),
       organizerAdDetectionEnable: scope.getElementById('organizer-ad-detection-enable'),
       organizerAdDetectionDisable: scope.getElementById('organizer-ad-detection-disable'),

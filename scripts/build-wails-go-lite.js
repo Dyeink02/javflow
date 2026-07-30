@@ -111,7 +111,7 @@ function formatSize(filePath) {
 
 function main() {
   const pkg = readPackageJson();
-  const version = (pkg.version || '0.4.0').trim();
+  const version = (pkg.version || '0.4.1').trim();
 
   if (!fileExists(SOURCE_EXE_PATH)) {
     throw new Error(`Missing Wails EXE at ${SOURCE_EXE_PATH}\nRun npm run phase1:build:exe first.`);
