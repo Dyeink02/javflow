@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"javflow/internal/organizer"
@@ -34,13 +35,20 @@ func (a *API) prepareOrganizerRunOptions(payload map[string]any) (organizer.RunO
 	if options.VideoExtensions == "" {
 		options.VideoExtensions = organizerDefaultVideoExtensions
 	}
-	if options.Suffix == "" {
-		options.Suffix = organizerDefaultSuffix
-	}
+	options.Suffix = normalizeOrganizerSuffix(options.Suffix)
 	if err := a.saveOrganizerSettings(options); err != nil {
 		return organizer.RunOptions{}, err
 	}
 	return options, nil
+}
+
+func normalizeOrganizerSuffix(rawValue string) string {
+	switch strings.ToUpper(strings.TrimSpace(rawValue)) {
+	case "-1", "_DUP1":
+		return strings.ToUpper(strings.TrimSpace(rawValue))
+	default:
+		return organizerDefaultSuffix
+	}
 }
 
 // newOrganizerTaskID creates the bridge-owned organizer lifecycle correlation

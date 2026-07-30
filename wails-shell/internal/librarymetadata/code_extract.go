@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file extracts film codes from filenames and paths for library metadata matching.
+//
+//	This file extracts film codes from filenames and paths for library metadata matching.
 //
 // File map for maintainers:
-//   1) Code extraction result type.
-//   2) Regular-expression code patterns.
-//   3) Public extraction and normalization helpers.
-//
+//  1. Code extraction result type.
+//  2. Regular-expression code patterns.
+//  3. Public extraction and normalization helpers.
 package librarymetadata
 
 import (
@@ -46,9 +46,9 @@ var (
 
 	tagMarkers = []string{"-C", "-c", "_C", "_c", "-CH", "-ch", "_CH", "_ch"}
 	partMarker = regexp.MustCompile(`(?i)[-_]?(cd\d+|part\d+|pt\d+)`)
-	// Alphabetic split markers are common for two-file releases such as
-	// DASS-287-A / DASS-287-B. Keep the marker separate from the lookup code.
-	alphaPartMarker = regexp.MustCompile(`(?i)[-_.]([AB])$`)
+	// Organizer exposes only these three fixed suffix styles. Keep the suffix
+	// separate from the lookup code so split files can share one metadata query.
+	fixedPartMarker = regexp.MustCompile(`(?i)([-_](?:[AB]|[12])|_DUP[12])$`)
 )
 
 // ExtractCodeFromFilename extracts a JAV code from a media filename.
@@ -74,9 +74,15 @@ func ExtractCodeFromFilename(filename string) CodeExtractionResult {
 	if match := partMarker.FindStringSubmatch(name); len(match) > 1 {
 		part = strings.ToLower(match[1])
 		name = partMarker.ReplaceAllString(name, "")
-	} else if match := alphaPartMarker.FindStringSubmatch(name); len(match) > 1 {
-		part = strings.ToUpper(match[1])
-		name = strings.TrimSuffix(name, match[0])
+	} else if match := fixedPartMarker.FindStringSubmatch(name); len(match) > 1 {
+		candidateName := strings.TrimSuffix(name, match[1])
+		if candidateCode := extractNormalizedCode(candidateName); candidateCode != "" {
+			part = strings.ToUpper(strings.TrimSpace(match[1]))
+			if !strings.HasPrefix(part, "_") {
+				part = strings.Trim(part, "-_")
+			}
+			name = candidateName
+		}
 	}
 
 	// Extract Chinese subtitle / other tags.
@@ -94,16 +100,22 @@ func ExtractCodeFromFilename(filename string) CodeExtractionResult {
 	name = strings.ReplaceAll(name, ".", "-")
 	name = strings.ReplaceAll(name, "_", "-")
 
-	for _, pattern := range codePatterns {
-		if match := pattern.FindStringSubmatch(name); len(match) > 1 {
-			code := normalizeCode(match[1])
-			if code != "" {
-				return CodeExtractionResult{Code: code, Tags: tag, Part: part}
-			}
-		}
+	if code := extractNormalizedCode(name); code != "" {
+		return CodeExtractionResult{Code: code, Tags: tag, Part: part}
 	}
 
 	return CodeExtractionResult{Tags: tag, Part: part}
+}
+
+func extractNormalizedCode(name string) string {
+	for _, pattern := range codePatterns {
+		if match := pattern.FindStringSubmatch(name); len(match) > 1 {
+			if code := normalizeCode(match[1]); code != "" {
+				return code
+			}
+		}
+	}
+	return ""
 }
 
 var fc2NormalizePattern = regexp.MustCompile(`^FC2(PPV)?-?(\d{6,})$`)

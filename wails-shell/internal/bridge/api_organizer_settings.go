@@ -70,6 +70,9 @@ var organizerSettingWriters = []organizerSettingWriter{
 	func(currentSettings map[string]any, options organizer.RunOptions) {
 		currentSettings["organizerOrganizeIntervalMs"] = options.OrganizeIntervalMs
 	},
+	func(currentSettings map[string]any, options organizer.RunOptions) {
+		currentSettings["organizerRetryMissingMagnets"] = options.RetryMissingMagnets
+	},
 }
 
 func applyOrganizerSettings(currentSettings map[string]any, options organizer.RunOptions) {
@@ -116,5 +119,6 @@ func (a *API) buildOrganizerRunOptions(payload map[string]any) organizer.RunOpti
 		BatchDelete:           boolValue(payload["batchDelete"], false),
 		DeleteIntervalMs:      intValue(payload["deleteIntervalMs"], 500),
 		OrganizeIntervalMs:    intValue(payload["organizeIntervalMs"], 500),
+		RetryMissingMagnets:   boolValue(payload["retryMissingMagnets"], false),
 	}
 }

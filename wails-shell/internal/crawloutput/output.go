@@ -270,16 +270,11 @@ func (w *Writer) isReleaseDateFiltered(recordDate string) bool {
 	return strings.Compare(recordDate, minDate) < 0
 }
 
-// flushLocked persists the core artifacts plus derived cross-module handoff
-// files. If filmData, magnet-links, crawl-profile, and organizer-codes disagree,
-// inspect this write boundary first.
-func (w *Writer) flushLocked() error {
-	if !w.dirty && !w.metadataDirty {
-		return nil
-	}
-
-	runPaths := crawlartifact.ResolveCrawlRunPaths(w.outputDir)
-	jsonPath := runPaths.FilmDataPath
+// visibleRecordsLocked returns records that should be exported, split into
+// visible output records and entries filtered by release date. The returned
+// slice is sorted by title and is safe to use for both file writes and live
+// counter reporting.
+func (w *Writer) visibleRecordsLocked() ([]FilmData, []crawlartifact.FilteredFilmCodeEntry) {
 	sortedRecords := make([]FilmData, len(w.records))
 	copy(sortedRecords, w.records)
 	sort.Slice(sortedRecords, func(i, j int) bool {
@@ -318,27 +313,26 @@ func (w *Writer) flushLocked() error {
 			continue
 		}
 		visibleRecords = append(visibleRecords, record)
-	}
-
-	if w.dirty {
-		jsonBytes, err := json.MarshalIndent(visibleRecords, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(jsonPath, jsonBytes, 0644); err != nil {
-			return err
-		}
-	}
-
-	var magnetLines []string
-	seen := map[string]struct{}{}
-	for _, record := range visibleRecords {
 		if record.FilteredByActressCount || record.FilteredByFilmCode {
 			reason := "filmCode"
 			if record.FilteredByActressCount {
 				reason = "actressCount"
 			}
 			addFilteredEntry(record, reason, strings.TrimSpace(record.FilterRemark))
+		}
+	}
+	return visibleRecords, filteredEntries
+}
+
+// buildMagnetLinesLocked derives the exact lines that will be written to
+// magnet-links.txt from the visible records. It respects actress-count,
+// film-code, no-magnet, and duplicate-link rules so live counters stay in sync
+// with the final file.
+func (w *Writer) buildMagnetLinesLocked(visibleRecords []FilmData) []string {
+	var magnetLines []string
+	seen := map[string]struct{}{}
+	for _, record := range visibleRecords {
+		if record.FilteredByActressCount || record.FilteredByFilmCode {
 			continue
 		}
 		if record.Magnet == "" {
@@ -357,7 +351,42 @@ func (w *Writer) flushLocked() error {
 			magnetLines = append(magnetLines, link)
 		}
 	}
+	return magnetLines
+}
 
+// OutputMagnetCount returns the number of unique magnet links that would be
+// written to magnet-links.txt right now. This is the value the UI should show
+// as "completed" output count.
+func (w *Writer) OutputMagnetCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	visibleRecords, _ := w.visibleRecordsLocked()
+	return len(w.buildMagnetLinesLocked(visibleRecords))
+}
+
+// flushLocked persists the core artifacts plus derived cross-module handoff
+// files. If filmData, magnet-links, crawl-profile, and organizer-codes disagree,
+// inspect this write boundary first.
+func (w *Writer) flushLocked() error {
+	if !w.dirty && !w.metadataDirty {
+		return nil
+	}
+
+	runPaths := crawlartifact.ResolveCrawlRunPaths(w.outputDir)
+	jsonPath := runPaths.FilmDataPath
+	visibleRecords, filteredEntries := w.visibleRecordsLocked()
+
+	if w.dirty {
+		jsonBytes, err := json.MarshalIndent(visibleRecords, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(jsonPath, jsonBytes, 0644); err != nil {
+			return err
+		}
+	}
+
+	magnetLines := w.buildMagnetLinesLocked(visibleRecords)
 	magnetPath := runPaths.MagnetPath
 	if w.dirty {
 		if err := os.WriteFile(magnetPath, []byte(strings.Join(magnetLines, "\r\n")), 0644); err != nil {

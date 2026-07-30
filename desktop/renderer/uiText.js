@@ -26,7 +26,7 @@
   const FALLBACK_SHARED_TEXT = {
     APP_INFO: {
       title: 'JavFlow',
-      version: '0.4.0',
+      version: '0.4.1',
       subtitle: '基于开源项目：raawaa',
       eyebrow: 'Windows EXE',
       defaultBaseUrl: 'https://www.javbus.com'
@@ -113,7 +113,8 @@
       { version: '0.25', summary: '抓取进度面板视觉升级，运行状态配色复刻整理结果风格，两模块 UI 统一' },
       { version: '0.26', summary: '代码架构模块化解耦：IPC通道常量化、统一错误分类体系、Proxy响应式状态管理、UI控制器拆分（form/organizer分层），统一日志格式规范' },
       { version: '0.30', summary: '核心架构迁移至Go语言开发，软件体积从200MB减小至15MB，爬虫执行引擎全面Go原生接管' },
-      { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' }
+      { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' },
+      { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' }
     ],
     UI_TEXT_SOURCE: {
       hero: {
@@ -459,7 +460,7 @@
   const UI_TEXT = deepMerge(
     {
       appTitle: appInfo.title || 'JAV自动化整理归纳视频软件',
-      version: appInfo.version || '0.4.0',
+      version: appInfo.version || '0.4.1',
       source: {
         href: appInfo.sourceUrl || 'https://www.javbus.com/star/okq',
         name: appInfo.sourceName || '三上悠亜'

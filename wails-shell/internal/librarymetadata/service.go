@@ -28,40 +28,43 @@ import (
 
 // Service provides movie metadata scraping via the embedded metatube-sdk-go.
 type Service struct {
-	engine         metadataEngine
-	engineFactory  func(string) metadataEngine
-	engines        map[string]metadataEngine
-	mu             sync.RWMutex
-	proxy          string
-	semaphore      chan struct{}
-	cacheMu        sync.Mutex
-	cache          map[string]metadataCacheEntry
-	healthMu       sync.Mutex
-	providerHealth map[string]*providerHealth
-	actorCacheMu   sync.Mutex
-	actorCache     map[string]actorImageCacheEntry
-	actorSemaphore chan struct{}
-	jobsMu         sync.Mutex
-	jobs           map[string]context.CancelFunc
-	jobContexts    map[string]context.Context
-	LogManager     *LogManager
+	engine           metadataEngine
+	engineFactory    func(string) metadataEngine
+	engines          map[string]metadataEngine
+	mu               sync.RWMutex
+	proxy            string
+	semaphore        chan struct{}
+	cacheMu          sync.Mutex
+	cache            map[string]metadataCacheEntry
+	metadataFlightMu sync.Mutex
+	metadataFlights  map[string]*metadataFlight
+	healthMu         sync.Mutex
+	providerHealth   map[string]*providerHealth
+	actorCacheMu     sync.Mutex
+	actorCache       map[string]actorImageCacheEntry
+	actorSemaphore   chan struct{}
+	jobsMu           sync.Mutex
+	jobs             map[string]context.CancelFunc
+	jobContexts      map[string]context.Context
+	LogManager       *LogManager
 }
 
 // NewService creates a new metadata scraping service with the default engine.
 func NewService() *Service {
 	defaultEngine := newDefaultMetadataEngine("")
 	return &Service{
-		engine:         defaultEngine,
-		engineFactory:  newDefaultMetadataEngine,
-		engines:        map[string]metadataEngine{"": defaultEngine},
-		semaphore:      make(chan struct{}, 5),
-		cache:          map[string]metadataCacheEntry{},
-		providerHealth: map[string]*providerHealth{},
-		actorCache:     map[string]actorImageCacheEntry{},
-		actorSemaphore: make(chan struct{}, 4),
-		jobs:           map[string]context.CancelFunc{},
-		jobContexts:    map[string]context.Context{},
-		LogManager:     &LogManager{},
+		engine:          defaultEngine,
+		engineFactory:   newDefaultMetadataEngine,
+		engines:         map[string]metadataEngine{"": defaultEngine},
+		semaphore:       make(chan struct{}, 5),
+		cache:           map[string]metadataCacheEntry{},
+		metadataFlights: map[string]*metadataFlight{},
+		providerHealth:  map[string]*providerHealth{},
+		actorCache:      map[string]actorImageCacheEntry{},
+		actorSemaphore:  make(chan struct{}, 4),
+		jobs:            map[string]context.CancelFunc{},
+		jobContexts:     map[string]context.Context{},
+		LogManager:      &LogManager{},
 	}
 }
 
@@ -195,23 +198,25 @@ func (s *Service) ResolveMetadata(ctx context.Context, options ResolveMetadataOp
 		return cached
 	}
 
-	info, fallbackInfos, attemptedProviders, err := s.scrapeWithFallback(ctx, code, options.Provider, options.Proxy, options.MaxAttempts)
-	if err != nil || info == nil {
-		errMsg := "未找到影片信息"
-		if err != nil {
-			errMsg = err.Error()
+	return s.resolveMetadataSingleFlight(ctx, cacheKey, func() ResolveMetadataResult {
+		info, fallbackInfos, attemptedProviders, err := s.scrapeWithFallback(ctx, code, options.Provider, options.Proxy, options.MaxAttempts)
+		if err != nil || info == nil {
+			errMsg := "未找到影片信息"
+			if err != nil {
+				errMsg = err.Error()
+			}
+			return ResolveMetadataResult{Error: errMsg, Source: "online"}
 		}
-		return ResolveMetadataResult{Error: errMsg, Source: "online"}
-	}
 
-	result := ResolveMetadataResult{
-		Info:          info,
-		Source:        "online",
-		Providers:     attemptedProviders,
-		FallbackInfos: fallbackInfos,
-	}
-	s.putCachedMetadata(cacheKey, result)
-	return result
+		result := ResolveMetadataResult{
+			Info:          info,
+			Source:        "online",
+			Providers:     attemptedProviders,
+			FallbackInfos: fallbackInfos,
+		}
+		s.putCachedMetadata(cacheKey, result)
+		return result
+	})
 }
 
 // ListCrawlSources returns the historical crawl snapshots available in the

@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file implements the name-rescue workflow for restoring canonical filenames.
+//
+//	This file implements the name-rescue workflow for restoring canonical filenames.
 //
 // File map for maintainers:
-//   1) NameRescueResult type.
-//   2) Video collection and rename candidate generation.
-//   3) Safe rename execution without deletion paths.
-//
+//  1. NameRescueResult type.
+//  2. Video collection and rename candidate generation.
+//  3. Safe rename execution without deletion paths.
 package organizer
 
 import (
@@ -57,10 +57,10 @@ func (s *Service) RescueNames(options RunOptions) (NameRescueResult, error) {
 			hint = historyNameHints[strings.ToLower(filepath.Base(filePath))]
 		}
 		if hint != "" {
-			filmCode = matchExpectedCodeEvidence(hint, ctx.codeSet, ctx.tokenSet)
+			filmCode, _, _ = matchExpectedCodeEvidenceWithAliases(hint, ctx.codeSet, ctx.tokenSet, ctx.expectedCodeAliasIndex)
 		}
 		if filmCode == "" {
-			filmCode = matchExpectedCodeFromPath(filePath, ctx.normalizedRootPath, ctx.codeSet, ctx.tokenSet)
+			filmCode, _, _ = matchExpectedCodeFromPathWithAliases(filePath, ctx.normalizedRootPath, ctx.codeSet, ctx.tokenSet, ctx.expectedCodeAliasIndex)
 		}
 		if filmCode == "" {
 			unmatched = append(unmatched, filePath)
@@ -164,10 +164,17 @@ func collectNameRescueVideos(rootPath string, paths Paths, includeSubdirectories
 }
 
 func matchExpectedCodeFromPath(filePath, rootPath string, codeSet, tokenSet map[string]struct{}) string {
+	matched, _, _ := matchExpectedCodeFromPathWithAliases(filePath, rootPath, codeSet, tokenSet, newExpectedCodeAliasIndex())
+	return matched
+}
+
+func matchExpectedCodeFromPathWithAliases(filePath, rootPath string, codeSet, tokenSet map[string]struct{}, aliasIndex expectedCodeAliasIndex) (string, string, bool) {
 	current := filepath.Clean(filePath)
 	for {
-		if matched := matchExpectedCodeEvidence(filepath.Base(current), codeSet, tokenSet); matched != "" {
-			return matched
+		if matched, alias, ambiguous := matchExpectedCodeEvidenceWithAliases(filepath.Base(current), codeSet, tokenSet, aliasIndex); matched != "" {
+			return matched, alias, false
+		} else if ambiguous {
+			return "", "", true
 		}
 		parent := filepath.Dir(current)
 		if parent == current || parent == filepath.Clean(rootPath) || !isPathInside(rootPath, parent) {
@@ -175,15 +182,24 @@ func matchExpectedCodeFromPath(filePath, rootPath string, codeSet, tokenSet map[
 		}
 		current = parent
 	}
-	return ""
+	return "", "", false
 }
 
 func matchExpectedCodeEvidence(value string, codeSet, tokenSet map[string]struct{}) string {
+	matched, _, _ := matchExpectedCodeEvidenceWithAliases(value, codeSet, tokenSet, newExpectedCodeAliasIndex())
+	return matched
+}
+
+func matchExpectedCodeEvidenceWithAliases(value string, codeSet, tokenSet map[string]struct{}, aliasIndex expectedCodeAliasIndex) (string, string, bool) {
 	candidate := extractFilmCodeFromFile(value, codeSet, tokenSet)
 	if candidate == "" || !containsCode(codeSet, candidate) {
-		return ""
+		if fallback := matchExpectedCodeFallback(value, codeSet); fallback != "" {
+			return fallback, "", false
+		}
+		matched, alias, ambiguous := matchExpectedCodeAliasFromValue(value, aliasIndex)
+		return matched, alias, ambiguous
 	}
-	return normalizeFilmID(candidate)
+	return normalizeFilmID(candidate), "", false
 }
 
 func loadRenameReportHints(reportPath string) map[string]string {

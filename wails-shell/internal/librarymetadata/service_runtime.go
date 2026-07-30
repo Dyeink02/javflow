@@ -43,6 +43,14 @@ type metadataCacheEntry struct {
 	expiresAt time.Time
 }
 
+// metadataFlight represents one in-progress online lookup. Concurrent
+// requests for the same normalized code/provider/proxy wait for this result
+// instead of issuing duplicate provider requests (common with -A/-B parts).
+type metadataFlight struct {
+	done   chan struct{}
+	result ResolveMetadataResult
+}
+
 type providerHealth struct {
 	failures      int
 	cooldownUntil time.Time
@@ -214,6 +222,39 @@ func (s *Service) putCachedMetadata(key string, result ResolveMetadataResult) {
 	s.cacheMu.Lock()
 	s.cache[key] = metadataCacheEntry{result: cloneResolveMetadataResult(result), expiresAt: time.Now().Add(metadataCacheTTL)}
 	s.cacheMu.Unlock()
+}
+
+// resolveMetadataSingleFlight coalesces concurrent online metadata requests.
+// The first caller owns the provider request; later callers either receive the
+// same result or stop waiting when their own job context is cancelled.
+func (s *Service) resolveMetadataSingleFlight(ctx context.Context, key string, fn func() ResolveMetadataResult) ResolveMetadataResult {
+	s.metadataFlightMu.Lock()
+	if s.metadataFlights == nil {
+		s.metadataFlights = make(map[string]*metadataFlight)
+	}
+	if existing, ok := s.metadataFlights[key]; ok {
+		done := existing.done
+		s.metadataFlightMu.Unlock()
+		select {
+		case <-done:
+			return cloneResolveMetadataResult(existing.result)
+		case <-ctx.Done():
+			return ResolveMetadataResult{Error: ctx.Err().Error(), Source: "online"}
+		}
+	}
+
+	flight := &metadataFlight{done: make(chan struct{})}
+	s.metadataFlights[key] = flight
+	s.metadataFlightMu.Unlock()
+
+	result := fn()
+
+	s.metadataFlightMu.Lock()
+	flight.result = cloneResolveMetadataResult(result)
+	delete(s.metadataFlights, key)
+	close(flight.done)
+	s.metadataFlightMu.Unlock()
+	return result
 }
 
 func cloneResolveMetadataResult(result ResolveMetadataResult) ResolveMetadataResult {

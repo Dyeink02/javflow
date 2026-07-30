@@ -42,6 +42,39 @@ describe('organizerService video extension and root safety', () => {
     assert.ok(!fs.existsSync(sourcePath));
   });
 
+  it('uses the expected-code fallback for noisy and zero-padded names', async function testExpectedCodeFallback() {
+    const rootPath = makeTempRoot('jav-organizer-code-fallback-');
+    this.test.tempRoot = rootPath;
+    const filenames = [
+      'mxgs01121.mp4',
+      'hhd800.com@MXGS-1183.mp4',
+      'kfa55.com@MXGS1358.mp4'
+    ];
+
+    filenames.forEach((filename) => {
+      fs.writeFileSync(path.join(rootPath, filename), Buffer.alloc(2 * 1024 * 1024));
+    });
+
+    const service = createOrganizerService({ fs, path });
+    const result = await service.runOrganizer({
+      rootPath,
+      minSizeMB: 1,
+      suffix: '-A',
+      adFileAction: 'move-to-delete',
+      dryRun: true,
+      includeSubdirectories: true,
+      strictExpectedCodes: true,
+      expectedCodes: ['MXGS-1121', 'MXGS-1183', 'MXGS-1358'],
+      videoExtensions: 'mp4',
+      adDetectionEnabled: false
+    });
+
+    const renamedNames = result.preview.renameRecords.map((record) => record.newName).sort();
+    assert.deepStrictEqual(renamedNames, ['MXGS-1121.mp4', 'MXGS-1183.mp4', 'MXGS-1358.mp4']);
+    assert.strictEqual(result.summary.movedToWaiting, 3);
+    assert.strictEqual(result.preview.unmatchedRecords.length, 0);
+  });
+
   it('does not delete root-level files that are below the minimum size', async function testRootFilePreserve() {
     const rootPath = makeTempRoot('jav-organizer-root-preserve-');
     this.test.tempRoot = rootPath;

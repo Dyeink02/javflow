@@ -188,9 +188,11 @@
         ? stats.filteredByActressCount
         : filteredItems.length;
       const completedItems = normalizeItems(stats.completedItemIds || stats.completedItems || [], maxPanelItems);
-      const completedTotal = Number.isFinite(stats.completedItems)
-        ? stats.completedItems
-        : completedItems.length;
+      const completedTotal = Number.isFinite(stats.completedMagnetCount)
+        ? stats.completedMagnetCount
+        : (Number.isFinite(stats.completedItems)
+          ? stats.completedItems
+          : completedItems.length);
       const signature = `${nextPage}|${nextQueued}|${nextAttempted}|${nextCompleted}|${filteredTotal}|${filteredItems.join(',')}|${completedTotal}|${completedItems.join(',')}`;
 
       if (signature === lastRenderSignature.stats) {
@@ -265,7 +267,9 @@
       reviewPanelRenderer.updatePageGapItems(state.pageGapItems);
       reviewPanelRenderer.updateCompletedItems(
         state.completedItems || state.completedItemIds,
-        Number.isFinite(state.completedItemsTotal) ? state.completedItemsTotal : state.completedItems
+        Number.isFinite(state.completedMagnetCount)
+          ? state.completedMagnetCount
+          : (Number.isFinite(state.completedItemsTotal) ? state.completedItemsTotal : state.completedItems)
       );
       reviewPanelRenderer.updateFailedDetails(state.failedDetails, state.failedDetailsTotal);
     }

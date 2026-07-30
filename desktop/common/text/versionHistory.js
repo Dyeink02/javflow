@@ -41,7 +41,8 @@
     { version: '0.26', summary: '代码架构模块化解耦：IPC通道常量化、统一错误分类体系、Proxy响应式状态管理、UI控制器拆分（form/organizer分层），统一日志格式规范' },
     { version: '0.27', summary: 'AV订阅板块相关内容更新：主女优识别、手动订阅兜底、清空订阅与界面联动优化' },
     { version: '0.30', summary: '核心架构迁移至Go语言开发，软件体积从200MB减小至15MB，爬虫执行引擎全面Go原生接管' },
-    { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' }
+    { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' },
+    { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' }
   ];
 
   const payload = { VERSION_HISTORY };

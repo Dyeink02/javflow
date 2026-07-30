@@ -47,6 +47,19 @@
               </div>
             </label>
 
+            <section class="tip-card span-2">
+              <div class="tip-head">
+                <div>
+                  <p class="tip-kicker" data-ui-text="advice.kicker"></p>
+                  <h3 data-ui-text="advice.title"></h3>
+                </div>
+                <button id="use-suggested-pages" class="ghost-button" type="button" data-ui-text="advice.applyButton"></button>
+              </div>
+
+              <p id="total-pages-advice" class="tip-primary"></p>
+              <p id="total-pages-meta" class="tip-secondary"></p>
+            </section>
+
             <label class="field">
               <span data-ui-text="fields.totalPages"></span>
               <input id="totalPages" type="number" min="0" step="1" />
@@ -120,19 +133,6 @@
               <small data-ui-text="fields.filmCodeFilterThresholdHelp"></small>
             </label>
           </div>
-
-          <section class="tip-card">
-            <div class="tip-head">
-              <div>
-                <p class="tip-kicker" data-ui-text="advice.kicker"></p>
-                <h3 data-ui-text="advice.title"></h3>
-              </div>
-              <button id="use-suggested-pages" class="ghost-button" type="button" data-ui-text="advice.applyButton"></button>
-            </div>
-
-            <p id="total-pages-advice" class="tip-primary"></p>
-            <p id="total-pages-meta" class="tip-secondary"></p>
-          </section>
 
           <div class="toggles">
             <label class="toggle-card">

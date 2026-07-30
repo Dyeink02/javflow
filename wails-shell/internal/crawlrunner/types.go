@@ -92,6 +92,7 @@ type RunnerStats struct {
 	FilteredItemIDs        []string `json:"filteredItemIds,omitempty"`
 	CompletedItems         int      `json:"completedItems"`
 	CompletedItemIDs       []string `json:"completedItemIds,omitempty"`
+	CompletedMagnetCount   int      `json:"completedMagnetCount"`
 }
 
 // Config is the runner-side execution contract after UI payloads and restored

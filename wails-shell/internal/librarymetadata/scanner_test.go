@@ -179,3 +179,94 @@ func TestScanLibrary_AlphabeticPartsUseSeparateSubfolders(t *testing.T) {
 		t.Fatalf("split files must use separate output folders: %#v", result.Items)
 	}
 }
+
+func TestScanLibrary_FixedNumericAndDupPartsRemainSeparate(t *testing.T) {
+	mediaRoot := t.TempDir()
+	for _, name := range []string{"MIDD-820-1.mp4", "MIDD-820-2.mp4", "MIDD-820_DUP1.mp4", "MIDD-820_DUP2.mp4"} {
+		if err := os.WriteFile(filepath.Join(mediaRoot, name), []byte("dummy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := ScanLibrary(ScanOptions{Root: mediaRoot, OutputMode: "inplace"})
+	if result.Error != "" {
+		t.Fatalf("scan failed: %s", result.Error)
+	}
+	if len(result.Items) != 4 {
+		t.Fatalf("expected all fixed-suffix files in the list, got %d: %#v", len(result.Items), result.Items)
+	}
+
+	byDisplayCode := make(map[string]LibraryMediaItem, len(result.Items))
+	for _, item := range result.Items {
+		if item.Code != "MIDD-820" {
+			t.Errorf("metadata lookup code must be MIDD-820, got %q", item.Code)
+		}
+		byDisplayCode[item.DisplayCode] = item
+	}
+	for _, displayCode := range []string{"MIDD-820-1", "MIDD-820-2", "MIDD-820_DUP1", "MIDD-820_DUP2"} {
+		item, ok := byDisplayCode[displayCode]
+		if !ok {
+			t.Fatalf("missing fixed-suffix item %q: %#v", displayCode, byDisplayCode)
+		}
+		if !strings.Contains(item.NfoPath, displayCode+".nfo") {
+			t.Errorf("NFO path lost suffix for %q: %s", displayCode, item.NfoPath)
+		}
+	}
+}
+
+func TestScanLibrary_ResolvesCrawlerMagnetAliasesToCanonicalCode(t *testing.T) {
+	mediaRoot := t.TempDir()
+	for _, name := range []string{"GOMK-051.avi.strm", "MXGS-1183.mp4.strm", "UNSELECTED-001.mp4.strm"} {
+		if err := os.WriteFile(filepath.Join(mediaRoot, name), []byte("dummy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	crawlDir := filepath.Join(mediaRoot, "佐山愛-抓取")
+	if err := os.MkdirAll(crawlDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	filmData := `[
+  {"title":"GOMK-51 ミス・マーキュリー 佐山愛","actress":["佐山愛"],"magnetLinks":[{"link":"magnet:?xt=urn:btih:1&dn=GOMK-51"}]},
+  {"title":"MXGS-118 【AIリマスター版】SUMMER GIRL 佐山愛","actress":["佐山愛"],"magnetLinks":[{"link":"magnet:?xt=urn:btih:2&dn=MXGS-1183"}]}
+]`
+	if err := os.WriteFile(filepath.Join(crawlDir, "filmData.json"), []byte(filmData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := ScanLibrary(ScanOptions{Root: mediaRoot, CrawlOutputDir: crawlDir})
+	if result.Error != "" {
+		t.Fatalf("scan failed: %s", result.Error)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected only selected alias files, got %d: %#v", len(result.Items), result.Items)
+	}
+	byDisplay := map[string]LibraryMediaItem{}
+	for _, item := range result.Items {
+		byDisplay[item.DisplayCode] = item
+	}
+	if item := byDisplay["GOMK-051"]; item.Code != "GOMK-51" || !item.CrawlMatch {
+		t.Fatalf("GOMK alias did not resolve canonically: %#v", item)
+	}
+	if item := byDisplay["MXGS-1183"]; item.Code != "MXGS-118" || !item.CrawlMatch {
+		t.Fatalf("MXGS magnet alias did not resolve canonically: %#v", item)
+	}
+	for _, item := range result.Items {
+		if strings.Contains(item.MediaPath, "UNSELECTED") {
+			t.Fatal("unselected file leaked into explicit crawl selection")
+		}
+	}
+}
+
+func TestScanLibrary_SelectedArtifactFailureDoesNotScanEverything(t *testing.T) {
+	mediaRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mediaRoot, "BBAN-452.mp4"), []byte("dummy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := ScanLibrary(ScanOptions{Root: mediaRoot, CrawlOutputDir: filepath.Join(mediaRoot, "missing-filmData.json")})
+	if result.Error == "" {
+		t.Fatal("expected selected artifact failure")
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("must not scan files after selected artifact failure: %#v", result.Items)
+	}
+}

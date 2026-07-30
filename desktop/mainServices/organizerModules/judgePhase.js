@@ -26,6 +26,9 @@ async function runJudgePhase(context = {}) {
     adFileAction,
     expectedCodeSets,
     extractFilmCodeFromFile,
+    matchExpectedCodeFallback,
+    rootPath,
+    path,
     normalizeFilmId,
     shouldReportProgress,
     emitLog,
@@ -124,8 +127,17 @@ async function runJudgePhase(context = {}) {
 
     summary.nonAdVideo += 1;
     const extractedFilmCode = extractFilmCodeFromFile(item.src, expectedCodeSets.tokenSet);
-    const normalizedFilmCode = extractedFilmCode ? normalizeFilmId(extractedFilmCode) : '';
-    const expectedMatched = Boolean(normalizedFilmCode) && (!hasExpectedCodes || expectedCodeSet.has(normalizedFilmCode));
+    let normalizedFilmCode = extractedFilmCode ? normalizeFilmId(extractedFilmCode) : '';
+    let expectedMatched = Boolean(normalizedFilmCode) && (!hasExpectedCodes || expectedCodeSet.has(normalizedFilmCode));
+    if (hasExpectedCodes && !expectedMatched && typeof matchExpectedCodeFallback === 'function') {
+      const fallbackValue = rootPath && path ? path.relative(rootPath, item.src) : item.src;
+      const fallbackFilmCode = matchExpectedCodeFallback(fallbackValue, expectedCodeSet);
+      if (fallbackFilmCode) {
+        normalizedFilmCode = normalizeFilmId(fallbackFilmCode);
+        expectedMatched = expectedCodeSet.has(normalizedFilmCode);
+        emitLog(onLog, 'info', `兜底识别番号并按爬虫名单规范化：${item.src} -> ${normalizedFilmCode}`);
+      }
+    }
 
     if (normalizedFilmCode) {
       item.filmCode = normalizedFilmCode;

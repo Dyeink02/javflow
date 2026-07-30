@@ -27,8 +27,8 @@ const options = {
     LegalCopyright: 'Based on raawaa/jav-scrapy',
     Comments: 'JavFlow - JAV media library automation workflow'
   },
-  'file-version': '0.4.0',
-  'product-version': '0.4.0',
+  'file-version': '0.4.1',
+  'product-version': '0.4.1',
   icon: iconPath
 };
 

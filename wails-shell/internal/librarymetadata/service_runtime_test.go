@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,12 +14,16 @@ import (
 )
 
 type fakeMetadataEngine struct {
-	searchMovie func(string, string, bool) ([]*metatubemodel.MovieSearchResult, error)
-	movieInfo   func(providerid.ProviderID, bool) (*metatubemodel.MovieInfo, error)
+	movieProviders map[string]provider.MovieProvider
+	searchMovie    func(string, string, bool) ([]*metatubemodel.MovieSearchResult, error)
+	movieInfo      func(providerid.ProviderID, bool) (*metatubemodel.MovieInfo, error)
 }
 
 func (f *fakeMetadataEngine) GetMovieProviders() map[string]provider.MovieProvider {
-	return map[string]provider.MovieProvider{}
+	if f.movieProviders == nil {
+		return map[string]provider.MovieProvider{}
+	}
+	return f.movieProviders
 }
 
 func (f *fakeMetadataEngine) GetActorProviders() map[string]provider.ActorProvider {
@@ -134,5 +139,69 @@ func TestMetadataCacheReturnsIndependentCopies(t *testing.T) {
 	second, ok := svc.getCachedMetadata(key)
 	if !ok || second.Info.Genres[0] != "剧情" {
 		t.Fatal("cached metadata was mutated by a caller")
+	}
+}
+
+func TestResolveMetadataCoalescesConcurrentSplitLookups(t *testing.T) {
+	var searchCalls int32
+	searchStarted := make(chan struct{}, 1)
+	releaseSearch := make(chan struct{})
+	eng := &fakeMetadataEngine{
+		movieProviders: map[string]provider.MovieProvider{"Fake": nil},
+		searchMovie: func(string, string, bool) ([]*metatubemodel.MovieSearchResult, error) {
+			atomic.AddInt32(&searchCalls, 1)
+			select {
+			case searchStarted <- struct{}{}:
+			default:
+			}
+			<-releaseSearch
+			return []*metatubemodel.MovieSearchResult{{
+				ID:       "fake-midd-820",
+				Number:   "MIDD-820",
+				Provider: "Fake",
+				Title:    "Split release",
+			}}, nil
+		},
+		movieInfo: func(providerid.ProviderID, bool) (*metatubemodel.MovieInfo, error) {
+			return &metatubemodel.MovieInfo{
+				ID:       "fake-midd-820",
+				Number:   "MIDD-820",
+				Provider: "Fake",
+				Title:    "Split release",
+			}, nil
+		},
+	}
+	svc := newTestMetadataService(eng)
+
+	results := make(chan ResolveMetadataResult, 2)
+	resolve := func() {
+		results <- svc.ResolveMetadata(context.Background(), ResolveMetadataOptions{
+			Number:       "MIDD-820",
+			Provider:     "Fake",
+			PreferSource: "online",
+			MaxAttempts:  1,
+		})
+	}
+	go resolve()
+	select {
+	case <-searchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first metadata lookup did not start")
+	}
+	go resolve()
+	close(releaseSearch)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case result := <-results:
+			if result.Error != "" || result.Info == nil {
+				t.Fatalf("split lookup failed: %+v", result)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("split metadata lookup did not finish")
+		}
+	}
+	if got := atomic.LoadInt32(&searchCalls); got != 1 {
+		t.Fatalf("expected one provider search for MIDD-820-A/B, got %d", got)
 	}
 }

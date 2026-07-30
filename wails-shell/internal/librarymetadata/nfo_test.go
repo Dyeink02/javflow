@@ -27,11 +27,11 @@ func TestBuildNFO_BBAN452(t *testing.T) {
 		t.Fatalf("BuildNFO failed: %v", err)
 	}
 	out := string(nfo)
-	if !strings.Contains(out, "<title>Test Title</title>") {
-		t.Error("NFO missing title")
+	if !strings.Contains(out, "<title>BBAN-452 Test Title</title>") {
+		t.Error("NFO title missing code prefix")
 	}
-	if !strings.Contains(out, "BBAN-452") {
-		t.Error("NFO missing number")
+	if !strings.Contains(out, "<originaltitle>BBAN-452 Test Title</originaltitle>") {
+		t.Error("NFO originaltitle missing code prefix")
 	}
 	if !strings.Contains(out, "<thumb aspect=\"poster\">https://example.com/cover.jpg</thumb>") {
 		t.Error("NFO missing poster thumb")

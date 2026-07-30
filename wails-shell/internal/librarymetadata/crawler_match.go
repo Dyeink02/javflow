@@ -1,20 +1,22 @@
 // Ownership summary:
-//   This file matches local videos against crawler artifact records for metadata fallback.
+//
+//	This file matches local videos against crawler artifact records for metadata fallback.
 //
 // File map for maintainers:
-//   1) CrawlerRecord and CrawlSource types.
-//   2) Artifact loading and code-keyed lookup.
-//   3) Match helpers used by the metadata builder.
-//
+//  1. CrawlerRecord and CrawlSource types.
+//  2. Artifact loading and code-keyed lookup.
+//  3. Match helpers used by the metadata builder.
 package librarymetadata
 
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"javflow/internal/contracts/crawlartifact"
 )
@@ -32,13 +34,19 @@ type CrawlerRecord struct {
 	Magnet     string   `json:"magnet,omitempty"`
 	OutputDir  string   `json:"outputDir,omitempty"`
 	Source     string   `json:"source,omitempty"`
+	// Aliases contains noisy code tokens seen in magnet names. They are used
+	// only to map a local filename back to this canonical crawler record.
+	Aliases []string `json:"-"`
 }
 
 // CrawlSource is a read-only lookup table built from one or more crawl
 // artifacts. It is safe to use from multiple goroutines after construction.
 type CrawlSource struct {
-	records   map[string]CrawlerRecord
-	outputDir string
+	records       map[string]CrawlerRecord
+	aliases       map[string]string
+	ambiguous     map[string]struct{}
+	outputDir     string
+	expectedActor string
 }
 
 // Lookup returns a crawler record by normalized code.
@@ -48,7 +56,32 @@ func (s *CrawlSource) Lookup(code string) (CrawlerRecord, bool) {
 	}
 	key := strings.ToUpper(strings.TrimSpace(code))
 	record, ok := s.records[key]
-	return record, ok
+	if ok {
+		return record, true
+	}
+	if canonical, exists := s.aliases[key]; exists {
+		record, ok = s.records[canonical]
+		return record, ok
+	}
+	// Older snapshots may not persist magnet links, so also accept a unique
+	// numeric spelling such as GOMK-051 for canonical GOMK-51. Ambiguous
+	// candidates are rejected instead of guessing between records.
+	var matched CrawlerRecord
+	matchCount := 0
+	for canonical, candidate := range s.records {
+		if !likelyCrawlerAlias(key, canonical) {
+			continue
+		}
+		matched = candidate
+		matchCount++
+		if matchCount > 1 {
+			return CrawlerRecord{}, false
+		}
+	}
+	if matchCount == 1 {
+		return matched, true
+	}
+	return CrawlerRecord{}, false
 }
 
 // Records returns all loaded records.
@@ -72,8 +105,11 @@ func BuildCrawlSource(outputDir, userDataDir string) (*CrawlSource, error) {
 
 	source := &CrawlSource{
 		records:   map[string]CrawlerRecord{},
+		aliases:   map[string]string{},
+		ambiguous: map[string]struct{}{},
 		outputDir: normalizedOutput,
 	}
+	source.expectedActor = expectedActorForCrawlSource(normalizedOutput, normalizedUserData)
 
 	// 1) Prefer the complete hidden snapshot, then the hidden code artifact.
 	if normalizedOutput != "" {
@@ -110,6 +146,12 @@ func BuildCrawlSource(outputDir, userDataDir string) (*CrawlSource, error) {
 			return source, fmt.Errorf("读取历史抓取快照失败：%w", err)
 		}
 	}
+
+	// Apply actor ownership only after all records have been loaded. This keeps
+	// a selected snapshot bounded to its actress while retaining records whose
+	// legacy payload did not persist actor names at all.
+	source.filterByExpectedActor()
+	source.rebuildAliases()
 
 	if len(source.records) == 0 {
 		return source, fmt.Errorf("未找到任何爬虫产物")
@@ -275,6 +317,19 @@ func filmDataRecordToCrawlerRecord(raw map[string]any, outputDir string) Crawler
 			}
 		}
 	}
+	for _, field := range []string{"magnetLinks", "backupMagnetLinks"} {
+		if links, ok := raw[field].([]any); ok {
+			for _, item := range links {
+				entry, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if link, ok := entry["link"].(string); ok {
+					record.Aliases = append(record.Aliases, extractMagnetCodeCandidates(link)...)
+				}
+			}
+		}
+	}
 
 	return record
 }
@@ -307,6 +362,9 @@ func mergeCrawlerRecord(source *CrawlSource, incoming CrawlerRecord) {
 	if len(existing.Actors) == 0 && len(incoming.Actors) > 0 {
 		existing.Actors = incoming.Actors
 	}
+	if len(incoming.Aliases) > 0 {
+		existing.Aliases = appendUniqueStrings(existing.Aliases, incoming.Aliases...)
+	}
 	if len(existing.Genres) == 0 && len(incoming.Genres) > 0 {
 		existing.Genres = incoming.Genres
 	}
@@ -323,28 +381,231 @@ func mergeCrawlerRecord(source *CrawlSource, incoming CrawlerRecord) {
 	source.records[code] = existing
 }
 
-var titleCodePrefixPattern = regexp.MustCompile(`^([A-Z]{2,8}-?\d{2,8})\s*[\-_:：]\s*`)
+var (
+	// Crawler titles commonly put a plain space before the title, e.g.
+	// "DV-803 【AIリマスター版】...". The old pattern required punctuation
+	// and silently dropped those otherwise valid records.
+	titleCodePrefixPattern = regexp.MustCompile(`(?i)^([A-Z]{2,8})[-_]?([0-9]{1,8})(?:\s+|[-_:：]|$)`)
+	urlCodePrefixPattern   = regexp.MustCompile(`(?i)^([A-Z]{2,8})[-_]?([0-9]{1,8})(?:[_-][0-9]{4}(?:[-_][0-9]{2}){0,2})?$`)
+	textCodePattern        = regexp.MustCompile(`(?i)([A-Z]{2,12}[-_]?\d{1,8})`)
+	compactCodePattern     = regexp.MustCompile(`(?i)^([A-Z]{2,12})(\d{1,8})$`)
+)
 
 func extractCodeFromTitle(title string) string {
 	upper := strings.ToUpper(strings.TrimSpace(title))
 	if match := titleCodePrefixPattern.FindStringSubmatch(upper); match != nil {
-		return match[1]
+		return normalizeCode(match[1] + "-" + match[2])
 	}
 	return ""
 }
 
-func extractCodeFromURL(url string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(url), "/")
+func extractCodeFromURL(rawURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	idx := strings.LastIndex(trimmed, "/")
 	if idx < 0 || idx >= len(trimmed)-1 {
 		return ""
 	}
 	candidate := trimmed[idx+1:]
-	// Accept only candidate that looks like a code.
-	if matched, _ := regexp.MatchString(`^[A-Z]{2,8}-?\d{2,8}$`, strings.ToUpper(candidate)); matched {
-		return strings.ToUpper(candidate)
+	candidate, _ = url.PathUnescape(candidate)
+	if match := urlCodePrefixPattern.FindStringSubmatch(strings.ToUpper(candidate)); match != nil {
+		return normalizeCode(match[1] + "-" + match[2])
 	}
 	return ""
+}
+
+// expectedActorForCrawlSource obtains the ownership marker from the persisted
+// profile first, then from the organizer snapshot, and finally from an output
+// directory whose basename is itself present in the record actor list.
+func expectedActorForCrawlSource(outputDir, userDataDir string) string {
+	if strings.TrimSpace(outputDir) == "" {
+		return ""
+	}
+	if strings.TrimSpace(userDataDir) != "" {
+		if _, profile, err := crawlartifact.ReadCrawlProfileArtifactWithUserData(outputDir, userDataDir); err == nil {
+			if name := strings.TrimSpace(profile.ActressName); name != "" {
+				return name
+			}
+		}
+		if _, artifact, err := crawlartifact.ReadOrganizerCodesArtifactWithUserData(outputDir, userDataDir); err == nil {
+			if name := strings.TrimSpace(artifact.ActressName); name != "" {
+				return name
+			}
+		}
+	}
+	return strings.TrimSpace(filepath.Base(outputDir))
+}
+
+func (s *CrawlSource) filterByExpectedActor() {
+	if s == nil || strings.TrimSpace(s.expectedActor) == "" {
+		return
+	}
+	target := normalizeActorName(s.expectedActor)
+	if target == "" {
+		return
+	}
+	// A temporary directory used by tests or by a user-selected arbitrary path
+	// may have a basename that is not an actress name. Only enforce the filter
+	// when the candidate is actually present in at least one record.
+	seenTarget := false
+	for _, record := range s.records {
+		if crawlerRecordHasActor(record, target) {
+			seenTarget = true
+			break
+		}
+	}
+	if !seenTarget {
+		return
+	}
+	for code, record := range s.records {
+		if len(record.Actors) == 0 || crawlerRecordHasActor(record, target) {
+			continue
+		}
+		delete(s.records, code)
+	}
+}
+
+func crawlerRecordHasActor(record CrawlerRecord, target string) bool {
+	for _, actor := range record.Actors {
+		if normalizeActorName(actor) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeActorName(value string) string {
+	var builder strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsSpace(r) || strings.ContainsRune("・·,，、()（）[]【】-_", r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	return builder.String()
+}
+
+func (s *CrawlSource) rebuildAliases() {
+	if s == nil {
+		return
+	}
+	s.aliases = map[string]string{}
+	s.ambiguous = map[string]struct{}{}
+	for canonical, record := range s.records {
+		for _, alias := range record.Aliases {
+			alias = strings.ToUpper(strings.TrimSpace(alias))
+			if alias == "" || alias == canonical || !likelyCrawlerAlias(alias, canonical) {
+				continue
+			}
+			if _, blocked := s.ambiguous[alias]; blocked {
+				continue
+			}
+			if existing, exists := s.aliases[alias]; exists && existing != canonical {
+				delete(s.aliases, alias)
+				s.ambiguous[alias] = struct{}{}
+				continue
+			}
+			s.aliases[alias] = canonical
+		}
+	}
+}
+
+func extractMagnetCodeCandidates(rawLink string) []string {
+	value := strings.TrimSpace(rawLink)
+	if value == "" {
+		return nil
+	}
+	if parsed, err := url.Parse(value); err == nil {
+		if dn := strings.TrimSpace(parsed.Query().Get("dn")); dn != "" {
+			value = dn
+		}
+	}
+	matches := textCodePattern.FindAllStringIndex(strings.ToUpper(value), -1)
+	result := make([]string, 0, len(matches))
+	for _, span := range matches {
+		start, end := span[0], span[1]
+		if start > 0 && isCodeWordRune(value[start-1]) {
+			continue
+		}
+		if end < len(value) && isCodeWordRune(value[end]) {
+			continue
+		}
+		candidate := normalizeMagnetCode(value[start:end])
+		if candidate != "" {
+			result = appendUniqueStrings(result, candidate)
+		}
+	}
+	return result
+}
+
+func isCodeWordRune(value byte) bool {
+	return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')
+}
+
+func normalizeMagnetCode(value string) string {
+	upper := strings.ToUpper(strings.TrimSpace(value))
+	if match := compactCodePattern.FindStringSubmatch(strings.ReplaceAll(strings.ReplaceAll(upper, "-", ""), "_", "")); match != nil {
+		return normalizeCode(match[1] + "-" + match[2])
+	}
+	parts := regexp.MustCompile(`^([A-Z]{2,12})[-_](\d{1,8})$`).FindStringSubmatch(upper)
+	if len(parts) == 3 {
+		return normalizeCode(parts[1] + "-" + parts[2])
+	}
+	return ""
+}
+
+func likelyCrawlerAlias(alias, canonical string) bool {
+	aliasPrefix, aliasNumber, ok := splitCrawlerCode(alias)
+	if !ok {
+		return false
+	}
+	canonicalPrefix, canonicalNumber, ok := splitCrawlerCode(canonical)
+	if !ok || aliasPrefix != canonicalPrefix {
+		return false
+	}
+	aliasNumber = strings.TrimLeft(aliasNumber, "0")
+	canonicalNumber = strings.TrimLeft(canonicalNumber, "0")
+	if aliasNumber == "" {
+		aliasNumber = "0"
+	}
+	if canonicalNumber == "" {
+		canonicalNumber = "0"
+	}
+	if aliasNumber == canonicalNumber {
+		return true
+	}
+	// Some magnet providers append one or two digits to the canonical code
+	// (MXGS-118 -> MXGS-1183). Accept this only in the same studio namespace.
+	return len(aliasNumber) > len(canonicalNumber) &&
+		len(aliasNumber)-len(canonicalNumber) <= 2 &&
+		strings.HasPrefix(aliasNumber, canonicalNumber)
+}
+
+func splitCrawlerCode(code string) (string, string, bool) {
+	compact := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(code), "-", ""), "_", ""))
+	match := regexp.MustCompile(`^([A-Z]{2,12})(\d{1,8})$`).FindStringSubmatch(compact)
+	if len(match) != 3 {
+		return "", "", false
+	}
+	return match[1], match[2], true
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(additions))
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, value := range additions {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 // CountCrawlArtifacts returns the number of distinct film codes available in

@@ -74,10 +74,11 @@ type RunOptions struct {
 	AdThreshold        int                    `json:"adThreshold"`
 	AdKeywords         string                 `json:"adKeywords"`
 	AlistBaseURL       string                 `json:"alistBaseURL"`
-	BatchDelete        bool                   `json:"batchDelete"`        // 是否启用批量删除
-	DeleteIntervalMs   int                    `json:"deleteIntervalMs"`   // 删除间隔（毫秒）
-	OrganizeIntervalMs int                    `json:"organizeIntervalMs"` // 整理间隔（毫秒）
-	OnLog              LogSink                `json:"-"`
+	BatchDelete         bool                   `json:"batchDelete"`         // 是否启用批量删除
+	DeleteIntervalMs    int                    `json:"deleteIntervalMs"`    // 删除间隔（毫秒）
+	OrganizeIntervalMs  int                    `json:"organizeIntervalMs"`  // 整理间隔（毫秒）
+	RetryMissingMagnets bool                   `json:"retryMissingMagnets"` // 是否对遗漏番号补抓磁力
+	OnLog               LogSink                `json:"-"`
 	OnProgress         ProgressSink           `json:"-"`
 	EvaluateAdRisk     AdRiskEvaluator        `json:"-"`
 }

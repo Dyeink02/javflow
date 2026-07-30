@@ -141,14 +141,24 @@ func (ctx *organizerRunContext) buildSupplementData(adRiskRecords []AdRiskRecord
 		}
 	}
 	result.missingCodes = sortCodeAlphabetically(result.missingCodes)
-	result.missingMagnetEntries = buildSupplementMagnetEntries(result.missingCodes, ctx.expectedCodeEntryMap)
 	ctx.summary.MissingCodeCount = len(result.missingCodes)
-	ctx.summary.MissingMagnetCount = countMagnets(result.missingMagnetEntries)
 
-	if ctx.summary.MissingCodeCount > 0 {
-		ctx.logf("warn", fmt.Sprintf("\u53d1\u73b0\u9057\u6f0f\u756a\u53f7 %d \u6761\uff0c\u5df2\u751f\u6210\u8865\u6293\u78c1\u529b\u62a5\u544a\uff08\u603b\u78c1\u529b %d \u6761\uff09\u3002", ctx.summary.MissingCodeCount, ctx.summary.MissingMagnetCount))
+	if ctx.options.RetryMissingMagnets {
+		result.missingMagnetEntries = buildSupplementMagnetEntries(result.missingCodes, ctx.expectedCodeEntryMap)
+		ctx.summary.MissingMagnetCount = countMagnets(result.missingMagnetEntries)
+		if ctx.summary.MissingCodeCount > 0 {
+			ctx.logf("warn", fmt.Sprintf("\u53d1\u73b0\u9057\u6f0f\u756a\u53f7 %d \u6761\uff0c\u5df2\u751f\u6210\u8865\u6293\u78c1\u529b\u62a5\u544a\uff08\u603b\u78c1\u529b %d \u6761\uff09\u3002", ctx.summary.MissingCodeCount, ctx.summary.MissingMagnetCount))
+		} else {
+			ctx.logf("info", "\u672a\u53d1\u73b0\u9057\u6f0f\u756a\u53f7\u3002")
+		}
 	} else {
-		ctx.logf("info", "\u672a\u53d1\u73b0\u9057\u6f0f\u756a\u53f7\u3002")
+		result.missingMagnetEntries = []CodeEntry{}
+		ctx.summary.MissingMagnetCount = 0
+		if ctx.summary.MissingCodeCount > 0 {
+			ctx.logf("warn", fmt.Sprintf("\u53d1\u73b0\u9057\u6f0f\u756a\u53f7 %d \u6761\uff08\u8865\u6293\u78c1\u529b\u5df2\u5173\u95ed\uff0c\u672a\u751f\u6210\u78c1\u529b\u62a5\u544a\uff09\u3002", ctx.summary.MissingCodeCount))
+		} else {
+			ctx.logf("info", "\u672a\u53d1\u73b0\u9057\u6f0f\u756a\u53f7\u3002")
+		}
 	}
 
 	return result
