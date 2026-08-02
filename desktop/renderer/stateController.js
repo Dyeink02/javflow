@@ -184,14 +184,22 @@
       // Go read model. The renderer only trims/presents it and should not
       // infer actress-filter business rules on its own.
       const filteredItems = normalizeItems(stats.filteredItemIds || stats.filteredItems || [], maxPanelItems);
-      const filteredTotal = Number.isFinite(stats.filteredByActressCount)
-        ? stats.filteredByActressCount
-        : filteredItems.length;
+      // `filteredItemsCount` is the canonical de-duplicated total for every
+      // filter (actress count, film-code/VR, and future item filters). The
+      // actress-only count remains a legacy fallback for older state events.
+      const filteredTotal = Number.isFinite(stats.filteredItemsCount)
+        ? stats.filteredItemsCount
+        : (Number.isFinite(stats.filteredByActressCount)
+          ? stats.filteredByActressCount
+          : filteredItems.length);
       const completedItems = normalizeItems(stats.completedItemIds || stats.completedItems || [], maxPanelItems);
-      const completedTotal = Number.isFinite(stats.completedMagnetCount)
-        ? stats.completedMagnetCount
-        : (Number.isFinite(stats.completedItems)
-          ? stats.completedItems
+      // The completed-item panel counts films, not magnet links. A single
+      // film may expose several magnet candidates, so completedMagnetCount
+      // must never inflate the number shown next to "已完成番号".
+      const completedTotal = Number.isFinite(stats.completedItems)
+        ? stats.completedItems
+        : (Number.isFinite(stats.completed)
+          ? stats.completed
           : completedItems.length);
       const signature = `${nextPage}|${nextQueued}|${nextAttempted}|${nextCompleted}|${filteredTotal}|${filteredItems.join(',')}|${completedTotal}|${completedItems.join(',')}`;
 
@@ -267,9 +275,11 @@
       reviewPanelRenderer.updatePageGapItems(state.pageGapItems);
       reviewPanelRenderer.updateCompletedItems(
         state.completedItems || state.completedItemIds,
-        Number.isFinite(state.completedMagnetCount)
-          ? state.completedMagnetCount
-          : (Number.isFinite(state.completedItemsTotal) ? state.completedItemsTotal : state.completedItems)
+        Number.isFinite(state.completedItemsTotal)
+          ? state.completedItemsTotal
+          : (Number.isFinite(state.completedCount)
+            ? state.completedCount
+            : state.completedItems)
       );
       reviewPanelRenderer.updateFailedDetails(state.failedDetails, state.failedDetailsTotal);
     }

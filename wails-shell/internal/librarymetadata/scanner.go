@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -91,6 +92,18 @@ func ScanLibrary(options ScanOptions) ScanResult {
 	items := make([]LibraryMediaItem, 0, 128)
 	seen := make(map[string]bool)
 	foundCodes := make(map[string]bool)
+	type scannedMediaCandidate struct {
+		path      string
+		filename  string
+		ext       string
+		extracted CodeExtractionResult
+	}
+	candidates := make([]scannedMediaCandidate, 0, 128)
+	// A network library makes individual os.Stat calls surprisingly expensive.
+	// Cache one directory listing and answer all four sidecar checks from it.
+	// The cache only lives for this scan, so newly created files are always seen
+	// on the next scan and no persistent state can become stale.
+	presenceCache := newSidecarPresenceCache()
 
 	scannedFiles := 0
 	matchedItems := 0
@@ -145,36 +158,13 @@ func ScanLibrary(options ScanOptions) ScanResult {
 		if extracted.Code == "" {
 			return nil
 		}
-		displayCode := formatDisplayCode(extracted.Code, extracted.Part)
-		if restrictToSelectedCrawlSource {
-			if crawlSource == nil {
-				return fmt.Errorf("选定爬虫产物不可用")
-			}
-			if record, selected := crawlSource.Lookup(extracted.Code); !selected {
-				return nil
-			} else if record.Code != "" {
-				// Keep the original filename/display code for sidecar paths, but
-				// use the canonical crawler code for metadata resolution.
-				extracted.Code = record.Code
-			}
-		}
-
-		// Separate files of the same release (for example -A / -B) must remain
-		// separate rows even though they share one normalized metadata lookup code.
-		key := extracted.Code + "|" + strings.ToUpper(extracted.Part) + "|" + filepath.Dir(path)
-		if seen[key] {
-			return nil
-		}
-		seen[key] = true
-		foundCodes[extracted.Code] = true
-		matchedItems++
-
-		item := buildMediaItem(path, filename, ext, extracted, outputMode, crawlSource)
-		// A noisy magnet filename may resolve to a canonical crawler code. Keep
-		// the original display code so sidecar/UI rows remain traceable to the
-		// actual local file (for example MXGS-1183 -> MXGS-118).
-		item.DisplayCode = displayCode
-		items = append(items, item)
+		candidates = append(candidates, scannedMediaCandidate{
+			path:      path,
+			filename:  filename,
+			ext:       ext,
+			extracted: extracted,
+		})
+		matchedItems = len(candidates)
 
 		if time.Since(lastProgress) >= progressInterval {
 			logProgress(path)
@@ -183,17 +173,76 @@ func ScanLibrary(options ScanOptions) ScanResult {
 		return nil
 	})
 
-	logProgress("")
-
 	if err != nil {
 		return ScanResult{Error: fmt.Sprintf("扫描失败：%s", err.Error())}
 	}
+
+	// Finish contextual split detection only after the directory walk. This keeps
+	// a standalone "-C" compatible with the historical Chinese-subtitle tag,
+	// while alphabetic sibling files (A through Z) are emitted as distinct media rows.
+	concreteSplitGroups := make(map[string]bool)
+	for _, candidate := range candidates {
+		if candidate.extracted.Part != "" {
+			concreteSplitGroups[splitGroupKey(candidate.path, candidate.extracted.Code)] = true
+		}
+	}
+
+	for _, candidate := range candidates {
+		if ctx.Err() != nil {
+			return ScanResult{Error: fmt.Sprintf("扫描已取消或超时：%s", ctx.Err())}
+		}
+		extracted := candidate.extracted
+		if extracted.Part == "" && extracted.candidatePart != "" && concreteSplitGroups[splitGroupKey(candidate.path, extracted.Code)] {
+			extracted.Part = extracted.candidatePart
+			if strings.EqualFold(extracted.candidatePart, "C") && extracted.Tags == "中文字幕" {
+				extracted.Tags = ""
+			}
+		}
+
+		displayCode := formatDisplayCode(extracted.Code, extracted.Part)
+		if restrictToSelectedCrawlSource {
+			if crawlSource == nil {
+				return ScanResult{Error: "选定爬虫产物不可用"}
+			}
+			if record, selected := crawlSource.Lookup(extracted.Code); !selected {
+				continue
+			} else if record.Code != "" {
+				// Keep the original filename/display code for sidecar paths, but
+				// use the canonical crawler code for metadata resolution.
+				extracted.Code = record.Code
+			}
+		}
+
+		// Separate files of the same release must remain separate rows even though
+		// they share one normalized metadata lookup code. The part and directory
+		// are deliberately part of the UI identity; the canonical code is reserved
+		// for provider lookup and crawl matching.
+		key := extracted.Code + "|" + strings.ToUpper(extracted.Part) + "|" + filepath.Dir(candidate.path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		foundCodes[extracted.Code] = true
+		items = append(items, buildMediaItem(candidate.path, candidate.filename, candidate.ext, extracted, outputMode, crawlSource, presenceCache))
+		// A noisy magnet filename may resolve to a canonical crawler code. Keep
+		// the original display code so sidecar/UI rows remain traceable to the
+		// actual local file (for example MXGS-1183 -> MXGS-118). Never replace
+		// DisplayCode with the canonical value after this point: split and alias
+		// outputs depend on that distinction when writing sidecars.
+		items[len(items)-1].DisplayCode = displayCode
+	}
+	matchedItems = len(items)
+	logProgress("")
 
 	// 当存在爬虫产物时，把“爬虫期望有但本地未找到视频文件”的番号作为只读行返回，
 	// 供前端影片清单展示，提示用户这些番号尚未下载到本地。
 	missingItems := buildMissingItems(crawlSource, foundCodes)
 
 	return ScanResult{Items: items, MissingItems: missingItems}
+}
+
+func splitGroupKey(path, code string) string {
+	return strings.ToUpper(strings.TrimSpace(code)) + "|" + filepath.Clean(filepath.Dir(path))
 }
 
 // buildMissingItems compares crawler records against locally discovered video codes.
@@ -229,7 +278,7 @@ func buildMissingItems(crawlSource *CrawlSource, foundCodes map[string]bool) []L
 	return missing
 }
 
-func buildMediaItem(path, filename, ext string, extracted CodeExtractionResult, outputMode string, crawlSource *CrawlSource) LibraryMediaItem {
+func buildMediaItem(path, filename, ext string, extracted CodeExtractionResult, outputMode string, crawlSource *CrawlSource, presenceCache *sidecarPresenceCache) LibraryMediaItem {
 	dir := filepath.Dir(path)
 	stem := computeMediaStem(filename, ext)
 	displayCode := formatDisplayCode(extracted.Code, extracted.Part)
@@ -258,10 +307,10 @@ func buildMediaItem(path, filename, ext string, extracted CodeExtractionResult, 
 		BackdropPath:  backdropPath,
 		LandscapePath: landscapePath,
 		HasMedia:      true,
-		HasNfo:        fileExists(nfoPath),
-		HasPoster:     fileExists(posterPath),
-		HasBackdrop:   fileExists(backdropPath),
-		HasLandscape:  fileExists(landscapePath),
+		HasNfo:        presenceCache.exists(nfoPath),
+		HasPoster:     presenceCache.exists(posterPath),
+		HasBackdrop:   presenceCache.exists(backdropPath),
+		HasLandscape:  presenceCache.exists(landscapePath),
 		Tags:          extracted.Tags,
 		Part:          extracted.Part,
 	}
@@ -320,6 +369,48 @@ func computeItemStatus(item LibraryMediaItem) string {
 		return "缺横图"
 	}
 	return "待刮削"
+}
+
+// sidecarPresenceCache batches the four metadata existence checks for each
+// media item into one directory read. This is especially important for SMB,
+// mapped NAS, and other high-latency filesystems where four Stat calls per
+// video can turn a small library scan into minutes of waiting.
+type sidecarPresenceCache struct {
+	directories map[string]map[string]struct{}
+}
+
+func newSidecarPresenceCache() *sidecarPresenceCache {
+	return &sidecarPresenceCache{directories: make(map[string]map[string]struct{})}
+}
+
+func (c *sidecarPresenceCache) exists(path string) bool {
+	if c == nil {
+		return fileExists(path)
+	}
+
+	directory := filepath.Dir(path)
+	entries, loaded := c.directories[directory]
+	if !loaded {
+		entries = make(map[string]struct{})
+		if directoryEntries, err := os.ReadDir(directory); err == nil {
+			for _, entry := range directoryEntries {
+				entries[sidecarNameKey(entry.Name())] = struct{}{}
+			}
+		}
+		// Store empty/error results as well. A missing subfolder is common in
+		// subfolder output mode and must not trigger four repeated probes.
+		c.directories[directory] = entries
+	}
+
+	_, ok := entries[sidecarNameKey(filepath.Base(path))]
+	return ok
+}
+
+func sidecarNameKey(name string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(name)
+	}
+	return name
 }
 
 func fileExists(path string) bool {

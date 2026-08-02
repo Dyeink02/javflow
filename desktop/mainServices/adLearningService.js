@@ -334,14 +334,22 @@ function createAdLearningService({ app, fs, path }) {
       .trim()
       .replace(/[_\s]+/g, '-')
       .replace(/-+/g, '-');
-    const match = compactValue.match(/^([A-Z]{2,12})-?(\d{2,8})([A-Z]*)$/);
+    // Samples must use the same canonical identity as organizer/crawler
+    // records, otherwise TL-1 and TL-001 create separate learning entries.
+    const match = compactValue.match(/^([A-Z]{2,12})-?(\d{1,8})([A-Z]*)$/);
 
     if (!match) {
       return compactValue;
     }
 
     const [, prefix, digits, suffix] = match;
-    return `${prefix}-${digits}${suffix}`.replace(/-+/g, '-');
+    const parsedNumber = Number.parseInt(digits, 10);
+    const normalizedDigits = Number.isFinite(parsedNumber)
+      ? parsedNumber < 100
+        ? String(parsedNumber).padStart(3, '0')
+        : String(parsedNumber)
+      : digits;
+    return `${prefix}-${normalizedDigits}${suffix}`.replace(/-+/g, '-');
   }
 
   function normalizeCodeToken(code) {

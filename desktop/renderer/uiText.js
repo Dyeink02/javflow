@@ -26,7 +26,7 @@
   const FALLBACK_SHARED_TEXT = {
     APP_INFO: {
       title: 'JavFlow',
-      version: '0.4.1',
+      version: '0.4.2',
       subtitle: '基于开源项目：raawaa',
       eyebrow: 'Windows EXE',
       defaultBaseUrl: 'https://www.javbus.com'
@@ -114,7 +114,8 @@
       { version: '0.26', summary: '代码架构模块化解耦：IPC通道常量化、统一错误分类体系、Proxy响应式状态管理、UI控制器拆分（form/organizer分层），统一日志格式规范' },
       { version: '0.30', summary: '核心架构迁移至Go语言开发，软件体积从200MB减小至15MB，爬虫执行引擎全面Go原生接管' },
       { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' },
-      { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' }
+      { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' },
+      { version: '0.4.2', summary: '内测：统计与过滤修复、媒体库扫描加速、批量删除安全复核' }
     ],
     UI_TEXT_SOURCE: {
       hero: {
@@ -205,7 +206,9 @@
         magnetContentValidationTitle: '磁力内容校验（广告过滤）',
         magnetContentValidationHelp: '会尝试读取磁力内部文件列表，发现广告包或杂文件包时自动跳过并切换下一条候选磁力；开启后速度会稍慢。',
         nopicTitle: '跳过图片下载',
-        nopicHelp: '仅抓取影片信息和磁力，不下载图片。'
+        nopicHelp: '仅抓取影片信息和磁力，不下载图片。',
+        metadataOnlyTitle: '仅抓取影片信息（不获取磁力）',
+        metadataOnlyHelp: '只访问详情页并保存番号、演员、片商、标签和系列；适合为旧视频库建立识别快照。'
       },
       actions: {
         changeBackground: '更换背景',
@@ -233,7 +236,7 @@
         duplicateLabel: '已定位重复番号',
         pageGapLabel: '未定位分页缺口',
         completedLabel: '已完成番号',
-        failedLabel: '失败详情页',
+        failedLabel: '失败与重复',
         defaultMessage: '等待开始抓取。',
         ready: '准备就绪，等待开始。',
         activeEmpty: '当前没有正在执行的项目。',
@@ -460,7 +463,7 @@
   const UI_TEXT = deepMerge(
     {
       appTitle: appInfo.title || 'JAV自动化整理归纳视频软件',
-      version: appInfo.version || '0.4.1',
+      version: appInfo.version || '0.4.2',
       source: {
         href: appInfo.sourceUrl || 'https://www.javbus.com/star/okq',
         name: appInfo.sourceName || '三上悠亜'

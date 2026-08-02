@@ -137,6 +137,39 @@
       elements.libraryProgressPill.textContent = String(message || '等待扫描').trim();
     }
 
+    // 刮削是批量任务；弹窗只在整批（包括自动补刮）进入终态后显示一次。
+    // 保留 alert 回退，便于在没有 Wails bridge 的浏览器预览中验证流程。
+    async function showLibraryMetadataCompletionAlert({ status = 'completed', message = '' } = {}) {
+      const normalizedStatus = ['completed', 'error', 'stopped'].includes(String(status || '').trim().toLowerCase())
+        ? String(status || '').trim().toLowerCase()
+        : 'completed';
+      const titleMap = {
+        completed: '媒体库刮削完成',
+        error: '媒体库刮削完成，但存在失败',
+        stopped: '媒体库刮削已停止'
+      };
+      const title = titleMap[normalizedStatus];
+      const body = String(message || `${title}，请查看刮削日志了解详情。`).trim();
+      const type = normalizedStatus === 'completed' ? 'success' : 'warning';
+
+      if (desktopApi && typeof desktopApi.showAlert === 'function') {
+        try {
+          await desktopApi.showAlert({
+            type,
+            title,
+            message: body,
+            confirmText: '知道了'
+          });
+        } catch (_) {
+          // 弹窗失败不应影响刮削结果和收尾清理。
+        }
+        return;
+      }
+      if (typeof globalScope.alert === 'function') {
+        globalScope.alert(`${title}\n${body}`);
+      }
+    }
+
     function normalizeText(value) {
       return String(value || '').trim();
     }
@@ -859,6 +892,17 @@
       }
     }
 
+    // Use a display-preserving name for the request, but collapse harmless
+    // spacing/punctuation differences for the in-memory de-duplication key.
+    // This prevents one crawl from scheduling the same actress twice when two
+    // providers format her name differently (for example, with a full-width
+    // space or a middle dot).
+    function normalizeAutoSubscriptionActorKey(value) {
+      return normalizeText(value)
+        .toLocaleLowerCase()
+        .replace(/[\s\u3000・·]/g, '');
+    }
+
     function queueLeadActorAutoSubscription(info, code, crawlOutputDir, proxy) {
       if (
         !elements.libraryAutoSubscribeLeadActor ||
@@ -873,7 +917,10 @@
       if (!actressName) {
         return;
       }
-      const actorKey = actressName.toLocaleLowerCase();
+      const actorKey = normalizeAutoSubscriptionActorKey(actressName);
+      if (!actorKey) {
+        return;
+      }
       if (state.autoSubscriptionActors.has(actorKey)) {
         return;
       }
@@ -884,6 +931,7 @@
           actressName,
           number: code,
           proxy,
+          crawlOutputDir,
           preferredOutputDir: crawlOutputDir
         })
         .then((result) => {
@@ -931,6 +979,7 @@
         }
 
         const sortedIndexes = Array.from(state.selectedIds).sort((a, b) => a - b);
+        const selectedCount = sortedIndexes.length;
         let successCount = 0;
         let failCount = 0;
         let skipCount = 0;
@@ -1119,7 +1168,7 @@
             if (wroteAnything) {
               appendLog(
                 'info',
-                `写入成功 ${code}：NFO=${writeResult.nfoPath || '-'} 封面=${writeResult.posterPath || '-'} 背景=${writeResult.backdropPath || '-'} 横图=${writeResult.landscapePath || '-'}`
+                `写入成功 ${getItemDisplayCode(item)}：NFO=${writeResult.nfoPath || '-'} 封面=${writeResult.posterPath || '-'} 背景=${writeResult.backdropPath || '-'} 横图=${writeResult.landscapePath || '-'}`
               );
               successCount += 1;
             } else {
@@ -1238,6 +1287,10 @@
         setProgressStatus('error', summaryText);
       }
       appendLog('info', `任务结束：${summaryText}`);
+      void showLibraryMetadataCompletionAlert({
+        status: state.cancelRequested ? 'stopped' : failCount === 0 ? 'completed' : 'error',
+        message: `本次刮削：共选择 ${selectedCount} 部影片。\n${summaryText}`
+      });
       } finally {
         if (desktopApi && typeof desktopApi.finishLibraryMetadataJob === 'function') {
           await desktopApi.finishLibraryMetadataJob({ jobId }).catch(() => {});

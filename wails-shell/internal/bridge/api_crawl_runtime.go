@@ -90,6 +90,7 @@ func (a *API) newGoNativeRunner(payload map[string]any, baseURL string, outputDi
 		RetryCount:                  intValue(payload["retryCount"], 3),
 		RetryDelay:                  crawlRetryDelayFromPayload(payload),
 		Nomag:                       boolValue(payload["nomag"], false),
+		MetadataOnly:                boolValue(payload["metadataOnly"], false),
 		Allmag:                      boolValue(payload["allmag"], false),
 		Nopic:                       boolValue(payload["nopic"], false),
 		Proxy:                       nonEmptyString(payload["proxy"]),

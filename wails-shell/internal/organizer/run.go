@@ -68,6 +68,64 @@ func emitOrganizerProgress(onProgress ProgressSink, payload ProgressEntry) {
 	onProgress(payload)
 }
 
+// runWithProgressHeartbeat executes a potentially slow filesystem operation
+// while emitting a lightweight heartbeat. Rename/remove calls on network disks
+// can block for seconds or minutes without returning control to the pipeline;
+// the heartbeat keeps the UI and the run log honest without pretending that a
+// recursive delete has file-level progress that the OS does not expose.
+func runWithProgressHeartbeat(operation string, currentPath string, base ProgressEntry, emit ProgressSink, work func() error, logSinks ...func(string, string)) error {
+	if work == nil {
+		return nil
+	}
+	if emit == nil {
+		return work()
+	}
+
+	startedAt := time.Now()
+	result := make(chan error, 1)
+	go func() {
+		result <- work()
+	}()
+
+	interval := time.NewTicker(750 * time.Millisecond)
+	defer interval.Stop()
+	lastLogAt := time.Time{}
+	emitHeartbeat := func(heartbeat bool, completed bool) {
+		payload := ProgressEntry{}
+		for key, value := range base {
+			payload[key] = value
+		}
+		payload["operation"] = operation
+		payload["currentPath"] = currentPath
+		payload["heartbeat"] = heartbeat
+		payload["operationCompleted"] = completed
+		payload["elapsedMs"] = time.Since(startedAt).Milliseconds()
+		emit(payload)
+	}
+
+	for {
+		select {
+		case err := <-result:
+			emitHeartbeat(false, true)
+			return err
+		case <-interval.C:
+			emitHeartbeat(true, false)
+			if len(logSinks) > 0 && logSinks[0] != nil && time.Since(startedAt) >= 5*time.Second && (lastLogAt.IsZero() || time.Since(lastLogAt) >= 5*time.Second) {
+				lastLogAt = time.Now()
+				logSinks[0]("info", fmt.Sprintf("%s仍在处理：%s（已耗时 %s）", operation, currentPath, formatOrganizerElapsed(time.Since(startedAt))))
+			}
+		}
+	}
+}
+
+func formatOrganizerElapsed(elapsed time.Duration) string {
+	seconds := int(elapsed / time.Second)
+	if seconds < 60 {
+		return fmt.Sprintf("%d 秒", seconds)
+	}
+	return fmt.Sprintf("%d 分 %d 秒", seconds/60, seconds%60)
+}
+
 // shouldReportProgress throttles repetitive scan/move/delete progress chatter
 // so logs stay readable on very large trees.
 func shouldReportProgress(processed int, total int, step int) bool {
@@ -174,7 +232,7 @@ func resolveIntroAdDestinationPath(paths Paths, sourcePath string) string {
 
 // compactRootDirectories performs the last cleanup pass after waiting/delete
 // routing finishes. It should only touch organizer-managed leftovers.
-func compactRootDirectories(rootPath string, paths Paths, adFileAction string, dryRun bool, protectedSourcePaths []string, logf func(string, string)) int {
+func compactRootDirectories(rootPath string, paths Paths, adFileAction string, dryRun bool, protectedSourcePaths []string, logf func(string, string), progressSinks ...ProgressSink) int {
 	if rootPath == "" || !filepath.IsAbs(rootPath) {
 		return 0
 	}
@@ -187,10 +245,23 @@ func compactRootDirectories(rootPath string, paths Paths, adFileAction string, d
 	}
 
 	removedDirs := 0
+	var progressf ProgressSink
+	if len(progressSinks) > 0 {
+		progressf = progressSinks[0]
+	}
 	entries, err := os.ReadDir(rootPath)
 	if err != nil {
 		return 0
 	}
+	candidateTotal := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if _, keep := keepTopDirs[entry.Name()]; !keep {
+				candidateTotal++
+			}
+		}
+	}
+	candidateProcessed := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -198,6 +269,7 @@ func compactRootDirectories(rootPath string, paths Paths, adFileAction string, d
 		if _, keep := keepTopDirs[entry.Name()]; keep {
 			continue
 		}
+		candidateProcessed++
 
 		sourceDir := filepath.Join(rootPath, entry.Name())
 		protected := false
@@ -208,24 +280,111 @@ func compactRootDirectories(rootPath string, paths Paths, adFileAction string, d
 			}
 		}
 		if protected {
+			if progressf != nil {
+				progressf(ProgressEntry{
+					"phase":             progressPhaseFinalizeProgress,
+					"finalizeTotal":     organizerFinalizeUnits,
+					"finalizeProcessed": 2,
+					"total":             candidateTotal,
+					"processed":         candidateProcessed,
+					"subTotal":          candidateTotal,
+					"subProcessed":      candidateProcessed,
+					"operation":         "保留移动失败来源目录",
+					"currentPath":       sourceDir,
+				})
+			}
 			if logf != nil {
 				logf("warn", "\u6839\u76ee\u5f55\u6b8b\u7559\u76ee\u5f55\u5df2\u4fdd\u7559\uff1a"+sourceDir+"\uff08\u5b58\u5728\u79fb\u52a8\u5931\u8d25\u7684\u89c6\u9891\uff0c\u8bf7\u4eba\u5de5\u590d\u6838\uff09")
 			}
 			continue
 		}
+		// The scan/transfer phases own deletion decisions. Final cleanup must
+		// never turn an arbitrary leftover root directory into a recursive delete
+		// target: it may contain a crawler artifact, software cache, or a file the
+		// user did not select. Only an already-empty directory is safe to remove;
+		// nested empty directories are handled by cleanupEmptyDirectories below.
+		remainingEntries, readErr := os.ReadDir(sourceDir)
+		if readErr != nil {
+			if logf != nil {
+				logf("warn", "根目录残留目录无法读取，已保留："+sourceDir)
+			}
+			continue
+		}
+		if len(remainingEntries) > 0 {
+			if progressf != nil {
+				progressf(ProgressEntry{
+					"phase":             progressPhaseFinalizeProgress,
+					"finalizeTotal":     organizerFinalizeUnits,
+					"finalizeProcessed": 2,
+					"total":             candidateTotal,
+					"processed":         candidateProcessed,
+					"subTotal":          candidateTotal,
+					"subProcessed":      candidateProcessed,
+					"operation":         "保留含未确认内容的残留目录",
+					"currentPath":       sourceDir,
+				})
+			}
+			if logf != nil {
+				logf("info", "残留目录含未确认内容，已保留："+sourceDir)
+			}
+			continue
+		}
 		if dryRun {
+			if progressf != nil {
+				progressf(ProgressEntry{
+					"phase":             progressPhaseFinalizeProgress,
+					"finalizeTotal":     organizerFinalizeUnits,
+					"finalizeProcessed": 2,
+					"total":             candidateTotal,
+					"processed":         candidateProcessed,
+					"subTotal":          candidateTotal,
+					"subProcessed":      candidateProcessed,
+					"operation":         "预览清理残留目录",
+					"currentPath":       sourceDir,
+				})
+			}
 			if logf != nil {
 				logf("info", "[\u9884\u89c8] \u6839\u76ee\u5f55\u6b8b\u7559\u76ee\u5f55\u5f85\u5904\u7406\uff1a"+sourceDir)
 			}
 			continue
 		}
-		if err := removeDirectoryWithRetry(sourceDir, 5); err == nil {
+		removeErr := runWithProgressHeartbeat(
+			"清理残留目录",
+			sourceDir,
+			ProgressEntry{
+				"phase":             progressPhaseFinalizeProgress,
+				"finalizeTotal":     organizerFinalizeUnits,
+				"finalizeProcessed": 2,
+				"total":             candidateTotal,
+				"processed":         candidateProcessed - 1,
+				"subTotal":          candidateTotal,
+				"subProcessed":      candidateProcessed - 1,
+			},
+			progressf,
+			func() error { return removeDirectoryWithRetry(sourceDir, 5) },
+			logf,
+		)
+		if progressf != nil {
+			progressf(ProgressEntry{
+				"phase":              progressPhaseFinalizeProgress,
+				"finalizeTotal":      organizerFinalizeUnits,
+				"finalizeProcessed":  2,
+				"total":              candidateTotal,
+				"processed":          candidateProcessed,
+				"subTotal":           candidateTotal,
+				"subProcessed":       candidateProcessed,
+				"operation":          "清理残留目录",
+				"currentPath":        sourceDir,
+				"operationCompleted": removeErr == nil,
+			})
+		}
+		if removeErr == nil {
 			removedDirs++
 			if logf != nil {
 				logf("info", "\u6839\u76ee\u5f55\u6b8b\u7559\u76ee\u5f55\u5df2\u5220\u9664\uff1a"+sourceDir)
 			}
 		} else if logf != nil {
-			logf("warn", fmt.Sprintf("根目录残留目录删除失败：%s，原因：%s", sourceDir, err.Error()))
+			logf("warn", fmt.Sprintf("根目录残留目录删除失败：%s，原因：%s", sourceDir, removeErr.Error()))
 		}
 	}
 	return removedDirs
@@ -273,6 +432,17 @@ func (s *Service) RunOrganizer(options RunOptions) (RunResult, error) {
 	protectedSources := append(append([]string{}, waitingResult.waitingMoveFailedSources...), unmatchedMoveFailures...)
 	runCtx.processPendingDelete(scanResult.pendingDelete, protectedSources)
 	adRiskRecords := runCtx.reviewIntroAdRisk(waitingResult.renameRecords)
+	runCtx.logf("info", "进入整理收尾：准备写入报告、执行批量删除并清理残留目录。")
+	runCtx.progressf(ProgressEntry{
+		"phase":             progressPhaseFinalizeStart,
+		"finalizeTotal":     organizerFinalizeUnits,
+		"finalizeProcessed": 0,
+		"total":             organizerFinalizeUnits,
+		"processed":         0,
+		"operation":         "准备生成整理报告",
+		"currentPath":       runCtx.normalizedRootPath,
+		"failedOperations":  runCtx.summary.FailedOperations,
+	})
 	supplementResult := runCtx.buildSupplementData(adRiskRecords, scanResult.detectedFilmCodes)
 
 	reportMap, reportFiles, err := runCtx.writeRunReports(
@@ -284,8 +454,16 @@ func (s *Service) RunOrganizer(options RunOptions) (RunResult, error) {
 	if err != nil {
 		return RunResult{}, err
 	}
+	runCtx.logf("info", fmt.Sprintf("整理报告已生成：%d 个文件。", len(reportFiles)))
+	runCtx.emitFinalizeProgress(1, "整理报告已生成", runCtx.normalizedRootPath, ProgressEntry{
+		"reportCount": len(reportFiles),
+	})
 
 	runCtx.executeBatchDelete(scanResult.pendingDelete, protectedSources)
+	runCtx.logf("info", "批量删除步骤已结束，开始执行根目录收口和空目录清理。")
+	runCtx.emitFinalizeProgress(2, "批量删除步骤已完成", runCtx.normalizedRootPath, ProgressEntry{
+		"deletedDirectly": runCtx.summary.DeletedDirectly,
+	})
 	runCtx.cleanupManagedDirectories(protectedSources)
 
 	return runCtx.buildRunResult(

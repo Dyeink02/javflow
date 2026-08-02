@@ -74,6 +74,24 @@ func TestParseMetadataBuildsStructuredFields(t *testing.T) {
 	}
 }
 
+func TestParseMetadataExtractsMakerLabelAndSeries(t *testing.T) {
+	html := sampleHTML + `
+<p><span>Maker:</span><a>Studio Example</a></p>
+<p><span>Label:</span><a>Example Label</a></p>
+<p><span>Series:</span><a>Example Series</a></p>`
+	metadata, err := ParseMetadata(html)
+	if err != nil {
+		t.Fatalf("parse metadata: %v", err)
+	}
+	if metadata.Maker != "Studio Example" || metadata.Label != "Example Label" || metadata.Series != "Example Series" {
+		t.Fatalf("unexpected extended metadata: %#v", metadata)
+	}
+	projected := ParseFilmData(metadata, "https://www.javbus.com/ABF-055")
+	if projected.Maker != metadata.Maker || projected.Label != metadata.Label || projected.Series != metadata.Series {
+		t.Fatalf("extended metadata was not projected: %#v", projected)
+	}
+}
+
 func TestExtractAntiBlockURLs(t *testing.T) {
 	urls := ExtractAntiBlockURLs(sampleHTML)
 

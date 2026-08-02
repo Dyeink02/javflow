@@ -45,8 +45,9 @@ func magnetEntriesValue(value any) []organizer.MagnetEntry {
 				continue
 			}
 			result = append(result, organizer.MagnetEntry{
-				Link: link,
-				Size: cleanAnyString(typed["size"]),
+				Link:        link,
+				Size:        cleanAnyString(typed["size"]),
+				DisplayName: cleanAnyString(typed["displayName"]),
 			})
 		case string:
 			if link := strings.TrimSpace(typed); link != "" {
@@ -79,6 +80,10 @@ func codeEntriesValue(value any) []organizer.CodeEntry {
 		}
 		result = append(result, organizer.CodeEntry{
 			Code:    code,
+			Title:   cleanAnyString(entryMap["title"]),
+			Maker:   cleanAnyString(entryMap["maker"]),
+			Label:   cleanAnyString(entryMap["label"]),
+			Series:  cleanAnyString(entryMap["series"]),
 			Magnets: magnetEntriesValue(entryMap["magnets"]),
 		})
 	}

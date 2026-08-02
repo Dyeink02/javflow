@@ -25,20 +25,54 @@ func organizerProgressMessage(progress organizer.ProgressEntry) string {
 	phase := strings.TrimSpace(fmt.Sprint(progress["phase"]))
 	total := intValue(progress["total"], 0)
 	processed := intValue(progress["processed"], 0)
+	operation := strings.TrimSpace(fmt.Sprint(progress["operation"]))
+	currentPath := strings.TrimSpace(fmt.Sprint(progress["currentPath"]))
+	if len([]rune(currentPath)) > 96 {
+		runes := []rune(currentPath)
+		currentPath = string(runes[:64]) + "..." + string(runes[len(runes)-24:])
+	}
+	heartbeat := ""
+	if value, ok := progress["heartbeat"].(bool); ok && value {
+		heartbeat = "（仍在处理）"
+	}
+	detail := ""
+	if operation != "" {
+		detail += "，" + operation
+	}
+	if currentPath != "" {
+		detail += "，当前路径：" + currentPath
+	}
+	detail += heartbeat
 	waitingTotal := intValue(progress["waitingTotal"], 0)
 	deleteTotal := intValue(progress["deleteTotal"], 0)
 	introAdTotal := intValue(progress["introAdTotal"], 0)
 	switch phase {
 	case "starting":
-		return "organizer task is starting"
-	case "scanning":
-		return fmt.Sprintf("organizer scanning: %d/%d", processed, total)
-	case "matched":
-		return fmt.Sprintf("organizer matched: waiting %d, delete %d, intro ad %d", waitingTotal, deleteTotal, introAdTotal)
+		return "正在准备视频整理"
+	case "scanning", "scan-start", "scan-progress":
+		return fmt.Sprintf("扫描目录：%d/%d%s", processed, total, detail)
+	case "matched", "scan-completed":
+		return fmt.Sprintf("扫描完成：待整理 %d，待删除 %d，开头广告 %d%s", waitingTotal, deleteTotal, introAdTotal, detail)
+	case "waiting-start", "waiting-progress":
+		return fmt.Sprintf("移入待整理：%d/%d%s", processed, total, detail)
+	case "delete-start", "delete-progress":
+		return fmt.Sprintf("处理待删除内容：%d/%d%s", processed, total, detail)
+	case "intro-ad-start", "intro-ad-progress":
+		return fmt.Sprintf("开头广告复核：%d/%d%s", processed, total, detail)
+	case "finalize-start", "finalize-progress":
+		finalizeTotal := intValue(progress["finalizeTotal"], 4)
+		finalizeProcessed := intValue(progress["finalizeProcessed"], 0)
+		subTotal := intValue(progress["subTotal"], 0)
+		subProcessed := intValue(progress["subProcessed"], 0)
+		subDetail := ""
+		if subTotal > 0 {
+			subDetail = fmt.Sprintf("，子任务 %d/%d", subProcessed, subTotal)
+		}
+		return fmt.Sprintf("整理收尾：%d/%d%s%s", finalizeProcessed, finalizeTotal, subDetail, detail)
 	case "completed":
-		return fmt.Sprintf("organizer completed: waiting %d, delete %d, intro ad %d", waitingTotal, deleteTotal, introAdTotal)
+		return fmt.Sprintf("整理完成：待整理 %d，待删除 %d，开头广告 %d%s", waitingTotal, deleteTotal, introAdTotal, detail)
 	default:
-		return "organizer task is running"
+		return "视频整理正在运行" + detail
 	}
 }
 

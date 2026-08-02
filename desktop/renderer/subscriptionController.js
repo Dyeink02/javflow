@@ -63,7 +63,8 @@
       defaultOutputDir: '',
       mediaHydrationRunning: false,
       reorderRunning: false,
-      pendingReorderIDs: null
+      pendingReorderIDs: null,
+      activeBatchCrawl: null
     };
     let eventsBound = false;
     let bootstrapCompleted = false;
@@ -1252,6 +1253,10 @@
         prepareSubscriptionCrawlerFromItem(refreshed);
         if (normalizeCount(refreshed && refreshed.pendingCount, 0) <= 0) {
           setSubscriptionCrawlerStatus('已是最新');
+          await showSubscriptionCompletionAlert(
+            `演员：${refreshed.actressName || item.actressName || '订阅'}\n本次检测没有发现新增影片，无需执行刮削。`,
+            { title: '更新刮削完成' }
+          );
           return;
         }
         await startIndependentCrawl(refreshed);
@@ -1363,18 +1368,25 @@
       });
     }
 
-    async function showSubscriptionCompletionAlert(message) {
+    async function showSubscriptionCompletionAlert(message, options = {}) {
+      const type = options && options.type === 'warning' ? 'warning' : 'success';
+      const title = normalizeText(options && options.title) || '更新刮削完成';
       if (!desktopApi || typeof desktopApi.showAlert !== 'function') {
         if (typeof globalScope.alert === 'function') {
-          globalScope.alert(message);
+          globalScope.alert(`${title}\n${message}`);
         }
         return;
       }
-      await desktopApi.showAlert({
-        type: 'success',
-        title: '订阅抓取完成',
-        message
-      });
+      try {
+        await desktopApi.showAlert({
+          type,
+          title,
+          message,
+          confirmText: '知道了'
+        });
+      } catch (_) {
+        // 完成提示失败不能影响订阅结果回收和状态清理。
+      }
     }
 
     async function prepareSubscriptionCrawlEnvironment() {
@@ -1518,12 +1530,21 @@
       appendLog('info', `反屏蔽：${state.antiBlockReady ? '已启用' : '初始化失败'}`);
       setSubscriptionCrawlerStatus('\u4e00\u952e\u5168\u90e8\u66f4\u65b0\u4e2d...');
 
+      state.activeBatchCrawl = {
+        expectedTotal: pendingItems.length,
+        actorConcurrency,
+        outputDir,
+        startedAt: Date.now(),
+        completionNotified: false
+      };
+
       try {
         await desktopApi.startSubscriptionBatchCrawl(buildSubscriptionRuntimePayload({
           actorConcurrency,
           proxy
         }));
       } catch (error) {
+        state.activeBatchCrawl = null;
         appendLog('error', `\u4e00\u952e\u5168\u90e8\u66f4\u65b0\u542f\u52a8\u5931\u8d25: ${getErrorMessage(error)}`);
         setSubscriptionCrawlerStatus('\u542f\u52a8\u5931\u8d25');
       }
@@ -1590,6 +1611,13 @@
       if (!activeSession || !activeSession.subscriptionId) {
         return;
       }
+      // 主爬虫可能同时通过多个事件通道发出终态；同一 session 只允许回收一次。
+      if (activeSession.finalizing) {
+        return;
+      }
+      if (state.activeCrawlSession) {
+        state.activeCrawlSession.finalizing = true;
+      }
 
       const outputDir =
         normalizeText(statePayload && statePayload.currentTaskOutputDir) ||
@@ -1637,12 +1665,36 @@
           // 订阅抓取结束后，同步刷新“最近爬取选择”以及视频整理/刮削工作区。
           void loadRecentCrawlOptionsFromHistory();
           refreshPeerWorkspacesAfterSubscriptionCrawl(completedOutputDir || outputDir);
+          const missingCodes = normalizeCodes(finalized.missingCodes);
+          const keptCount = normalizeCount(finalized.keptCount, 0);
+          const actressName = finalized.subscription.actressName || activeSession.actressName || '订阅';
+          const summaryLines = [
+            `演员：${actressName}`,
+            `本次更新刮削：保留 ${keptCount} 部影片`
+          ];
+          if (missingCodes.length > 0) {
+            const previewCodes = missingCodes.slice(0, 8).join('、');
+            const remainingText = missingCodes.length > 8 ? ' 等' : '';
+            summaryLines.push(`未抓到 ${missingCodes.length} 个番号：${previewCodes}${remainingText}`);
+          } else {
+            summaryLines.push('待更新番号已全部回收');
+          }
           void showSubscriptionCompletionAlert(
-            `${finalized.subscription.actressName || '订阅'} 抓取已完成，保留 ${normalizeCount(finalized.keptCount, 0)} 部待更新影片。`
+            summaryLines.join('\n'),
+            { type: missingCodes.length > 0 ? 'warning' : 'success' }
           );
+        } else {
+          void showSubscriptionCompletionAlert('订阅抓取已结束，但没有可回收的结果，请查看订阅日志。', {
+            type: 'warning',
+            title: '更新刮削未完成'
+          });
         }
       } catch (error) {
         appendLog('error', `订阅抓取收尾失败: ${getErrorMessage(error)}`);
+        void showSubscriptionCompletionAlert(`订阅结果回收失败：${getErrorMessage(error)}`, {
+          type: 'warning',
+          title: '更新刮削未完成'
+        });
       } finally {
         clearActiveCrawlSession();
       }
@@ -1688,15 +1740,34 @@
               const succeeded = normalizeCount(data.batchSucceeded, 0);
               const noUpdate = normalizeCount(data.batchNoUpdate, 0);
               const failed = normalizeCount(data.failed, 0);
+              const batchRun = state.activeBatchCrawl;
+              if (!batchRun || batchRun.completionNotified) {
+                return;
+              }
+              batchRun.completionNotified = true;
               setSubscriptionCrawlerStatus('\u5168\u90e8\u66f4\u65b0\u5b8c\u6210');
               setSummaryMessage(`\u4e00\u952e\u66f4\u65b0\u5b8c\u6210\uff1a\u6210\u529f ${succeeded}\uff0c\u65e0\u66f4\u65b0 ${noUpdate}\uff0c\u5931\u8d25 ${failed}\u3002`);
               appendLog('info', `\u4e00\u952e\u66f4\u65b0\u5b8c\u6210\uff1a\u6210\u529f ${succeeded}\uff0c\u65e0\u66f4\u65b0 ${noUpdate}\uff0c\u5931\u8d25 ${failed}\u3002`);
               void loadSubscriptions();
+              void showSubscriptionCompletionAlert(
+                `本次一键更新：共处理 ${normalizeCount(data.batchTotal, batchRun.expectedTotal)} 位演员。\n成功 ${succeeded} 位，无更新 ${noUpdate} 位，失败 ${failed} 位。`,
+                { type: failed > 0 ? 'warning' : 'success' }
+              );
+              state.activeBatchCrawl = null;
               return;
             }
             if (status === 'stopped') {
+              const batchRun = state.activeBatchCrawl;
               setSubscriptionCrawlerStatus('\u5df2\u505c\u6b62\u5168\u90e8\u66f4\u65b0');
               void loadSubscriptions();
+              if (batchRun && !batchRun.completionNotified) {
+                batchRun.completionNotified = true;
+                void showSubscriptionCompletionAlert(
+                  `一键更新已停止：已完成 ${normalizeCount(data.batchCompleted, 0)} / ${normalizeCount(data.batchTotal, batchRun.expectedTotal)} 位演员。`,
+                  { type: 'warning', title: '更新刮削已停止' }
+                );
+              }
+              state.activeBatchCrawl = null;
               return;
             }
             const completed = normalizeCount(data.batchCompleted, 0);

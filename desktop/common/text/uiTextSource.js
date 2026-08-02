@@ -131,7 +131,9 @@ const UI_TEXT_SOURCE = {
       magnetContentValidationTitle: '磁力内容校验（广告过滤）',
       magnetContentValidationHelp: '会尝试读取磁力内部文件列表，发现广告包或杂文件包时自动跳过并切换下一条候选磁力；开启后速度会稍慢。',
       nopicTitle: '跳过图片下载',
-      nopicHelp: '仅抓取影片信息和磁力，不下载图片。'
+      nopicHelp: '仅抓取影片信息和磁力，不下载图片。',
+      metadataOnlyTitle: '仅抓取影片信息（不获取磁力）',
+      metadataOnlyHelp: '只访问详情页并保存番号、演员、片商、标签和系列；适合为旧视频库建立识别快照。'
     },
     actions: {
       changeBackground: '更换背景',
@@ -160,7 +162,7 @@ const UI_TEXT_SOURCE = {
       pageGapLabel: '未定位分页缺口',
       filteredLabel: '过滤影片番号',
       completedLabel: '已完成番号',
-      failedLabel: '失败详情页',
+      failedLabel: '失败与重复',
       defaultMessage: '等待开始抓取。',
       ready: '准备就绪，等待开始。',
       activeEmpty: '当前没有正在执行的项目。',

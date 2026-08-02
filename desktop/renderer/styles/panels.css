@@ -105,6 +105,16 @@
   padding-right: 6px;
 }
 
+.failed-subsection {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+}
+
+.failed-subsection .item-grid {
+  max-height: 110px;
+}
+
 .failed-card,
 .failed-summary {
   border-radius: 18px;

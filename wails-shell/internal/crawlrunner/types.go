@@ -87,6 +87,10 @@ type RunnerStats struct {
 	Queued                 int      `json:"queued"`
 	Attempted              int      `json:"attempted"`
 	Completed              int      `json:"completed"`
+	TotalItems             int      `json:"totalItems"`
+	FilteredItemsCount     int      `json:"filteredItemsCount"`
+	DuplicateItemsCount    int      `json:"duplicateItemsCount"`
+	FailedItemsCount       int      `json:"failedItemsCount"`
 	PageIndex              int      `json:"pageIndex"`
 	FilteredByActressCount int      `json:"filteredByActressCount"`
 	FilteredItemIDs        []string `json:"filteredItemIds,omitempty"`
@@ -98,17 +102,21 @@ type RunnerStats struct {
 // Config is the runner-side execution contract after UI payloads and restored
 // runtime state have already been normalized by upper layers.
 type Config struct {
-	BaseURL                     string                        `json:"baseUrl"`
-	Base                        string                        `json:"base"`
-	Parallel                    int                           `json:"parallel"`
-	Timeout                     time.Duration                 `json:"timeout"`
-	Limit                       int                           `json:"limit"`
-	TotalPages                  int                           `json:"totalPages"`
-	ItemsPerPage                int                           `json:"itemsPerPage"`
-	Delay                       int                           `json:"delay"`
-	RetryCount                  int                           `json:"retryCount"`
-	RetryDelay                  time.Duration                 `json:"retryDelay"`
-	Nomag                       bool                          `json:"nomag"`
+	BaseURL      string        `json:"baseUrl"`
+	Base         string        `json:"base"`
+	Parallel     int           `json:"parallel"`
+	Timeout      time.Duration `json:"timeout"`
+	Limit        int           `json:"limit"`
+	TotalPages   int           `json:"totalPages"`
+	ItemsPerPage int           `json:"itemsPerPage"`
+	Delay        int           `json:"delay"`
+	RetryCount   int           `json:"retryCount"`
+	RetryDelay   time.Duration `json:"retryDelay"`
+	Nomag        bool          `json:"nomag"`
+	// MetadataOnly keeps detail-page metadata but deliberately skips the magnet
+	// endpoint. It is used to build a trustworthy local code/studio/series
+	// index for old libraries without producing download links.
+	MetadataOnly                bool                          `json:"metadataOnly"`
 	Allmag                      bool                          `json:"allmag"`
 	Nopic                       bool                          `json:"nopic"`
 	Proxy                       string                        `json:"proxy"`

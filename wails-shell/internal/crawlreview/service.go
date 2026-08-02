@@ -195,12 +195,14 @@ func buildPanel(payload map[string]any, previous Panel, maxItems int) Panel {
 		FilteredItems:        normalizeStringSlice(rawFilteredItems, maxItems),
 		FilteredItemsTotal: firstPositiveInt(
 			intValue(payload["filteredItemsTotal"]),
-			intValue(payload["filteredByActressCount"]),
 			intValue(statsPayload["filteredItemsTotal"]),
+			intValue(payload["filteredItemsCount"]),
+			intValue(statsPayload["filteredItemsCount"]),
+			intValue(payload["filteredByActressCount"]),
 			intValue(statsPayload["filteredByActressCount"]),
 			len(rawFilteredItems),
 		),
-		CompletedItems:      normalizeStringSlice(rawCompletedItems, maxItems),
+		CompletedItems: normalizeStringSlice(rawCompletedItems, maxItems),
 		CompletedItemsTotal: firstPositiveInt(
 			intValue(payload["completedItemsTotal"]),
 			intValue(payload["completedItems"]),

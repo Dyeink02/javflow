@@ -42,12 +42,17 @@ import (
 // - organizer execution and file moves stay in `run*.go`
 // - subscription import logic stays in `internal/avsubscription`
 type MagnetEntry struct {
-	Link string `json:"link"`
-	Size string `json:"size"`
+	Link        string `json:"link"`
+	Size        string `json:"size"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 type CodeEntry struct {
 	Code    string        `json:"code"`
+	Title   string        `json:"title,omitempty"`
+	Maker   string        `json:"maker,omitempty"`
+	Label   string        `json:"label,omitempty"`
+	Series  string        `json:"series,omitempty"`
 	Magnets []MagnetEntry `json:"magnets"`
 }
 
@@ -111,8 +116,9 @@ func normalizeMagnetEntry(rawValue any) *MagnetEntry {
 			return nil
 		}
 		return &MagnetEntry{
-			Link: link,
-			Size: strings.TrimSpace(crawlartifact.AnyToString(value["size"])),
+			Link:        link,
+			Size:        strings.TrimSpace(crawlartifact.AnyToString(value["size"])),
+			DisplayName: strings.TrimSpace(crawlartifact.AnyToString(value["displayName"])),
 		}
 	default:
 		return nil
@@ -127,8 +133,9 @@ func normalizeMagnetEntries(rawValue any) []MagnetEntry {
 	case []MagnetEntry:
 		for _, item := range value {
 			list = append(list, map[string]any{
-				"link": item.Link,
-				"size": item.Size,
+				"link":        item.Link,
+				"size":        item.Size,
+				"displayName": item.DisplayName,
 			})
 		}
 	case string:
@@ -203,12 +210,20 @@ func extractRecordMagnetEntries(record map[string]any) []MagnetEntry {
 	return mergeMagnetEntries(record["backupMagnetLinks"], record["magnetLinks"], record["magnet"], record["magnets"])
 }
 
+func firstRecordString(record map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(crawlartifact.AnyToString(record[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // LoadCrawlFilmCodes is organizer's read-only adapter over crawl outputs. It
 // prefers the derived organizer-codes artifact when available, then falls back
 // to filmData normalization for older runs.
 func (s *Service) LoadCrawlFilmCodes(outputDir string) (LoadCrawlFilmCodesResult, error) {
 	outputDir = crawlartifact.ResolveEffectiveCrawlOutputDir(outputDir)
-
 	internalPaths := crawlartifact.ResolveInternalArtifactPaths(s.paths.UserData, outputDir)
 	if pathIsFile(internalPaths.OrganizerCodesPath) {
 		if loaded, err := s.loadOrganizerCodesArtifact(outputDir); err == nil {
@@ -229,11 +244,56 @@ func (s *Service) LoadCrawlFilmCodes(outputDir string) (LoadCrawlFilmCodesResult
 		}
 	}
 
+	// A local discovery snapshot is the final safe fallback for old libraries
+	// where the user no longer has either public or app-managed crawler JSON. It
+	// is intentionally checked after crawler artifacts so an older local scan
+	// can never override a newer authoritative crawl list.
+	if discovered, err := s.loadDiscoveredCodesArtifact(outputDir); err == nil && discovered.CodeCount > 0 {
+		return discovered, nil
+	}
+
 	paths, records, err := crawlartifact.ReadFilmDataRecordsWithUserData(outputDir, s.paths.UserData)
 	if err != nil {
 		return LoadCrawlFilmCodesResult{}, fmt.Errorf("在 %s 中未找到可用的番号名单（需要 filmData.json 或 organizer-codes.json），请确认已选择正确的爬虫结果目录或整理快照：%w", outputDir, err)
 	}
 	return s.withFilteredCodes(outputDir, buildFilmDataCodeResult(paths, records)), nil
+}
+
+func (s *Service) loadDiscoveredCodesArtifact(outputDir string) (LoadCrawlFilmCodesResult, error) {
+	path := filepath.Join(strings.TrimSpace(outputDir), stateDirName, discoveredCodesFileName)
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return LoadCrawlFilmCodesResult{}, err
+	}
+	var artifact localDiscoveryArtifact
+	if err := json.Unmarshal(payload, &artifact); err != nil {
+		return LoadCrawlFilmCodesResult{}, err
+	}
+	if len(artifact.Codes) == 0 {
+		return LoadCrawlFilmCodesResult{}, fmt.Errorf("本地识别快照没有可用番号")
+	}
+	codes := make([]string, 0, len(artifact.Codes))
+	entries := make([]CodeEntry, 0, len(artifact.Codes))
+	for _, item := range artifact.Codes {
+		code := normalizeFilmID(item.Code)
+		if code == "" {
+			continue
+		}
+		codes = append(codes, code)
+		entries = append(entries, CodeEntry{Code: code})
+	}
+	sort.Strings(codes)
+	result := LoadCrawlFilmCodesResult{
+		OutputDir:    outputDir,
+		FilmDataPath: path,
+		SourceType:   "local-discovery",
+		TotalRecords: len(codes),
+		CodeCount:    len(codes),
+		Codes:        codes,
+		CodeEntries:  entries,
+	}
+	result.PreloadedExpected = result.ToPreloadedExpectedCodes()
+	return result, nil
 }
 
 // withFilteredCodes supplements a filmData-derived result with the structured
@@ -293,16 +353,31 @@ func pathIsFile(path string) bool {
 }
 
 func buildFilmDataCodeResult(paths crawlartifact.CrawlOutputPaths, records []map[string]any) LoadCrawlFilmCodesResult {
-
-	codeEntryMap := map[string][]MagnetEntry{}
+	codeEntryMap := map[string]*CodeEntry{}
 	for _, record := range records {
 		code := extractRecordCode(record)
 		if code == "" {
 			continue
 		}
 
-		existing := codeEntryMap[code]
-		codeEntryMap[code] = mergeMagnetEntries(existing, extractRecordMagnetEntries(record))
+		entry := codeEntryMap[code]
+		if entry == nil {
+			entry = &CodeEntry{Code: code}
+			codeEntryMap[code] = entry
+		}
+		if entry.Title == "" {
+			entry.Title = strings.TrimSpace(crawlartifact.AnyToString(record["title"]))
+		}
+		if entry.Maker == "" {
+			entry.Maker = firstRecordString(record, "maker", "studio", "manufacturer")
+		}
+		if entry.Label == "" {
+			entry.Label = firstRecordString(record, "label")
+		}
+		if entry.Series == "" {
+			entry.Series = firstRecordString(record, "series")
+		}
+		entry.Magnets = mergeMagnetEntries(entry.Magnets, extractRecordMagnetEntries(record))
 	}
 
 	codes := make([]string, 0, len(codeEntryMap))
@@ -313,10 +388,9 @@ func buildFilmDataCodeResult(paths crawlartifact.CrawlOutputPaths, records []map
 
 	codeEntries := make([]CodeEntry, 0, len(codes))
 	for _, code := range codes {
-		codeEntries = append(codeEntries, CodeEntry{
-			Code:    code,
-			Magnets: mergeMagnetEntries(codeEntryMap[code]),
-		})
+		entry := *codeEntryMap[code]
+		entry.Magnets = mergeMagnetEntries(entry.Magnets)
+		codeEntries = append(codeEntries, entry)
 	}
 
 	result := LoadCrawlFilmCodesResult{
@@ -347,12 +421,17 @@ func (s *Service) loadOrganizerCodesArtifact(outputDir string) (LoadCrawlFilmCod
 		magnets := make([]MagnetEntry, 0, len(entry.Magnets))
 		for _, magnet := range entry.Magnets {
 			magnets = append(magnets, MagnetEntry{
-				Link: strings.TrimSpace(magnet.Link),
-				Size: strings.TrimSpace(magnet.Size),
+				Link:        strings.TrimSpace(magnet.Link),
+				Size:        strings.TrimSpace(magnet.Size),
+				DisplayName: strings.TrimSpace(magnet.DisplayName),
 			})
 		}
 		codeEntries = append(codeEntries, CodeEntry{
 			Code:    strings.TrimSpace(entry.Code),
+			Title:   strings.TrimSpace(entry.Title),
+			Maker:   strings.TrimSpace(entry.Maker),
+			Label:   strings.TrimSpace(entry.Label),
+			Series:  strings.TrimSpace(entry.Series),
 			Magnets: magnets,
 		})
 	}
@@ -477,6 +556,29 @@ func (s *Service) ResolvePreloadedExpectedCodes(options RunOptions) (PreloadedEx
 	if len(resolved.Codes) == 0 && len(resolved.CodeEntries) == 0 {
 		outputDir := strings.TrimSpace(options.CrawlOutputDir)
 		if outputDir == "" {
+			// Strict matching must never fall back to free-form filename guesses.
+			// When no crawler list is supplied, create a read-only local discovery
+			// snapshot and use only its unambiguous codes.
+			if options.StrictExpectedCodes && strings.TrimSpace(options.RootPath) != "" {
+				discovered, discoverErr := s.DiscoverLocalCodes(DiscoverOptions{
+					RootPath:              options.RootPath,
+					IncludeSubdirectories: options.IncludeSubdirectories,
+					VideoExtensions:       options.VideoExtensions,
+				})
+				if discoverErr != nil || discovered.CodeCount == 0 {
+					return resolved, nil
+				}
+				return PreloadedExpectedCodes{
+					SourceType:   "local-discovery",
+					SourcePath:   discovered.StatePath,
+					OutputDir:    discovered.RootPath,
+					FilmDataPath: discovered.StatePath,
+					CodeCount:    discovered.CodeCount,
+					Codes:        discovered.Codes,
+					CodeEntries:  discovered.CodeEntries,
+					TotalRecords: discovered.VideoFiles,
+				}, nil
+			}
 			return resolved, nil
 		}
 
@@ -530,6 +632,30 @@ func normalizePreloadedExpectedCodes(input PreloadedExpectedCodes) PreloadedExpe
 
 	codeSet, _ := buildExpectedCodeSets(input.Codes)
 	codeEntryMap := buildExpectedCodeEntryMap(input.CodeEntries)
+	metadataByCode := map[string]CodeEntry{}
+	for _, entry := range input.CodeEntries {
+		code := normalizeFilmID(entry.Code)
+		if code == "" {
+			continue
+		}
+		current := metadataByCode[code]
+		if current.Code == "" {
+			current.Code = code
+		}
+		if current.Title == "" {
+			current.Title = strings.TrimSpace(entry.Title)
+		}
+		if current.Maker == "" {
+			current.Maker = strings.TrimSpace(entry.Maker)
+		}
+		if current.Label == "" {
+			current.Label = strings.TrimSpace(entry.Label)
+		}
+		if current.Series == "" {
+			current.Series = strings.TrimSpace(entry.Series)
+		}
+		metadataByCode[code] = current
+	}
 	for code := range codeEntryMap {
 		codeSet[code] = struct{}{}
 	}
@@ -547,8 +673,13 @@ func normalizePreloadedExpectedCodes(input PreloadedExpectedCodes) PreloadedExpe
 	}
 	sort.Strings(entryCodes)
 	for _, code := range entryCodes {
+		metadata := metadataByCode[code]
 		codeEntries = append(codeEntries, CodeEntry{
 			Code:    code,
+			Title:   metadata.Title,
+			Maker:   metadata.Maker,
+			Label:   metadata.Label,
+			Series:  metadata.Series,
 			Magnets: mergeMagnetEntries(codeEntryMap[code]),
 		})
 	}

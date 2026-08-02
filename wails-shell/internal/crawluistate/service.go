@@ -35,9 +35,15 @@ type Stats struct {
 	Queued                 int      `json:"queued"`
 	Attempted              int      `json:"attempted"`
 	Completed              int      `json:"completed"`
+	TotalItems             int      `json:"totalItems"`
+	FilteredItemsCount     int      `json:"filteredItemsCount"`
+	DuplicateItemsCount    int      `json:"duplicateItemsCount"`
+	FailedItemsCount       int      `json:"failedItemsCount"`
+	CompletedItems         int      `json:"completedItems"`
 	PageIndex              int      `json:"pageIndex"`
 	FilteredByActressCount int      `json:"filteredByActressCount"`
 	FilteredItemIDs        []string `json:"filteredItemIds,omitempty"`
+	CompletedItemIDs       []string `json:"completedItemIds,omitempty"`
 }
 
 type State struct {
@@ -165,9 +171,15 @@ func statsValue(value any) Stats {
 		Queued:                 intValue(statsMap["queued"]),
 		Attempted:              intValue(statsMap["attempted"]),
 		Completed:              intValue(statsMap["completed"]),
+		TotalItems:             intValue(statsMap["totalItems"]),
+		FilteredItemsCount:     intValue(statsMap["filteredItemsCount"]),
+		DuplicateItemsCount:    intValue(statsMap["duplicateItemsCount"]),
+		FailedItemsCount:       intValue(statsMap["failedItemsCount"]),
+		CompletedItems:         intValue(statsMap["completedItems"]),
 		PageIndex:              intValue(statsMap["pageIndex"]),
 		FilteredByActressCount: intValue(statsMap["filteredByActressCount"]),
 		FilteredItemIDs:        normalizeStringSlice(stringSliceValue(firstNonNil(statsMap["filteredItemIds"], statsMap["filteredItems"])), 200),
+		CompletedItemIDs:       normalizeStringSlice(stringSliceValue(firstNonNil(statsMap["completedItemIds"], statsMap["completedItemsList"])), 200),
 	}
 }
 

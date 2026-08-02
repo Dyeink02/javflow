@@ -39,6 +39,7 @@ func (ctx *organizerRunContext) moveCandidatesToWaiting(candidates []Candidate) 
 		"phase":        progressPhaseWaitingStart,
 		"total":        len(candidates),
 		"processed":    0,
+		"operation":    "准备改名并移入待整理",
 		"deleteTotal":  ctx.summary.AdFileCount,
 		"introAdTotal": 0,
 	})
@@ -71,7 +72,24 @@ func (ctx *organizerRunContext) moveCandidatesToWaiting(candidates []Candidate) 
 			})
 			ctx.logf("info", fmt.Sprintf("[\u9884\u89c8] \u5f85\u6574\u7406\uff1a%s -> %s", candidate.Src, destinationPath))
 		} else {
-			movedPath, err := moveWithUnique(candidate.Src, destinationPath)
+			var movedPath string
+			err := runWithProgressHeartbeat(
+				"视频改名并移动",
+				candidate.Src,
+				ProgressEntry{
+					"phase":      progressPhaseWaitingProgress,
+					"total":      len(candidates),
+					"processed":  index,
+					"targetPath": destinationPath,
+				},
+				ctx.progressf,
+				func() error {
+					var moveErr error
+					movedPath, moveErr = moveWithUnique(candidate.Src, destinationPath)
+					return moveErr
+				},
+				ctx.logf,
+			)
 			if err != nil {
 				ctx.summary.FailedOperations++
 				result.waitingMoveFailedSources = append(result.waitingMoveFailedSources, filepath.Clean(candidate.Src))
@@ -101,6 +119,9 @@ func (ctx *organizerRunContext) moveCandidatesToWaiting(candidates []Candidate) 
 			"phase":            progressPhaseWaitingProgress,
 			"total":            len(candidates),
 			"processed":        index + 1,
+			"operation":        "视频改名并移动",
+			"currentPath":      candidate.Src,
+			"targetPath":       destinationPath,
 			"deleteTotal":      ctx.summary.AdFileCount,
 			"introAdTotal":     0,
 			"failedOperations": ctx.summary.FailedOperations,
@@ -147,11 +168,20 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 		"phase":        progressPhaseDeleteStart,
 		"total":        len(pendingDelete),
 		"processed":    0,
+		"operation":    "准备处理待删除内容",
 		"adFileAction": ctx.adFileAction,
 		"introAdTotal": 0,
 	})
 	if ctx.batchDelete && ctx.adFileAction == adFileActionDeleteDirectly {
 		ctx.logf("info", fmt.Sprintf("批量删除已启用：%d 个待清理文件将在有效视频全部转移并写入报告后统一删除。", len(pendingDelete)))
+		ctx.progressf(ProgressEntry{
+			"phase":        progressPhaseDeleteProgress,
+			"total":        len(pendingDelete),
+			"processed":    0,
+			"operation":    "等待生成报告后统一删除",
+			"currentPath":  ctx.normalizedRootPath,
+			"adFileAction": ctx.adFileAction,
+		})
 		return
 	}
 
@@ -169,6 +199,8 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 	// over many per-file operations, unless that folder is protected by a failed
 	// waiting move or is itself a managed/root directory.
 	if !ctx.dryRun && len(pendingDeleteMap) > 0 {
+		pendingDeleteSet := makePendingDeletePathSet(ctx.normalizedRootPath, pendingDelete)
+		protectedPaths := normalizeProtectedPaths(waitingMoveFailedSources)
 		directoryCandidates := map[string]struct{}{}
 		for _, item := range pendingDeleteMap {
 			sourcePath := filepath.Clean(item.Src)
@@ -198,19 +230,60 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 			if hasProtectedSource {
 				continue
 			}
+			// Never use RemoveAll (or move an entire source directory) unless
+			// every remaining regular file was explicitly classified for cleanup.
+			// Download folders can also contain software caches, crawler output,
+			// or user files that were not part of this run.
+			if !ctx.batchDeleteDirectorySafe(sourceDir, pendingDeleteSet, protectedPaths) {
+				ctx.logf("info", "按目录处理跳过未确认内容，改为只处理明确待删除文件："+sourceDir)
+				continue
+			}
 
 			removedByDirectory := false
+			operation := "按目录删除"
 			switch ctx.adFileAction {
 			case adFileActionDeleteDirectly:
-				if err := os.RemoveAll(sourceDir); err != nil {
+				err := runWithProgressHeartbeat(
+					operation,
+					sourceDir,
+					ProgressEntry{
+						"phase":        progressPhaseDeleteProgress,
+						"total":        len(pendingDelete),
+						"processed":    deleteProcessed,
+						"adFileAction": ctx.adFileAction,
+					},
+					ctx.progressf,
+					func() error { return os.RemoveAll(sourceDir) },
+					ctx.logf,
+				)
+				if err != nil {
 					ctx.summary.FailedOperations++
 					ctx.logf("warn", fmt.Sprintf("按目录删除失败：%s，原因：%s", sourceDir, err.Error()))
 					continue
 				}
 				removedByDirectory = true
 			case adFileActionMoveToDelete:
+				operation = "按目录移入待删除"
 				destinationDir := resolveDeleteDestinationPath(ctx.paths, sourceDir)
-				movedDir, err := moveDirectoryWithUnique(sourceDir, destinationDir)
+				movedDir := ""
+				err := runWithProgressHeartbeat(
+					operation,
+					sourceDir,
+					ProgressEntry{
+						"phase":        progressPhaseDeleteProgress,
+						"total":        len(pendingDelete),
+						"processed":    deleteProcessed,
+						"adFileAction": ctx.adFileAction,
+						"targetPath":   destinationDir,
+					},
+					ctx.progressf,
+					func() error {
+						var moveErr error
+						movedDir, moveErr = moveDirectoryWithUnique(sourceDir, destinationDir)
+						return moveErr
+					},
+					ctx.logf,
+				)
 				if err == nil {
 					removedByDirectory = true
 					ctx.logf("info", fmt.Sprintf("已按目录整包移入待删除：%s -> %s", sourceDir, movedDir))
@@ -236,11 +309,13 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 					ctx.summary.MovedToDelete += removedInDir
 					ctx.logf("info", fmt.Sprintf("已按目录整包移入待删除：%s（文件 %d 个）", sourceDir, removedInDir))
 				}
-				if shouldReportProgress(deleteProcessed, len(pendingDelete), 40) {
+				if shouldReportProgress(deleteProcessed, len(pendingDelete), 10) {
 					ctx.progressf(ProgressEntry{
 						"phase":            progressPhaseDeleteProgress,
 						"total":            len(pendingDelete),
 						"processed":        deleteProcessed,
+						"operation":        operation,
+						"currentPath":      sourceDir,
 						"adFileAction":     ctx.adFileAction,
 						"introAdTotal":     0,
 						"failedOperations": ctx.summary.FailedOperations,
@@ -274,7 +349,20 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 				}
 			}
 		} else if ctx.adFileAction == adFileActionDeleteDirectly {
-			if err := os.Remove(item.Src); err != nil {
+			err := runWithProgressHeartbeat(
+				"删除文件",
+				item.Src,
+				ProgressEntry{
+					"phase":        progressPhaseDeleteProgress,
+					"total":        len(pendingDelete),
+					"processed":    deleteProcessed,
+					"adFileAction": ctx.adFileAction,
+				},
+				ctx.progressf,
+				func() error { return os.Remove(item.Src) },
+				ctx.logf,
+			)
+			if err != nil {
 				ctx.summary.FailedOperations++
 				ctx.logf("warn", fmt.Sprintf("\u76f4\u63a5\u5220\u9664\u5931\u8d25\uff1a%s\uff0c\u539f\u56e0\uff1a%s", item.Src, err.Error()))
 			} else {
@@ -285,7 +373,25 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 			}
 		} else {
 			destinationPath := resolveDeleteDestinationPath(ctx.paths, item.Src)
-			movedPath, err := moveWithUnique(item.Src, destinationPath)
+			movedPath := ""
+			err := runWithProgressHeartbeat(
+				"移入待删除",
+				item.Src,
+				ProgressEntry{
+					"phase":        progressPhaseDeleteProgress,
+					"total":        len(pendingDelete),
+					"processed":    deleteProcessed,
+					"adFileAction": ctx.adFileAction,
+					"targetPath":   destinationPath,
+				},
+				ctx.progressf,
+				func() error {
+					var moveErr error
+					movedPath, moveErr = moveWithUnique(item.Src, destinationPath)
+					return moveErr
+				},
+				ctx.logf,
+			)
 			if err != nil {
 				ctx.summary.FailedOperations++
 				ctx.logf("warn", fmt.Sprintf("\u79fb\u5165\u5f85\u5220\u9664\u5931\u8d25\uff1a%s\uff0c\u539f\u56e0\uff1a%s", item.Src, err.Error()))
@@ -298,11 +404,13 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 		}
 
 		deleteProcessed++
-		if shouldReportProgress(deleteProcessed, len(pendingDelete), 40) {
+		if shouldReportProgress(deleteProcessed, len(pendingDelete), 10) {
 			ctx.progressf(ProgressEntry{
 				"phase":            progressPhaseDeleteProgress,
 				"total":            len(pendingDelete),
 				"processed":        deleteProcessed,
+				"operation":        "处理待删除内容",
+				"currentPath":      item.Src,
 				"adFileAction":     ctx.adFileAction,
 				"introAdTotal":     0,
 				"failedOperations": ctx.summary.FailedOperations,

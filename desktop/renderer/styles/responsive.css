@@ -27,6 +27,10 @@
     grid-template-columns: 1fr;
   }
 
+  .organizer-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .span-2 {
     grid-column: span 1;
   }

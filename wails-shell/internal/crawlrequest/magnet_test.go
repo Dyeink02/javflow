@@ -1,6 +1,10 @@
 package crawlrequest
 
-import "testing"
+import (
+	"fmt"
+	"net/url"
+	"testing"
+)
 
 func TestBuildParsedMagnetCandidatesAndSelectLargest(t *testing.T) {
 	links := []string{
@@ -60,5 +64,48 @@ func TestExtractMagnetLinksAcceptsMagnetWithoutDN(t *testing.T) {
 	}
 	if links[0] != "magnet:?xt=urn:btih:1347598F03862100454B828CA065654DEB27A001" {
 		t.Fatalf("unexpected magnet link: %q", links[0])
+	}
+}
+
+func TestExtractMagnetLinksPreservesDisplayNameVariants(t *testing.T) {
+	t.Helper()
+	names := []string{"ABA-250", "aba-250", "ABA-250-c", "ABA-250-u", "1818.com@ABA-250"}
+	hash := "0123456789ABCDEF0123456789ABCDEF01234567"
+	html := ""
+	for index, name := range names {
+		link := fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=%s&tr=udp://tracker.example/%d", hash, url.QueryEscape(name), index+1)
+		html += fmt.Sprintf(`<a href="%s">%s</a>\n`, link, name)
+	}
+
+	links := ExtractMagnetLinks(html)
+	if len(links) != len(names) {
+		t.Fatalf("expected %d magnet links, got %d: %#v", len(names), len(links), links)
+	}
+	for index, link := range links {
+		t.Logf("simulated magnet %d: %s => %q", index+1, link, GetMagnetDisplayName(link))
+		if got := GetMagnetDisplayName(link); got != names[index] {
+			t.Errorf("display name %d = %q, want %q (link=%q)", index, got, names[index], link)
+		}
+	}
+}
+
+func TestGetMagnetDisplayNameUnescapesHTMLAndSupportsParameterOrder(t *testing.T) {
+	link := "magnet:?dn=1818.com%40ABA-250&amp;xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567"
+	if got := GetMagnetDisplayName(link); got != "1818.com@ABA-250" {
+		t.Fatalf("unexpected HTML-escaped display name: %q", got)
+	}
+}
+
+func TestBuildMagnetResultPersistsDisplayName(t *testing.T) {
+	result := BuildMagnetResult([]ParsedMagnetCandidate{{
+		MagnetLink:  "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567&dn=aba-250-c",
+		Size:        2048,
+		DisplayName: "aba-250-c",
+	}}, false, 1)
+	if result == nil || len(result.MagnetLinks) != 1 {
+		t.Fatalf("expected one selected magnet, got %#v", result)
+	}
+	if result.MagnetLinks[0].DisplayName != "aba-250-c" {
+		t.Fatalf("display name was not persisted: %#v", result.MagnetLinks[0])
 	}
 }

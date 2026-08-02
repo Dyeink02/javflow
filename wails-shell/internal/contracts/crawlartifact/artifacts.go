@@ -24,15 +24,21 @@ const CurrentSchemaVersion = 1
 // post-crawl artifact readers. Keep it narrow so later modules can reuse it
 // without importing crawler-side rich result models.
 type MagnetEntry struct {
-	Link string `json:"link"`
-	Size string `json:"size,omitempty"`
+	Link        string `json:"link"`
+	Size        string `json:"size,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // CodeEntry is the organizer-facing snapshot shape for one unique film code.
 // It is intentionally persisted as data, not as an organizer runtime type.
 type CodeEntry struct {
-	Code    string        `json:"code"`
-	Title   string        `json:"title,omitempty"`
+	Code   string `json:"code"`
+	Title  string `json:"title,omitempty"`
+	Maker  string `json:"maker,omitempty"`
+	Label  string `json:"label,omitempty"`
+	Series string `json:"series,omitempty"`
+	// Magnets is kept as a list because a code can have several releases or
+	// mirrors. Older artifacts without this field remain valid JSON.
 	Magnets []MagnetEntry `json:"magnets,omitempty"`
 }
 
@@ -44,7 +50,7 @@ type CodeEntry struct {
 // If callers only need actress identity, crawl URL, counts, or output paths,
 // they should prefer this artifact over re-reading the whole filmData payload.
 type CrawlProfileArtifact struct {
-	SchemaVersion int                     `json:"schemaVersion"`
+	SchemaVersion  int                     `json:"schemaVersion"`
 	RunID          string                  `json:"runId"`
 	CompletedAt    string                  `json:"completedAt"`
 	ActressName    string                  `json:"actressName,omitempty"`
@@ -86,7 +92,7 @@ type FilteredCodesArtifact struct {
 // This artifact exists specifically so organizer can consume the crawler's
 // unique-code view without re-deriving it from loose runtime state.
 type OrganizerCodesArtifact struct {
-	SchemaVersion    int                     `json:"schemaVersion"`
+	SchemaVersion   int                     `json:"schemaVersion"`
 	RunID           string                  `json:"runId"`
 	CompletedAt     string                  `json:"completedAt"`
 	ActressName     string                  `json:"actressName,omitempty"`

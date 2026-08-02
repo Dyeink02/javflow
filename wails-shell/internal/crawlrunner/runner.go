@@ -162,7 +162,7 @@ func (r *Runner) emitState(status RunnerStatus, message string) {
 		Status:  status,
 		Message: message,
 		Phase:   r.currentPhase,
-		Stats:   r.stats(),
+		Stats:   r.statsForStatus(status),
 	}
 	// `crawl.state` is the raw source of truth for task progress. The event
 	// payload intentionally contains enough structured fields for later review,
@@ -192,17 +192,33 @@ func (r *Runner) emit(event PhaseEvent) {
 }
 
 func (r *Runner) stats() *RunnerStats {
-	filteredItems := r.filteredActressItems()
-	completed := r.completedItemIDs()
+	return r.statsForStatus(StatusRunning)
+}
+
+// statsForStatus exposes one completion contract to every live/terminal state
+// event. During an active run the counter reflects records already persisted;
+// for a terminal state it uses the explicit accounting rule:
+// total - filtered - duplicate - failed.
+func (r *Runner) statsForStatus(status RunnerStatus) *RunnerStats {
+	final := isFinalRunnerStatus(status)
+	breakdown := r.completionBreakdown(final)
+	completedIDs := r.completedItemIDsFor(final)
+	completed := calculateCompletedCount(status, breakdown, completedIDs)
+	filteredItems := r.filteredItems()
+	filteredActressItems := r.filteredActressItems()
 	return &RunnerStats{
 		Queued:                 r.filmsQueued,
 		Attempted:              r.filmsAttempted,
-		Completed:              r.filmCount,
+		Completed:              completed,
+		TotalItems:             breakdown.Total,
+		FilteredItemsCount:     breakdown.Filtered,
+		DuplicateItemsCount:    breakdown.Duplicates,
+		FailedItemsCount:       breakdown.Failed,
 		PageIndex:              r.pageIndex,
-		FilteredByActressCount: len(filteredItems),
+		FilteredByActressCount: len(filteredActressItems),
 		FilteredItemIDs:        filteredItems,
-		CompletedItems:         len(completed),
-		CompletedItemIDs:       completed,
+		CompletedItems:         completed,
+		CompletedItemIDs:       completedIDs,
 		CompletedMagnetCount:   r.writer.OutputMagnetCount(),
 	}
 }
@@ -436,10 +452,11 @@ func (r *Runner) executeBoot(runnerRef any) error {
 	r.emitLog(
 		"info",
 		fmt.Sprintf(
-			"filter diagnostics: actressCountFilterThreshold=%d, filmCodeFilterThreshold=%q, nomag=%t, output=%s",
+			"filter diagnostics: actressCountFilterThreshold=%d, filmCodeFilterThreshold=%q, nomag=%t, metadataOnly=%t, output=%s",
 			r.config.ActressCountFilterThreshold,
 			r.config.FilmCodeFilterThreshold,
 			r.config.Nomag,
+			r.config.MetadataOnly,
 			r.outputDir,
 		),
 	)
@@ -512,7 +529,13 @@ func (r *Runner) processDetailTask(ctx context.Context, task crawlqueue.DetailPa
 	filmData := crawlparse.ParseFilmData(metadata, detailURL)
 	r.tracker.MarkProcessed(detailURL)
 
-	magnetResult, magnetErr := r.fetchMagnetForFilm(ctx, metadata, detailURL)
+	var magnetResult *crawlrequest.MagnetResult
+	var magnetErr error
+	if r.config.MetadataOnly {
+		r.emitLog("info", fmt.Sprintf("metadata-only: skip magnet lookup for %s", metadata.Title))
+	} else {
+		magnetResult, magnetErr = r.fetchMagnetForFilm(ctx, metadata, detailURL)
+	}
 	if magnetErr != nil {
 		r.emitLog("warn", fmt.Sprintf("magnet fetch failed %s: %v", metadata.Title, magnetErr))
 	}
@@ -525,18 +548,20 @@ func (r *Runner) processDetailTask(ctx context.Context, task crawlqueue.DetailPa
 	}
 
 	var outputLinks []struct {
-		Link string `json:"link"`
-		Size string `json:"size"`
+		Link        string `json:"link"`
+		Size        string `json:"size"`
+		DisplayName string `json:"displayName,omitempty"`
 	}
 	for _, ml := range magnetLinks {
 		outputLinks = append(outputLinks, struct {
-			Link string `json:"link"`
-			Size string `json:"size"`
-		}{Link: ml.Link, Size: ml.Size})
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
+		}{Link: ml.Link, Size: ml.Size, DisplayName: ml.DisplayName})
 	}
 
 	itemID := firstNonEmptyNonZero(getDetailItemIDFromLink(detailURL), extractFilmIDFromLink(detailURL), normalizeSourceLink(detailURL))
-	if r.config.Nomag && strings.TrimSpace(magnet) == "" {
+	if r.config.Nomag && !r.config.MetadataOnly && strings.TrimSpace(magnet) == "" {
 		// `nomag` means "skip entries that still have no magnet after real magnet
 		// lookup", not "skip magnet lookup entirely". We therefore preserve the
 		// film in no output artifact and only mark the unique item as policy-skipped
@@ -560,7 +585,7 @@ func (r *Runner) processDetailTask(ctx context.Context, task crawlqueue.DetailPa
 	if itemID != "" {
 		r.tracker.MarkPersisted("", itemID)
 	}
-	if magnetResult == nil && magnetErr == nil {
+	if magnetResult == nil && magnetErr == nil && !r.config.MetadataOnly {
 		r.tracker.MarkSkipped(itemID)
 	}
 	r.clearDetailFailure(detailURL)
@@ -575,8 +600,9 @@ func (r *Runner) processDetailTask(ctx context.Context, task crawlqueue.DetailPa
 // actress-count rule suppress magnet TXT export. If TXT counts look wrong, this
 // is the first place to inspect.
 func (r *Runner) buildOutputFilmData(filmData crawlparse.FilmData, magnet string, magnetLinks []struct {
-	Link string `json:"link"`
-	Size string `json:"size"`
+	Link        string `json:"link"`
+	Size        string `json:"size"`
+	DisplayName string `json:"displayName,omitempty"`
 }) crawloutput.FilmData {
 	actressCount := len(filmData.Actress)
 	output := crawloutput.FilmData{
@@ -585,6 +611,10 @@ func (r *Runner) buildOutputFilmData(filmData crawlparse.FilmData, magnet string
 		Category:     filmData.Category,
 		Actress:      filmData.Actress,
 		CoverImage:   filmData.CoverImage,
+		ReleaseDate:  filmData.ReleaseDate,
+		Maker:        filmData.Maker,
+		Label:        filmData.Label,
+		Series:       filmData.Series,
 		MagnetLinks:  magnetLinks,
 		Magnet:       magnet,
 		ActressCount: actressCount,
@@ -732,17 +762,22 @@ func (r *Runner) filteredActressItems() []string {
 // completedItemIDs returns persisted film IDs that have a magnet and are not
 // filtered by actress-count, film-code substring, or no-magnet policy.
 func (r *Runner) completedItemIDs() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return r.completedItemIDsFor(false)
+}
 
-	excluded := make(map[string]struct{}, len(r.filteredActressItemIDs)+len(r.filteredFilmCodeItemIDs))
-	for id := range r.filteredActressItemIDs {
+// completedItemIDsFor returns the persisted item IDs that are eligible to be
+// counted as successful output. Failed detail IDs are excluded so a record
+// left behind by a partial magnet/detail failure cannot inflate completion.
+func (r *Runner) completedItemIDsFor(includeInferredFailures bool) []string {
+	excluded := make(map[string]struct{})
+	for _, id := range r.filteredItems() {
 		excluded[id] = struct{}{}
 	}
-	for id := range r.filteredFilmCodeItemIDs {
+	for _, id := range r.failedItemIDs(includeInferredFailures) {
 		excluded[id] = struct{}{}
 	}
-	for id := range r.tracker.skippedItemIDs {
+	recon := r.tracker.BuildReconciliation()
+	for _, id := range recon.SkippedItemIDs {
 		excluded[id] = struct{}{}
 	}
 
@@ -755,6 +790,29 @@ func (r *Runner) completedItemIDs() []string {
 		if _, ok := excluded[id]; ok {
 			continue
 		}
+		items = append(items, id)
+	}
+	sort.Strings(items)
+	return items
+}
+
+// filteredItems merges all configured item-level filters into one stable list
+// used by completion math and the review panel. The actress-specific list is
+// retained separately for its detailed log wording.
+func (r *Runner) filteredItems() []string {
+	seen := map[string]struct{}{}
+	for _, id := range r.filteredActressItems() {
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	for _, id := range r.filteredFilmCodeItems() {
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	items := make([]string, 0, len(seen))
+	for id := range seen {
 		items = append(items, id)
 	}
 	sort.Strings(items)
@@ -810,6 +868,8 @@ func (r *Runner) recordFilmCodeFiltered(link string) string {
 }
 
 func (r *Runner) filteredFilmCodeItems() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	items := make([]string, 0, len(r.filteredFilmCodeItemIDs))
 	for itemID := range r.filteredFilmCodeItemIDs {
 		items = append(items, itemID)
@@ -1379,7 +1439,7 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 	lines := []string{
 		fmt.Sprintf("# 任务状态：%s", final.Status.Label()),
 		fmt.Sprintf("# 状态说明：%s", final.Message),
-		fmt.Sprintf("# 已完成：%d", r.filmCount),
+		fmt.Sprintf("# 已完成：%d", r.effectiveCompletedCount(final.Status)),
 	}
 
 	if r.config.Limit > 0 {
@@ -1433,9 +1493,9 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 		lines = append(lines, pageGapLines...)
 	}
 
-	filteredItems := r.filteredActressItems()
+	filteredItems := r.filteredItems()
 	if len(filteredItems) > 0 {
-		lines = append(lines, "# 过滤影片番号（演员数量超阈值，仅跳过 magnet-links.txt）")
+		lines = append(lines, "# 过滤影片番号（演员数量或番号过滤）")
 		lines = append(lines, filteredItems...)
 	}
 
@@ -1524,7 +1584,7 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 		ConfiguredTargetCount:   r.config.Limit,
 		ValidationPassed:        validationPassed,
 		SecondValidationEnabled: r.config.SecondValidation,
-		CompletedCount:          r.filmCount,
+		CompletedCount:          r.effectiveCompletedCount(StatusCompleted),
 		SkippedByPolicyCount:    len(recon.SkippedItemIDs),
 		ExpectedUniqueCount:     len(recon.ExpectedIDs),
 	})
@@ -1646,7 +1706,7 @@ func (r *Runner) buildArtifactMetadata(final FinalStateOutput) crawloutput.Artif
 		ActressName:    r.detectPrimaryActressName(),
 		CrawlURL:       buildIndexPageURL(firstNonEmptyNonZero(r.config.Base, r.config.BaseURL), r.config.Search, "", 1),
 		TargetCount:    targetCount,
-		CompletedCount: r.filmCount,
+		CompletedCount: r.effectiveCompletedCount(final.Status),
 		ItemsPerPage:   r.config.ItemsPerPage,
 		TotalPages:     r.config.TotalPages,
 		SiteBase:       firstNonEmptyNonZero(r.config.Base, r.config.BaseURL),
@@ -1661,11 +1721,17 @@ func (r *Runner) buildArtifactRunID() string {
 }
 
 func (r *Runner) detectPrimaryActressName() string {
+	// The search field is the user's explicit crawl target. Compilation titles
+	// may contain several actresses, so record-frequency inference must never
+	// override that target when it is available.
+	if target := strings.TrimSpace(r.config.Search); target != "" {
+		return target
+	}
 	records, err := r.loadOutputRecords()
 	if err != nil || len(records) == 0 {
-		return strings.TrimSpace(r.config.Search)
+		return ""
 	}
-	return firstNonEmptyNonZero(crawloutputDetectPrimaryActress(records), strings.TrimSpace(r.config.Search))
+	return crawloutputDetectPrimaryActress(records)
 }
 
 func crawloutputDetectPrimaryActress(records []crawloutput.FilmData) string {
@@ -1733,7 +1799,7 @@ func (r *Runner) buildSnapshot(status RunnerStatus, message string, mode crawlex
 	// 快照是恢复闭环的核心：保存当前进度、队列、校验结果和输出状态。
 	recon := r.tracker.BuildReconciliation()
 	return crawltaskstate.BuildSnapshot(crawltaskstate.BuilderParams{
-		AppVersion: "0.4.1",
+		AppVersion: "0.4.2",
 		Status:     string(status),
 		Message:    strings.TrimSpace(message),
 		StartedAt:  strings.TrimSpace(r.startedAt),

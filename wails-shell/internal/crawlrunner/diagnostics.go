@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"javflow/internal/common"
 	"javflow/internal/contracts/crawlartifact"
 	"javflow/internal/crawlexecution"
 	"javflow/internal/crawloutput"
@@ -256,7 +257,7 @@ func (r *Runner) buildInferredFailedDetails() []FailedDetail {
 
 	explicitItems := map[string]struct{}{}
 	for _, detail := range r.explicitFailedDetails() {
-		item := strings.TrimSpace(detail.Item)
+		item := diagnosticItemID(detail.Item, detail.SourceLink)
 		if item != "" {
 			explicitItems[item] = struct{}{}
 		}
@@ -316,6 +317,92 @@ func (r *Runner) failedDetails(includeInferred bool) []FailedDetail {
 	result := append([]FailedDetail{}, explicit...)
 	result = append(result, r.buildInferredFailedDetails()...)
 	return result
+}
+
+// failedItemIDs converts failure details into one stable item-level set for
+// completion math. A detail page may have several error records over retries,
+// but it must subtract only once from the final total.
+func (r *Runner) failedItemIDs(includeInferred bool) []string {
+	seen := map[string]struct{}{}
+	for _, detail := range r.failedDetails(includeInferred) {
+		itemID := diagnosticItemID(detail.Item, detail.SourceLink)
+		if itemID != "" {
+			seen[itemID] = struct{}{}
+		}
+	}
+	items := make([]string, 0, len(seen))
+	for itemID := range seen {
+		items = append(items, itemID)
+	}
+	sort.Strings(items)
+	return items
+}
+
+// diagnosticItemID normalizes restored and live failure records to the same
+// identity used by Tracker. Older snapshots may contain a lowercase item or a
+// title instead of a canonical code; extracting the film code first prevents
+// those records from bypassing completed-item exclusion or being counted twice.
+func diagnosticItemID(values ...string) string {
+	for _, value := range values {
+		if id := extractFilmIDFromLink(value); id != "" {
+			return id
+		}
+	}
+	for _, value := range values {
+		if id := getDetailItemIDFromLink(value); id != "" {
+			return strings.TrimSpace(id)
+		}
+	}
+	return ""
+}
+
+type completionBreakdown struct {
+	// Total is the original index-entry count, so it intentionally includes
+	// repeated links discovered across pages.
+	Total int
+	// Filtered and Failed are unique item-level counts. Duplicates is the
+	// number of extra raw entries beyond the first occurrence of each item.
+	// Keeping these units explicit prevents future callers from subtracting a
+	// list length that represents a different population.
+	Filtered   int
+	Duplicates int
+	Failed     int
+}
+
+// completionBreakdown is the canonical accounting view shared by live stats,
+// terminal reports, and crawl-profile metadata.
+func (r *Runner) completionBreakdown(includeInferredFailures bool) completionBreakdown {
+	recon := r.tracker.BuildReconciliation()
+	total := recon.ExpectedEntryCount
+	if total <= 0 {
+		total = len(recon.ExpectedIDs)
+	}
+	if total <= 0 {
+		total = common.MaxInt(r.filmsQueued, r.filmCount)
+	}
+	return completionBreakdown{
+		Total:      total,
+		Filtered:   len(r.filteredItems()),
+		Duplicates: recon.RawDuplicateEntryCount,
+		Failed:     len(r.failedItemIDs(includeInferredFailures)),
+	}
+}
+
+func (r *Runner) effectiveCompletedCount(status RunnerStatus) int {
+	final := isFinalRunnerStatus(status)
+	breakdown := r.completionBreakdown(final)
+	return calculateCompletedCount(status, breakdown, r.completedItemIDsFor(final))
+}
+
+// calculateCompletedCount is the single source of truth for the number shown
+// in live/terminal runner stats and persisted summaries. Terminal states use
+// the product rule requested by the UI; active states use the durable item IDs
+// already written so the counter does not claim work that is still in flight.
+func calculateCompletedCount(status RunnerStatus, breakdown completionBreakdown, completedIDs []string) int {
+	if isFinalRunnerStatus(status) && breakdown.Total > 0 {
+		return common.MaxInt(breakdown.Total-breakdown.Filtered-breakdown.Duplicates-breakdown.Failed, 0)
+	}
+	return len(completedIDs)
 }
 
 // missingDetailLinksForRecovery returns deduplicated unresolved links for
@@ -427,9 +514,11 @@ func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 	duplicateItems := r.tracker.DuplicateItemIDs()
 	unfinishedItems := r.tracker.GetUncapturedItems()
 	pageGapItems := r.buildPageGapLines()
-	filteredItems := r.filteredActressItems()
-	completedItems := r.completedItemIDs()
+	filteredItems := r.filteredItems()
+	completedItems := r.completedItemIDsFor(includeInferred)
 	failedDetails := r.failedDetails(includeInferred)
+	breakdown := r.completionBreakdown(includeInferred)
+	completedCount := r.effectiveCompletedCount(status)
 
 	// Keep these keys aligned with crawlreview/crawluistate services and the
 	// frontend state controller. They are the structured replacement for the old
@@ -437,6 +526,7 @@ func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 	return map[string]any{
 		"duplicateItems":       duplicateItems,
 		"duplicateItemsTotal":  len(duplicateItems),
+		"duplicateCount":       breakdown.Duplicates,
 		"unfinishedItems":      unfinishedItems,
 		"unfinishedItemsTotal": len(unfinishedItems),
 		"missingItems":         unfinishedItems,
@@ -446,11 +536,15 @@ func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 		"filteredItems":        filteredItems,
 		"filteredItemsTotal":   len(filteredItems),
 		"filteredItemIds":      filteredItems,
+		"filteredCount":        breakdown.Filtered,
 		"completedItems":       completedItems,
-		"completedItemsTotal":  len(completedItems),
+		"completedItemsTotal":  completedCount,
 		"completedItemIds":     completedItems,
 		"failedDetails":        cloneFailedDetails(failedDetails),
 		"failedDetailsTotal":   len(failedDetails),
+		"failedCount":          breakdown.Failed,
+		"totalItems":           breakdown.Total,
+		"completedCount":       completedCount,
 	}
 }
 

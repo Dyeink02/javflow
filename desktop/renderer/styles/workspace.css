@@ -200,11 +200,43 @@
 .organizer-quick-actions {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .organizer-stat-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* 视频整理按“整理配置 -> 整理统计 -> 整理日志”阅读顺序排列。结果卡片
+   在桌面宽度保持横向指标，用户可以先设定规则，再立即看到进度。 */
+#organizer-workspace main.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+}
+
+#organizer-workspace main.layout > .panel {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  align-self: stretch;
+}
+
+#organizer-workspace main.layout > .log-panel {
+  order: 3;
+}
+
+#organizer-workspace main.layout > .stats-panel {
+  order: 2;
+}
+
+#organizer-workspace main.layout > .form-panel {
+  order: 1;
 }
 
 .organizer-report-list {
@@ -284,6 +316,8 @@
 
 /* Organizer result panel polish */
 #organizer-workspace .stats-panel {
+  width: 100%;
+  min-width: 0;
   border-color: rgba(86, 224, 255, 0.24);
   background:
     radial-gradient(150% 110% at 0% 0%, rgba(86, 224, 255, 0.18), transparent 56%),
@@ -296,7 +330,15 @@
 }
 
 #organizer-workspace .organizer-stat-grid {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+}
+
+#organizer-workspace .organizer-section-label {
+  margin: 0 0 10px;
 }
 
 #organizer-workspace .organizer-stat-grid .stat-card {
@@ -372,6 +414,27 @@
 #organizer-workspace .organizer-quick-actions .ghost-button {
   min-height: 48px;
   border-radius: 14px;
+}
+
+/* Keep the statistics panel wide enough for its cards before responsive.css
+   applies the shared narrow-screen layout rules. The ID-qualified rules win
+   over the generic .stat-grid rules without changing other workspaces. */
+@media (max-width: 1180px) {
+  #organizer-workspace .organizer-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  #organizer-workspace .organizer-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  #organizer-workspace .organizer-stat-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes workspace-fade {

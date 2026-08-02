@@ -417,6 +417,8 @@
         sanitizeReadyItems(panel.completedItems || panel.completedItemIds, maxPanelItems),
         Number.isFinite(panel.completedItemsTotal)
           ? panel.completedItemsTotal
+          : Number.isFinite(panel.completedCount)
+            ? panel.completedCount
           : Number.isFinite(panel.completedItems)
             ? panel.completedItems
             : toSafeArray(panel.completedItems || panel.completedItemIds).length

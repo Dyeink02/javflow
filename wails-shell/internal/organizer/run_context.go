@@ -11,6 +11,8 @@ import (
 	"javflow/internal/modulelog"
 )
 
+const organizerFinalizeUnits = 4
+
 // run_context.go owns derived organizer execution context construction and the
 // phase-to-phase handoff structs used by the Go organizer pipeline.
 //
@@ -228,6 +230,33 @@ func (ctx *organizerRunContext) emitRunStart() {
 	}
 }
 
+// emitFinalizeProgress makes the post-processing handoff visible. Report
+// writing, batch deletion, root compaction, and empty-directory cleanup are
+// separate operations; exposing them as four units prevents a long network
+// filesystem call from looking like a stalled 83% run.
+func (ctx *organizerRunContext) emitFinalizeProgress(processed int, operation string, currentPath string, extra ProgressEntry) {
+	if processed < 0 {
+		processed = 0
+	}
+	if processed > organizerFinalizeUnits {
+		processed = organizerFinalizeUnits
+	}
+	payload := ProgressEntry{
+		"phase":             progressPhaseFinalizeProgress,
+		"finalizeTotal":     organizerFinalizeUnits,
+		"finalizeProcessed": processed,
+		"total":             organizerFinalizeUnits,
+		"processed":         processed,
+		"operation":         operation,
+		"currentPath":       currentPath,
+		"failedOperations":  ctx.summary.FailedOperations,
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	ctx.progressf(payload)
+}
+
 // describeExpectedCodeSource reduces several possible crawl-artifact inputs
 // into one operator-facing label so debugging does not require reopening every
 // possible source file path.
@@ -304,21 +333,28 @@ func (ctx *organizerRunContext) cleanupManagedDirectories(waitingMoveFailedSourc
 	if ctx.batchDelete && ctx.adFileAction == adFileActionDeleteDirectly {
 		ctx.summary.RemovedEmptyDirs = 0
 		ctx.logf("info", "批量删除模式已完成统一收口，不再执行逐目录清理。")
+		ctx.emitFinalizeProgress(3, "已跳过逐目录清理", ctx.normalizedRootPath, nil)
+		ctx.emitFinalizeProgress(4, "整理收尾完成", ctx.normalizedRootPath, nil)
 		ctx.emitCompletionSummary()
 		return
 	}
 
-	compactRemoved := compactRootDirectories(ctx.normalizedRootPath, ctx.paths, ctx.adFileAction, ctx.dryRun, waitingMoveFailedSources, ctx.logf)
+	ctx.emitFinalizeProgress(2, "清理根目录残留", ctx.normalizedRootPath, nil)
+	compactRemoved := compactRootDirectories(ctx.normalizedRootPath, ctx.paths, ctx.adFileAction, ctx.dryRun, waitingMoveFailedSources, ctx.logf, ctx.progressf)
 	ctx.logf("info", fmt.Sprintf("\u6839\u76ee\u5f55\u6536\u53e3\u5b8c\u6210\uff1a\u5220\u9664\u6b8b\u7559\u76ee\u5f55 %d \u4e2a\u3002", compactRemoved))
 
 	preservedTopDirs := managedDirectoryNames(ctx.paths, ctx.adFileAction == adFileActionMoveToDelete)
 	removedEmptyDirs := 0
 	if !ctx.dryRun {
-		removedEmptyDirs = cleanupEmptyDirectories(ctx.normalizedRootPath, preservedTopDirs, ctx.logf)
+		removedEmptyDirs = cleanupEmptyDirectories(ctx.normalizedRootPath, preservedTopDirs, ctx.logf, ctx.progressf)
 	}
 	ctx.summary.RemovedEmptyDirs = removedEmptyDirs
 
 	ctx.logf("info", fmt.Sprintf("\u7a7a\u76ee\u5f55\u6e05\u7406\u5b8c\u6210\uff1a%d \u4e2a\u3002", removedEmptyDirs))
+	ctx.emitFinalizeProgress(4, "整理收尾完成", ctx.normalizedRootPath, ProgressEntry{
+		"removedDirectories": compactRemoved,
+		"removedEmptyDirs":   removedEmptyDirs,
+	})
 	ctx.emitCompletionSummary()
 }
 

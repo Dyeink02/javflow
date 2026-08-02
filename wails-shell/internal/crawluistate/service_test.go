@@ -12,10 +12,11 @@ func TestFromPayloadNormalizesUiState(t *testing.T) {
 		"activeItems":      []any{"ABP-001", " ABP-001 ", "", "ABP-002", "ABP-003"},
 		"activeItemsTotal": float64(8),
 		"stats": map[string]any{
-			"queued":    float64(10),
-			"attempted": float64(6),
-			"completed": float64(4),
-			"pageIndex": float64(2),
+			"queued":           float64(10),
+			"attempted":        float64(6),
+			"completed":        float64(4),
+			"pageIndex":        float64(2),
+			"completedItemIds": []any{"ABP-001", " ABP-002 ", "ABP-001"},
 		},
 	})
 
@@ -36,6 +37,9 @@ func TestFromPayloadNormalizesUiState(t *testing.T) {
 	}
 	if state.Stats.Queued != 10 || state.Stats.Attempted != 6 || state.Stats.Completed != 4 || state.Stats.PageIndex != 2 {
 		t.Fatalf("unexpected stats: %#v", state.Stats)
+	}
+	if len(state.Stats.CompletedItemIDs) != 2 || state.Stats.CompletedItemIDs[0] != "ABP-001" || state.Stats.CompletedItemIDs[1] != "ABP-002" {
+		t.Fatalf("expected completed item ids to survive ui-state projection, got %#v", state.Stats.CompletedItemIDs)
 	}
 }
 

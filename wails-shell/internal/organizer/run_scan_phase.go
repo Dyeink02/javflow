@@ -52,6 +52,17 @@ func (ctx *organizerRunContext) scanFiles() scanPhaseResult {
 			ctx.summary.FailedOperations++
 			continue
 		}
+		// A broad download root can contain crawler artifacts, logs, and hidden
+		// organizer state below a media folder. Protect these names before the
+		// size/type classifier puts non-video files into pendingDelete.
+		if ctx.isBatchDeleteProtectedPath(srcPath, nil) {
+			result.unmatchedRecords = append(result.unmatchedRecords, UnmatchedRecord{
+				Path:   srcPath,
+				Reason: "软件产物或受保护内容，保留原文件",
+			})
+			ctx.logf("info", "检测到软件产物或受保护内容，跳过整理和删除："+srcPath)
+			continue
+		}
 
 		scannedCount := fileIndex + 1
 		if shouldReportProgress(scannedCount, len(files), 30) {

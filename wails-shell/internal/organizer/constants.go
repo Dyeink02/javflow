@@ -14,17 +14,19 @@ package organizer
 // 2) expected-code source constants
 // 3) ad-file action constants
 const (
-	progressPhaseStarting        = "starting"
-	progressPhaseScanStart       = "scan-start"
-	progressPhaseScanProgress    = "scan-progress"
-	progressPhaseScanCompleted   = "scan-completed"
-	progressPhaseWaitingStart    = "waiting-start"
-	progressPhaseWaitingProgress = "waiting-progress"
-	progressPhaseDeleteStart     = "delete-start"
-	progressPhaseDeleteProgress  = "delete-progress"
-	progressPhaseIntroAdStart    = "intro-ad-start"
-	progressPhaseIntroAdProgress = "intro-ad-progress"
-	progressPhaseCompleted       = "completed"
+	progressPhaseStarting         = "starting"
+	progressPhaseScanStart        = "scan-start"
+	progressPhaseScanProgress     = "scan-progress"
+	progressPhaseScanCompleted    = "scan-completed"
+	progressPhaseWaitingStart     = "waiting-start"
+	progressPhaseWaitingProgress  = "waiting-progress"
+	progressPhaseDeleteStart      = "delete-start"
+	progressPhaseDeleteProgress   = "delete-progress"
+	progressPhaseIntroAdStart     = "intro-ad-start"
+	progressPhaseIntroAdProgress  = "intro-ad-progress"
+	progressPhaseFinalizeStart    = "finalize-start"
+	progressPhaseFinalizeProgress = "finalize-progress"
+	progressPhaseCompleted        = "completed"
 )
 
 // Organizer reads expected-code inputs from either preloaded payload data or

@@ -11,9 +11,58 @@ describe('organizerService video extension and root safety', () => {
   }
 
   afterEach(function cleanupTempRoot() {
-    if (this.currentTest && this.currentTest.tempRoot) {
-      fs.rmSync(this.currentTest.tempRoot, { recursive: true, force: true });
+    if (!this.currentTest) {
+      return;
     }
+
+    const tempRoots = Array.isArray(this.currentTest.tempRoots)
+      ? this.currentTest.tempRoots
+      : this.currentTest.tempRoot
+        ? [this.currentTest.tempRoot]
+        : [];
+    tempRoots.forEach((tempRoot) => {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    });
+  });
+
+  it('honors the missing-magnet retry switch in the archived report path', async function testRetryMissingMagnetsSwitch() {
+    const disabledRoot = makeTempRoot('jav-organizer-missing-disabled-');
+    const enabledRoot = makeTempRoot('jav-organizer-missing-enabled-');
+    this.test.tempRoots = [disabledRoot, enabledRoot];
+
+    async function runCase(rootPath, retryMissingMagnets) {
+      fs.writeFileSync(path.join(rootPath, 'ABF-003.mp4'), Buffer.alloc(2 * 1024 * 1024));
+      const service = createOrganizerService({ fs, path });
+      return service.runOrganizer({
+        rootPath,
+        minSizeMB: 1,
+        suffix: '-A',
+        adFileAction: 'delete-directly',
+        dryRun: false,
+        includeSubdirectories: true,
+        strictExpectedCodes: true,
+        expectedCodes: ['ABF-003', 'ABF-004'],
+        expectedCodeEntries: [
+          { code: 'ABF-004', magnets: [{ link: 'magnet:?xt=urn:btih:ABF004' }] }
+        ],
+        videoExtensions: 'mp4',
+        adDetectionEnabled: false,
+        retryMissingMagnets
+      });
+    }
+
+    const disabledResult = await runCase(disabledRoot, 'false');
+    const disabledReport = fs.readFileSync(disabledResult.reportMap.missingMagnets, 'utf8');
+    assert.strictEqual(disabledResult.summary.missingCodeCount, 1);
+    assert.strictEqual(disabledResult.summary.missingMagnetCount, 0);
+    assert.match(disabledReport, /补抓磁力总数：0/);
+    assert.match(disabledReport, /未生成遗漏番号补抓磁力/);
+
+    const enabledResult = await runCase(enabledRoot, true);
+    const enabledReport = fs.readFileSync(enabledResult.reportMap.missingMagnets, 'utf8');
+    assert.strictEqual(enabledResult.summary.missingCodeCount, 1);
+    assert.strictEqual(enabledResult.summary.missingMagnetCount, 1);
+    assert.match(enabledReport, /magnet:\?xt=urn:btih:ABF004/);
   });
 
   it('treats configured ISO files as valid large video candidates', async function testIsoExtension() {
@@ -48,7 +97,8 @@ describe('organizerService video extension and root safety', () => {
     const filenames = [
       'mxgs01121.mp4',
       'hhd800.com@MXGS-1183.mp4',
-      'kfa55.com@MXGS1358.mp4'
+      'kfa55.com@MXGS1358.mp4',
+      'TL-1.mp4'
     ];
 
     filenames.forEach((filename) => {
@@ -64,14 +114,14 @@ describe('organizerService video extension and root safety', () => {
       dryRun: true,
       includeSubdirectories: true,
       strictExpectedCodes: true,
-      expectedCodes: ['MXGS-1121', 'MXGS-1183', 'MXGS-1358'],
+      expectedCodes: ['MXGS-1121', 'MXGS-1183', 'MXGS-1358', 'TL-001'],
       videoExtensions: 'mp4',
       adDetectionEnabled: false
     });
 
     const renamedNames = result.preview.renameRecords.map((record) => record.newName).sort();
-    assert.deepStrictEqual(renamedNames, ['MXGS-1121.mp4', 'MXGS-1183.mp4', 'MXGS-1358.mp4']);
-    assert.strictEqual(result.summary.movedToWaiting, 3);
+    assert.deepStrictEqual(renamedNames, ['MXGS-1121.mp4', 'MXGS-1183.mp4', 'MXGS-1358.mp4', 'TL-001.mp4']);
+    assert.strictEqual(result.summary.movedToWaiting, 4);
     assert.strictEqual(result.preview.unmatchedRecords.length, 0);
   });
 

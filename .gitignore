@@ -35,6 +35,25 @@ debug.log
 /.tmp-*
 /tmp-*
 
+# ---- Internal development and release records ----
+/更新日志.md
+/开发变更日志.md
+/*更新日志.md
+/*开发变更日志.md
+/docs/版本归档/
+/当前开发基线.md
+/版本发布流程.md
+/A-B分集刮削优化说明.md
+/PROJECT_AUDIT_REPORT.md
+/媒体库刮削问题复盘与修复说明.md
+/项目全面审计与优化建议-*.md
+/README-新版草稿.md
+/JAV爬虫参考.html
+/女优中心参考.html
+/女优中心参考-v2.html
+/媒体库刮削统计布局测试.html
+/视频整理统计布局测试.html
+
 # ---- Crawl outputs ----
 /filmData.json
 /magnet-links.txt

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -57,11 +58,14 @@ func (s *CrawlSource) Lookup(code string) (CrawlerRecord, bool) {
 	key := strings.ToUpper(strings.TrimSpace(code))
 	record, ok := s.records[key]
 	if ok {
-		return record, true
+		return cloneCrawlerRecord(record), true
 	}
 	if canonical, exists := s.aliases[key]; exists {
 		record, ok = s.records[canonical]
-		return record, ok
+		if ok {
+			return cloneCrawlerRecord(record), true
+		}
+		return CrawlerRecord{}, false
 	}
 	// Older snapshots may not persist magnet links, so also accept a unique
 	// numeric spelling such as GOMK-051 for canonical GOMK-51. Ambiguous
@@ -79,7 +83,7 @@ func (s *CrawlSource) Lookup(code string) (CrawlerRecord, bool) {
 		}
 	}
 	if matchCount == 1 {
-		return matched, true
+		return cloneCrawlerRecord(matched), true
 	}
 	return CrawlerRecord{}, false
 }
@@ -91,9 +95,27 @@ func (s *CrawlSource) Records() []CrawlerRecord {
 	}
 	result := make([]CrawlerRecord, 0, len(s.records))
 	for _, record := range s.records {
-		result = append(result, record)
+		result = append(result, cloneCrawlerRecord(record))
 	}
+	// Map iteration order is deliberately random in Go. Keep the read model
+	// deterministic so missing-item lists, diagnostics, and tests do not change
+	// order between runs when the underlying snapshot is unchanged.
+	sort.Slice(result, func(i, j int) bool {
+		return strings.ToLower(result[i].Code) < strings.ToLower(result[j].Code)
+	})
 	return result
+}
+
+// cloneCrawlerRecord protects the source's internal maps and slices from
+// callers that only need a read model. Returning a shallow struct copy would
+// still let a caller mutate Actors, Genres, or Aliases and affect later
+// lookups, which would violate CrawlSource's read-only contract.
+func cloneCrawlerRecord(record CrawlerRecord) CrawlerRecord {
+	clone := record
+	clone.Actors = append([]string(nil), record.Actors...)
+	clone.Genres = append([]string(nil), record.Genres...)
+	clone.Aliases = append([]string(nil), record.Aliases...)
+	return clone
 }
 
 // BuildCrawlSource loads the selected output's hidden/visible artifacts. Other
@@ -389,6 +411,7 @@ var (
 	urlCodePrefixPattern   = regexp.MustCompile(`(?i)^([A-Z]{2,8})[-_]?([0-9]{1,8})(?:[_-][0-9]{4}(?:[-_][0-9]{2}){0,2})?$`)
 	textCodePattern        = regexp.MustCompile(`(?i)([A-Z]{2,12}[-_]?\d{1,8})`)
 	compactCodePattern     = regexp.MustCompile(`(?i)^([A-Z]{2,12})(\d{1,8})$`)
+	separatedCodePattern   = regexp.MustCompile(`(?i)^([A-Z]{2,12})[-_](\d{1,8})$`)
 )
 
 func extractCodeFromTitle(title string) string {
@@ -546,7 +569,7 @@ func normalizeMagnetCode(value string) string {
 	if match := compactCodePattern.FindStringSubmatch(strings.ReplaceAll(strings.ReplaceAll(upper, "-", ""), "_", "")); match != nil {
 		return normalizeCode(match[1] + "-" + match[2])
 	}
-	parts := regexp.MustCompile(`^([A-Z]{2,12})[-_](\d{1,8})$`).FindStringSubmatch(upper)
+	parts := separatedCodePattern.FindStringSubmatch(upper)
 	if len(parts) == 3 {
 		return normalizeCode(parts[1] + "-" + parts[2])
 	}
@@ -582,7 +605,7 @@ func likelyCrawlerAlias(alias, canonical string) bool {
 
 func splitCrawlerCode(code string) (string, string, bool) {
 	compact := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(code), "-", ""), "_", ""))
-	match := regexp.MustCompile(`^([A-Z]{2,12})(\d{1,8})$`).FindStringSubmatch(compact)
+	match := compactCodePattern.FindStringSubmatch(compact)
 	if len(match) != 3 {
 		return "", "", false
 	}

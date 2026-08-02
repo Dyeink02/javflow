@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"javflow/internal/contracts/crawlartifact"
@@ -214,6 +215,33 @@ func TestWriterFiltersFilmCodeFromMagnetTextOnly(t *testing.T) {
 	}
 }
 
+func TestWriterFilteredCodeLedgerCombinesFilterReasons(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir)
+	if err != nil {
+		t.Fatalf("create writer failed: %v", err)
+	}
+
+	if _, err := w.WriteFilmData(FilmData{
+		Title:                  "VR-001 Combined Filter",
+		SourceLink:             "https://example.com/VR-001",
+		FilteredByActressCount: true,
+		FilteredByFilmCode:     true,
+	}); err != nil {
+		t.Fatalf("write combined filtered film failed: %v", err)
+	}
+
+	w.mu.Lock()
+	_, entries := w.visibleRecordsLocked()
+	w.mu.Unlock()
+	if len(entries) != 1 {
+		t.Fatalf("expected one filtered ledger entry, got %#v", entries)
+	}
+	if entries[0].Reason != "actressCount+filmCode" {
+		t.Fatalf("expected combined filter reason, got %q", entries[0].Reason)
+	}
+}
+
 func TestWriterFiltersReleaseDate(t *testing.T) {
 	dir := t.TempDir()
 
@@ -390,10 +418,11 @@ func TestWriterFlushWritesDerivedArtifacts(t *testing.T) {
 		SourceLink: "https://example.com/ABP-890",
 		Actress:    []string{"结城りの", "他人"},
 		MagnetLinks: []struct {
-			Link string `json:"link"`
-			Size string `json:"size"`
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
 		}{
-			{Link: "magnet:?xt=urn:btih:BBBB", Size: "2.1GB"},
+			{Link: "magnet:?xt=urn:btih:BBBB", Size: "2.1GB", DisplayName: "ABP-890"},
 		},
 	})
 	if err != nil {
@@ -448,6 +477,176 @@ func TestWriterFlushWritesDerivedArtifacts(t *testing.T) {
 	}
 	if organizerCodes.CodeEntries[0].Code != "ABP-889" {
 		t.Fatalf("expected first code ABP-889, got %#v", organizerCodes.CodeEntries[0])
+	}
+}
+
+func TestWriterEnrichesExistingMagnetDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir)
+	if err != nil {
+		t.Fatalf("create writer failed: %v", err)
+	}
+
+	link := "magnet:?xt=urn:btih:AAAA&dn=aba-250-c"
+	base := FilmData{
+		Title:      "ABA-250 Sample",
+		SourceLink: "https://example.com/ABA-250",
+		Magnet:     link,
+		MagnetLinks: []struct {
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
+		}{{Link: link, Size: "2GB"}},
+	}
+	if _, err := w.WriteFilmData(base); err != nil {
+		t.Fatalf("write base record failed: %v", err)
+	}
+
+	enriched := FilmData{
+		Title:      base.Title,
+		SourceLink: base.SourceLink,
+		Magnet:     base.Magnet,
+		MagnetLinks: []struct {
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
+		}{{Link: link, Size: "2GB", DisplayName: "aba-250-c"}},
+	}
+	changed, err := w.WriteFilmData(enriched)
+	if err != nil {
+		t.Fatalf("write enriched record failed: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected display name enrichment to mark the record changed")
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush enriched record failed: %v", err)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(dir, crawlartifact.CrawlFilmDataFile))
+	if err != nil {
+		t.Fatalf("read filmData failed: %v", err)
+	}
+	if !strings.Contains(string(contents), `"displayName": "aba-250-c"`) {
+		t.Fatalf("expected displayName in filmData.json: %s", contents)
+	}
+}
+
+func TestWriterPrefersHiddenFilmDataSnapshotWhenResuming(t *testing.T) {
+	outputDir := t.TempDir()
+	userDataDir := t.TempDir()
+	visiblePath := filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile)
+	internalPaths := crawlartifact.ResolveInternalArtifactPaths(userDataDir, outputDir)
+
+	visiblePayload := []byte(`[{"title":"PUBLIC-001 visible"}]`)
+	hiddenPayload := []byte(`[{"title":"HIDDEN-001 complete"}]`)
+	if err := os.WriteFile(visiblePath, visiblePayload, 0o644); err != nil {
+		t.Fatalf("write visible filmData: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(internalPaths.FilmDataPath), 0o755); err != nil {
+		t.Fatalf("create hidden artifact directory: %v", err)
+	}
+	if err := os.WriteFile(internalPaths.FilmDataPath, hiddenPayload, 0o644); err != nil {
+		t.Fatalf("write hidden filmData: %v", err)
+	}
+
+	w, err := NewWriterWithArtifactPaths(outputDir, internalPaths)
+	if err != nil {
+		t.Fatalf("create writer: %v", err)
+	}
+	if got := w.RecordCount(); got != 1 {
+		t.Fatalf("expected one hidden record, got %d", got)
+	}
+	changed, err := w.WriteFilmData(FilmData{Title: "HIDDEN-001 retry"})
+	if err != nil {
+		t.Fatalf("write duplicate hidden record: %v", err)
+	}
+	if changed {
+		t.Fatal("hidden record should be recognized as already persisted")
+	}
+}
+
+func TestWriterMergesNewMagnetBackupLinks(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewWriter(dir)
+	if err != nil {
+		t.Fatalf("create writer: %v", err)
+	}
+	firstLink := "magnet:?xt=urn:btih:FIRST&dn=ABA-250"
+	secondLink := "magnet:?xt=urn:btih:SECOND&dn=aba-250-c"
+	base := FilmData{
+		Title:      "ABA-250 Sample",
+		SourceLink: "https://example.com/ABA-250",
+		Magnet:     firstLink,
+		MagnetLinks: []struct {
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
+		}{{Link: firstLink, Size: "2GB"}},
+	}
+	if _, err := w.WriteFilmData(base); err != nil {
+		t.Fatalf("write base record: %v", err)
+	}
+	incoming := FilmData{
+		Title:      base.Title,
+		SourceLink: base.SourceLink,
+		Magnet:     firstLink,
+		MagnetLinks: []struct {
+			Link        string `json:"link"`
+			Size        string `json:"size"`
+			DisplayName string `json:"displayName,omitempty"`
+		}{{Link: secondLink, Size: "3GB", DisplayName: "aba-250-c"}},
+	}
+	changed, err := w.WriteFilmData(incoming)
+	if err != nil {
+		t.Fatalf("merge retry record: %v", err)
+	}
+	if !changed {
+		t.Fatal("new backup link should mark the record changed")
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush merged record: %v", err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(dir, crawlartifact.CrawlFilmDataFile))
+	if err != nil {
+		t.Fatalf("read merged filmData: %v", err)
+	}
+	var records []FilmData
+	if err := json.Unmarshal(payload, &records); err != nil {
+		t.Fatalf("decode merged filmData: %v", err)
+	}
+	if len(records) != 1 || len(records[0].MagnetLinks) != 2 {
+		t.Fatalf("expected selected magnet plus one backup, got %#v", records)
+	}
+	if records[0].MagnetLinks[1].DisplayName != "aba-250-c" {
+		t.Fatalf("expected backup display name to survive merge, got %#v", records[0].MagnetLinks)
+	}
+}
+
+func TestSyncInternalArtifactsFromVisibleReplacesStaleHiddenSnapshot(t *testing.T) {
+	outputDir := t.TempDir()
+	userDataDir := t.TempDir()
+	internalPaths := crawlartifact.ResolveInternalArtifactPaths(userDataDir, outputDir)
+	if err := os.MkdirAll(filepath.Dir(internalPaths.FilmDataPath), 0o755); err != nil {
+		t.Fatalf("create hidden artifact directory: %v", err)
+	}
+	if err := os.WriteFile(internalPaths.FilmDataPath, []byte(`[{"title":"STALE-001"}]`), 0o644); err != nil {
+		t.Fatalf("write stale hidden filmData: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile), []byte(`[{"title":"CURRENT-002"}]`), 0o644); err != nil {
+		t.Fatalf("write visible filmData: %v", err)
+	}
+
+	if err := SyncInternalArtifactsFromVisible(userDataDir, outputDir, ArtifactMetadata{ActressName: "测试演员"}); err != nil {
+		t.Fatalf("sync hidden artifacts: %v", err)
+	}
+	_, records, err := crawlartifact.ReadFilmDataRecordsWithUserData(outputDir, userDataDir)
+	if err != nil {
+		t.Fatalf("read synced hidden filmData: %v", err)
+	}
+	if len(records) != 1 || records[0]["title"] != "CURRENT-002" {
+		t.Fatalf("expected visible records to replace stale hidden snapshot, got %#v", records)
 	}
 }
 

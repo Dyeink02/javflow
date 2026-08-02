@@ -275,7 +275,11 @@ class Parser {
       sourceLink: link,
       category: metadata.category,
       actress: metadata.actress,
-      actressCount
+      actressCount,
+      releaseDate: metadata.releaseDate,
+      maker: metadata.maker,
+      label: metadata.label,
+      series: metadata.series
     };
 
     if (typeof metadata.img === 'string' && metadata.img.trim()) {

@@ -2,6 +2,7 @@ package crawlrequest
 
 import (
 	"fmt"
+	"html"
 	"net/url"
 	"regexp"
 	"sort"
@@ -26,7 +27,10 @@ var (
 	// Some JAV ajax/browser responses return only the bare magnet URI without
 	// a dn parameter. Extraction must therefore accept any valid btih magnet and
 	// leave display-name parsing to downstream helpers.
-	magnetLinkPattern = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[A-F0-9]+(?:&[^"'\\s<]+)*`)
+	// Keep the whitespace escape as `\\s` in the raw Go string (one slash is
+	// passed to RE2). The previous double-escaped form treated `s` as a
+	// forbidden character and could truncate names such as `ABA-250-c`.
+	magnetLinkPattern = regexp.MustCompile(`(?i)magnet:\?[^"'\s<>]*xt=urn:btih:[A-F0-9]+(?:&[^"'\s<>]*)*`)
 	sizeTokenPattern  = regexp.MustCompile(`(?i)\d+(\.\d+)?[GM]B`)
 	magnetDNPattern   = regexp.MustCompile(`(?i)[?&]dn=([^&]+)`)
 )
@@ -38,8 +42,9 @@ type ParsedMagnetCandidate struct {
 }
 
 type MagnetLink struct {
-	Link string `json:"link"`
-	Size string `json:"size"`
+	Link        string `json:"link"`
+	Size        string `json:"size"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 type MagnetResult struct {
@@ -73,7 +78,10 @@ func GetMagnetExcludeKeywords(rawValue string) []string {
 }
 
 func GetMagnetDisplayName(magnetLink string) string {
-	rawValue := strings.TrimSpace(magnetLink)
+	// AJAX responses may contain HTML-escaped query separators (`&amp;`).
+	// Decode them before parsing so `dn` is read regardless of the parameter
+	// order or whether the link came from an href attribute.
+	rawValue := strings.TrimSpace(html.UnescapeString(magnetLink))
 	if rawValue == "" {
 		return ""
 	}
@@ -202,8 +210,9 @@ func BuildMagnetResult(candidates []ParsedMagnetCandidate, keepAll bool, backupT
 	backupLinks := make([]MagnetLink, 0, minInt(backupTopN, len(sortedBySize)))
 	for _, candidate := range sortedBySize[:minInt(backupTopN, len(sortedBySize))] {
 		backupLinks = append(backupLinks, MagnetLink{
-			Link: candidate.MagnetLink,
-			Size: FormatFileSize(candidate.Size),
+			Link:        candidate.MagnetLink,
+			Size:        FormatFileSize(candidate.Size),
+			DisplayName: candidate.DisplayName,
 		})
 	}
 
@@ -213,8 +222,9 @@ func BuildMagnetResult(candidates []ParsedMagnetCandidate, keepAll bool, backupT
 		for _, candidate := range candidates {
 			allLinks = append(allLinks, candidate.MagnetLink)
 			magnetLinks = append(magnetLinks, MagnetLink{
-				Link: candidate.MagnetLink,
-				Size: FormatFileSize(candidate.Size),
+				Link:        candidate.MagnetLink,
+				Size:        FormatFileSize(candidate.Size),
+				DisplayName: candidate.DisplayName,
 			})
 		}
 		return &MagnetResult{
@@ -232,8 +242,9 @@ func BuildMagnetResult(candidates []ParsedMagnetCandidate, keepAll bool, backupT
 		Magnet: selected.MagnetLink,
 		MagnetLinks: []MagnetLink{
 			{
-				Link: selected.MagnetLink,
-				Size: FormatFileSize(selected.Size),
+				Link:        selected.MagnetLink,
+				Size:        FormatFileSize(selected.Size),
+				DisplayName: selected.DisplayName,
 			},
 		},
 		BackupMagnetLinks: backupLinks,

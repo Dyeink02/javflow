@@ -309,20 +309,25 @@ func (t *CrawlTask) fetchFilmWithMagnet(bus *events.Bus, client *crawlrequest.Cl
 	magnetResult, magnetErr := FetchMagnetWithFallback(t.ctx, client, ajaxURL, detailURL)
 
 	filmData := crawloutput.FilmData{
-		Title:      metadata.Title,
-		SourceLink: detailURL,
-		Category:   categories,
-		Actress:    actresses,
-		CoverImage: metadata.Img,
+		Title:       metadata.Title,
+		SourceLink:  detailURL,
+		Category:    categories,
+		Actress:     actresses,
+		CoverImage:  metadata.Img,
+		ReleaseDate: metadata.ReleaseDate,
+		Maker:       metadata.Maker,
+		Label:       metadata.Label,
+		Series:      metadata.Series,
 	}
 
 	if magnetErr == nil && magnetResult != nil && magnetResult.Magnet != "" {
 		filmData.Magnet = magnetResult.Magnet
 		for _, ml := range magnetResult.MagnetLinks {
 			filmData.MagnetLinks = append(filmData.MagnetLinks, struct {
-				Link string `json:"link"`
-				Size string `json:"size"`
-			}{Link: ml.Link, Size: ml.Size})
+				Link        string `json:"link"`
+				Size        string `json:"size"`
+				DisplayName string `json:"displayName,omitempty"`
+			}{Link: ml.Link, Size: ml.Size, DisplayName: ml.DisplayName})
 		}
 	}
 	if magnetErr != nil {

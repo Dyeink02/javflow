@@ -24,6 +24,7 @@ async function runReportPhase(context = {}) {
     expectedCodeSets,
     expectedCodeEntryMap,
     detectedFilmCodes,
+    retryMissingMagnets = false,
     adRiskRecords,
     renameRecords,
     unmatchedRecords,
@@ -35,6 +36,10 @@ async function runReportPhase(context = {}) {
     onLog,
     writeReports
   } = context;
+  // Keep this module safe when it is exercised directly by a compatibility
+  // test or future caller instead of relying only on organizerService's
+  // top-level normalization.
+  const shouldRetryMissingMagnets = retryMissingMagnets === true;
 
   // Titles filtered into the intro-ad/ad-risk lane still need supplemental
   // magnets and reports, but they should stay separate from truly missing codes.
@@ -56,7 +61,13 @@ async function runReportPhase(context = {}) {
   const missingCodes = sortCodeAlphabetically(
     new Set(Array.from((expectedCodeSets && expectedCodeSets.codeSet) || []).filter((code) => !detectedFilmCodes.has(code)))
   );
-  const missingMagnetEntries = buildSupplementMagnetEntries(missingCodes, expectedCodeEntryMap);
+  // Missing-code reporting is always useful, but producing a magnet payload is
+  // an explicit opt-in because it can be fed into a follow-up download task.
+  // Keep this policy in the report phase so the archived JS path matches the
+  // Go organizer contract instead of silently ignoring the UI switch.
+  const missingMagnetEntries = shouldRetryMissingMagnets
+    ? buildSupplementMagnetEntries(missingCodes, expectedCodeEntryMap)
+    : [];
   summary.missingCodeCount = missingCodes.length;
   summary.missingMagnetCount = missingMagnetEntries.reduce(
     (total, entry) => total + mergeMagnetEntries((entry && entry.magnets) || []).length,
@@ -64,7 +75,13 @@ async function runReportPhase(context = {}) {
   );
 
   if (summary.missingCodeCount > 0) {
-    emitLog(onLog, 'warn', `发现遗漏番号 ${summary.missingCodeCount} 条，已生成补抓磁力报告（总磁力 ${summary.missingMagnetCount} 条）。`);
+    emitLog(
+      onLog,
+      'warn',
+      shouldRetryMissingMagnets
+        ? `发现遗漏番号 ${summary.missingCodeCount} 条，已生成补抓磁力报告（总磁力 ${summary.missingMagnetCount} 条）。`
+        : `发现遗漏番号 ${summary.missingCodeCount} 条（补抓磁力已关闭，未生成磁力报告）。`
+    );
   } else {
     emitLog(onLog, 'info', '未发现遗漏番号。');
   }

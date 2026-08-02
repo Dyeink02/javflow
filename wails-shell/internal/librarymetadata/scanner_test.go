@@ -160,6 +160,86 @@ func TestScanLibrary_AlphabeticPartsRemainSeparate(t *testing.T) {
 	}
 }
 
+func TestScanLibrary_ContextualChineseSuffixBecomesSplitPart(t *testing.T) {
+	mediaRoot := t.TempDir()
+	for _, name := range []string{"OFJE-250-A.mp4.strm", "OFJE-250-B.mp4.strm", "OFJE-250-C.mp4.strm", "OFJE-250-D.mp4.strm"} {
+		if err := os.WriteFile(filepath.Join(mediaRoot, name), []byte("dummy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := ScanLibrary(ScanOptions{Root: mediaRoot, OutputMode: "inplace"})
+	if result.Error != "" {
+		t.Fatalf("scan failed: %s", result.Error)
+	}
+	if len(result.Items) != 4 {
+		t.Fatalf("expected four OFJE split files, got %d: %#v", len(result.Items), result.Items)
+	}
+
+	byDisplayCode := make(map[string]LibraryMediaItem, len(result.Items))
+	for _, item := range result.Items {
+		if item.Code != "OFJE-250" {
+			t.Errorf("metadata lookup code must be OFJE-250, got %q", item.Code)
+		}
+		byDisplayCode[item.DisplayCode] = item
+	}
+	for _, displayCode := range []string{"OFJE-250-A", "OFJE-250-B", "OFJE-250-C", "OFJE-250-D"} {
+		item, ok := byDisplayCode[displayCode]
+		if !ok {
+			t.Fatalf("missing split item %q: %#v", displayCode, byDisplayCode)
+		}
+		if !strings.Contains(item.NfoPath, displayCode+".mp4.nfo") {
+			t.Errorf("NFO path lost suffix for %q: %s", displayCode, item.NfoPath)
+		}
+	}
+	if byDisplayCode["OFJE-250-C"].Tags != "" {
+		t.Errorf("contextual split part C must not retain a Chinese-subtitle tag: %#v", byDisplayCode["OFJE-250-C"])
+	}
+}
+
+func TestScanLibrary_AlphabeticPartsThroughZRemainDistinct(t *testing.T) {
+	mediaRoot := t.TempDir()
+	parts := []string{
+		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+		"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+	}
+	for _, part := range parts {
+		name := "OFJE-290-" + part + ".mp4.strm"
+		if err := os.WriteFile(filepath.Join(mediaRoot, name), []byte("dummy"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result := ScanLibrary(ScanOptions{Root: mediaRoot, OutputMode: "inplace"})
+	if result.Error != "" {
+		t.Fatalf("scan failed: %s", result.Error)
+	}
+	if len(result.Items) != len(parts) {
+		t.Fatalf("expected %d alphabetic split files, got %d: %#v", len(parts), len(result.Items), result.Items)
+	}
+
+	byDisplayCode := make(map[string]LibraryMediaItem, len(result.Items))
+	for _, item := range result.Items {
+		if item.Code != "OFJE-290" {
+			t.Errorf("metadata lookup code must be OFJE-290, got %q", item.Code)
+		}
+		byDisplayCode[item.DisplayCode] = item
+	}
+	for _, part := range parts {
+		displayCode := "OFJE-290-" + part
+		item, ok := byDisplayCode[displayCode]
+		if !ok {
+			t.Fatalf("missing split item %q: %#v", displayCode, byDisplayCode)
+		}
+		if !strings.HasSuffix(item.NfoPath, displayCode+".mp4.nfo") {
+			t.Errorf("NFO path lost suffix for %q: %s", displayCode, item.NfoPath)
+		}
+	}
+	if byDisplayCode["OFJE-290-C"].Tags != "" {
+		t.Errorf("contextual split part C must not retain a Chinese-subtitle tag: %#v", byDisplayCode["OFJE-290-C"])
+	}
+}
+
 func TestScanLibrary_AlphabeticPartsUseSeparateSubfolders(t *testing.T) {
 	mediaRoot := t.TempDir()
 	for _, name := range []string{"DASS-287-A.strm", "DASS-287-B.strm"} {
