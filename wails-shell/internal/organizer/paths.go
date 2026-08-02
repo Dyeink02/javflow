@@ -121,12 +121,33 @@ func (p Paths) BatchDeleteWhitelist() map[string]struct{} {
 		adRiskMagnetsName:  {}, // 含开头广告补抓磁力.txt
 		missingMagnetsName: {}, // 遗漏番号磁力补抓.txt
 		rescueReportName:   {}, // 番号名称抢救报告.txt
+
+		// Crawl artifacts may be placed beside the media tree when the user
+		// chooses a broad download directory as the organizer root. They are
+		// application output, never organizer deletion candidates.
+		crawlartifact.CrawlFilmDataFile:        {},
+		crawlartifact.CrawlProfileFile:         {},
+		crawlartifact.OrganizerCodesFile:       {},
+		crawlartifact.FilteredFilmCodesFile:    {},
+		crawlartifact.DefaultMagnetTxt:         {},
+		crawlartifact.DefaultFilteredCodesTxt:  {},
+		crawlartifact.DefaultLatestLogTxt:      {},
+		crawlartifact.DefaultUnfinishedTxt:     {},
+		crawlartifact.DefaultQualitySummaryTxt: {},
+		"log":                                  {},
+		"AV订阅":                                 {},
+		"JAV爬虫":                                {},
+		"媒体库刮削":                                {},
 	}
 }
 
 // IsBatchDeleteWhitelisted 检查文件/文件夹是否在批量删除白名单中
 func (p Paths) IsBatchDeleteWhitelisted(name string) bool {
 	whitelist := p.BatchDeleteWhitelist()
-	_, exists := whitelist[name]
-	return exists
+	for candidate := range whitelist {
+		if strings.EqualFold(strings.TrimSpace(candidate), strings.TrimSpace(name)) {
+			return true
+		}
+	}
+	return false
 }

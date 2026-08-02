@@ -1,5 +1,7 @@
 package bridge
 
+import "javflow/internal/organizer"
+
 // handleOrganizerCommand keeps organizer-only flows out of the crawler and
 // runtime dispatch groups.
 // Organizer bridge entrypoints are split into:
@@ -18,6 +20,19 @@ func (a *API) handleOrganizerCommand(command string, payload map[string]any) (st
 	// Organizer dispatch is intentionally small: bridge routing only. Artifact
 	// import and organizer execution semantics stay in dedicated helpers/services.
 	switch command {
+	case "app:discover-organizer-codes":
+		options := organizer.DiscoverOptions{
+			RootPath:              nonEmptyString(payload["rootPath"]),
+			IncludeSubdirectories: boolValue(payload["includeSubdirectories"], true),
+			VideoExtensions:       nonEmptyString(payload["videoExtensions"]),
+		}
+		result, err := a.organizer.organizerService.DiscoverLocalCodes(options)
+		if err != nil {
+			return "", true, err
+		}
+		encoded, err := marshalResult(result)
+		return encoded, true, err
+
 	case "app:load-crawl-film-codes":
 		result, err := a.loadOrganizerCrawlFilmCodesResult(payload)
 		return result, true, err

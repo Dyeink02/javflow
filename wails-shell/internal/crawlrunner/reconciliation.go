@@ -331,6 +331,14 @@ func (t *Tracker) rawDuplicateGroupsLocked() []DuplicateGroup {
 func (t *Tracker) DuplicateItemIDs() []string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	return t.duplicateItemIDsLocked()
+}
+
+// duplicateItemIDsLocked is the lock-free implementation used by callers
+// that already hold Tracker.mu. Keeping the public wrapper above separate is
+// important: recursively acquiring an RWMutex read lock can deadlock when a
+// writer is waiting between the two read-lock attempts.
+func (t *Tracker) duplicateItemIDsLocked() []string {
 	result := make([]string, 0, len(t.duplicateExpectedIDs))
 	for id := range t.duplicateExpectedIDs {
 		result = append(result, id)
@@ -427,7 +435,7 @@ func (t *Tracker) BuildReconciliation() Reconciliation {
 	expectedIDs := sortedMapKeys(t.expectedItemIDs)
 	queuedIDs := sortedMapKeys(t.queuedItemIDs)
 	persistedIDs := sortedMapKeys(t.persistedItemIDs)
-	duplicateIDs := t.DuplicateItemIDs()
+	duplicateIDs := t.duplicateItemIDsLocked()
 	skippedIDs := sortedMapKeys(t.skippedItemIDs)
 
 	// Reconciliation is the canonical "gap view" used by resume, final review,

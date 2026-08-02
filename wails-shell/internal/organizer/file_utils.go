@@ -140,6 +140,10 @@ func managedDirectoryNames(paths Paths, includeDelete bool) map[string]struct{} 
 		filepath.Base(paths.IntroAdDir):   {},
 		filepath.Base(paths.LogsDir):      {},
 		filepath.Base(paths.StateDir):     {},
+		"log":                             {},
+		"AV\u8ba2\u9605":                  {},
+		"JAV\u722c\u866b":                 {},
+		"\u5a92\u4f53\u5e93\u522e\u524a":  {},
 	}
 	if includeDelete {
 		result[filepath.Base(paths.ToDeleteDir)] = struct{}{}

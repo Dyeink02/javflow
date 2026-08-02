@@ -12,6 +12,7 @@ import (
 	"javflow/internal/crawlparse"
 	"javflow/internal/crawlqueue"
 	"javflow/internal/crawlrequest"
+	"javflow/internal/crawltaskstate"
 )
 
 func TestRestorePersistedOutputStateRestoresFilteredItems(t *testing.T) {
@@ -51,6 +52,22 @@ func TestRestorePersistedOutputStateRestoresFilteredItems(t *testing.T) {
 
 	if got := runner.filmCount; got != 1 {
 		t.Fatalf("expected filmCount 1, got %d", got)
+	}
+}
+
+func TestBuildReconciliationIncludesDuplicatesWithoutNestedLocking(t *testing.T) {
+	tracker := NewTracker()
+	tracker.RecordExpectedPageLinks(1, []string{
+		"https://example.com/ABP-001",
+		"https://example.com/ABP-001",
+	})
+
+	recon := tracker.BuildReconciliation()
+	if len(recon.DuplicateExpectedIDs) != 1 || recon.DuplicateExpectedIDs[0] != "ABP-001" {
+		t.Fatalf("expected duplicate ABP-001, got %#v", recon.DuplicateExpectedIDs)
+	}
+	if recon.RawDuplicateEntryCount != 1 {
+		t.Fatalf("expected one raw duplicate entry, got %d", recon.RawDuplicateEntryCount)
 	}
 }
 
@@ -250,6 +267,53 @@ func TestProcessDetailTaskNomagSkipsOnlyWhenMagnetMissingAfterLookup(t *testing.
 	}
 }
 
+func TestProcessDetailTaskMetadataOnlyPersistsMetadataWithoutMagnetLookup(t *testing.T) {
+	outputDir := t.TempDir()
+	runner, err := NewRunner(Config{Output: outputDir, MetadataOnly: true}, outputDir)
+	if err != nil {
+		t.Fatalf("create runner: %v", err)
+	}
+	magnetFetched := false
+	runner.fetchDetail = func(ctx context.Context, detailURL string) (crawlparse.Metadata, crawlrequest.PageResponse, error) {
+		return crawlparse.Metadata{
+			GID: "1", UC: "1", Img: "cover.jpg", Title: "ABP-891 Sample",
+			Maker: "Studio Example", Label: "Example Label", Series: "Example Series",
+		}, crawlrequest.PageResponse{}, nil
+	}
+	runner.fetchMagnetFn = func(ctx context.Context, gid string, uc string, img string, title string) (*crawlrequest.MagnetResult, error) {
+		magnetFetched = true
+		return nil, nil
+	}
+
+	if err := runner.processDetailTask(context.Background(), crawlqueue.DetailPageTask{Link: "https://example.com/ABP-891"}); err != nil {
+		t.Fatalf("processDetailTask failed: %v", err)
+	}
+	if magnetFetched {
+		t.Fatal("metadata-only mode must not call the magnet endpoint")
+	}
+	if got := runner.writer.RecordCount(); got != 1 {
+		t.Fatalf("expected one persisted metadata record, got %d", got)
+	}
+	completed := runner.completedItemIDs()
+	if len(completed) != 1 || completed[0] != "ABP-891" {
+		t.Fatalf("metadata-only record should count as completed: %#v", completed)
+	}
+	if err := runner.writer.Flush(); err != nil {
+		t.Fatalf("flush writer: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile))
+	if err != nil {
+		t.Fatalf("read filmData.json: %v", err)
+	}
+	var records []crawloutput.FilmData
+	if err := json.Unmarshal(data, &records); err != nil {
+		t.Fatalf("unmarshal filmData.json: %v", err)
+	}
+	if len(records) != 1 || records[0].Maker != "Studio Example" || records[0].Series != "Example Series" {
+		t.Fatalf("metadata fields were not persisted: %#v", records)
+	}
+}
+
 func TestCompletedItemIDsExcludesFilteredAndSkipped(t *testing.T) {
 	outputDir := t.TempDir()
 	runner, err := NewRunner(Config{Output: outputDir}, outputDir)
@@ -292,3 +356,107 @@ func TestCompletedItemIDsExcludesFilteredAndSkipped(t *testing.T) {
 	}
 }
 
+func TestTerminalStatsUseExplicitCompletionAccounting(t *testing.T) {
+	outputDir := t.TempDir()
+	runner, err := NewRunner(Config{Output: outputDir}, outputDir)
+	if err != nil {
+		t.Fatalf("create runner: %v", err)
+	}
+
+	runner.tracker.RecordExpectedPageLinks(1, []string{
+		"https://example.com/ABP-001",
+		"https://example.com/ABP-001",
+		"https://example.com/ABP-002",
+		"https://example.com/ABP-003",
+		"https://example.com/ABP-004",
+	})
+	runner.tracker.MarkPersisted("https://example.com/ABP-001", "ABP-001")
+	runner.tracker.MarkPersisted("https://example.com/ABP-002", "ABP-002")
+	runner.recordActressCountFiltered("https://example.com/ABP-002")
+	runner.recordDetailFailure("https://example.com/ABP-003", "详情页请求失败")
+
+	stats := runner.statsForStatus(StatusCompleted)
+	if stats.TotalItems != 5 || stats.FilteredItemsCount != 1 || stats.DuplicateItemsCount != 1 || stats.FailedItemsCount != 2 {
+		t.Fatalf("unexpected completion breakdown: %+v", stats)
+	}
+	if stats.Completed != 1 {
+		t.Fatalf("expected completed=5-1-1-2=1, got %d", stats.Completed)
+	}
+
+	details := runner.stateDetails(StatusCompleted)
+	if got := details["completedCount"].(int); got != 1 {
+		t.Fatalf("expected terminal completedCount 1, got %d", got)
+	}
+	duplicates := details["duplicateItems"].([]string)
+	if len(duplicates) != 1 || duplicates[0] != "ABP-001" {
+		t.Fatalf("expected duplicate ABP-001, got %#v", duplicates)
+	}
+}
+
+func TestCalculateCompletedCountUsesDurableIDsWhileRunning(t *testing.T) {
+	breakdown := completionBreakdown{
+		Total:      8,
+		Filtered:   1,
+		Duplicates: 2,
+		Failed:     1,
+	}
+
+	if got := calculateCompletedCount(StatusRunning, breakdown, []string{"ABP-001", "ABP-002"}); got != 2 {
+		t.Fatalf("running count must use durable IDs, got %d", got)
+	}
+	if got := calculateCompletedCount(StatusCompleted, breakdown, []string{"ABP-001", "ABP-002"}); got != 4 {
+		t.Fatalf("terminal count must use total-filtered-duplicate-failed, got %d", got)
+	}
+}
+
+func TestRestoredFailureIDsNormalizeBeforeCompletionAccounting(t *testing.T) {
+	outputDir := t.TempDir()
+	runner, err := NewRunner(Config{Output: outputDir}, outputDir)
+	if err != nil {
+		t.Fatalf("create runner: %v", err)
+	}
+	runner.tracker.RecordExpectedPageLinks(1, []string{"https://example.com/ABA-250"})
+	runner.tracker.MarkPersisted("https://example.com/ABA-250", "ABA-250")
+	runner.restoreFailedDetails([]crawltaskstate.FailedDetailRecord{{
+		Item:       "aba-250",
+		SourceLink: "https://example.com/aba-250",
+		Reason:     "详情页失败",
+	}})
+
+	failed := runner.failedItemIDs(true)
+	if len(failed) != 1 || failed[0] != "ABA-250" {
+		t.Fatalf("expected canonical failed ID, got %#v", failed)
+	}
+	completed := runner.completedItemIDsFor(true)
+	if len(completed) != 0 {
+		t.Fatalf("failed persisted item must be excluded from completed IDs, got %#v", completed)
+	}
+}
+
+func TestDetectPrimaryActressPrefersExplicitSearchTarget(t *testing.T) {
+	outputDir := t.TempDir()
+	runner, err := NewRunner(Config{Output: outputDir, Search: "目标女优"}, outputDir)
+	if err != nil {
+		t.Fatalf("create runner: %v", err)
+	}
+	_, err = runner.writer.WriteFilmData(crawloutput.FilmData{
+		Title:      "ABC-001 合集",
+		SourceLink: "https://example.com/ABC-001",
+		Actress:    []string{"其他女优", "目标女优"},
+	})
+	if err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	_, err = runner.writer.WriteFilmData(crawloutput.FilmData{
+		Title:      "ABC-002 合集",
+		SourceLink: "https://example.com/ABC-002",
+		Actress:    []string{"其他女优"},
+	})
+	if err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	if got := runner.detectPrimaryActressName(); got != "目标女优" {
+		t.Fatalf("expected explicit search target, got %q", got)
+	}
+}

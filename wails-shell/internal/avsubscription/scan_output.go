@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"javflow/internal/contracts/crawlartifact"
+	"javflow/internal/crawlidentity"
 )
 
 // scan_output.go owns crawl-output artifact import for AV subscriptions.
@@ -33,7 +34,7 @@ import (
 // Remote refresh and target fetching belong to the separate subscription fetch
 // path, so import bugs and refresh bugs can be isolated quickly.
 
-var filmCodePattern = regexp.MustCompile(`([A-Z]{2,12})-?(\d{2,8}[A-Z]*)`)
+var filmCodePattern = regexp.MustCompile(`([A-Z]{2,12})-?(\d{1,8}[A-Z]*)`)
 
 // scanImportCandidate is the normalized handoff from one artifact-reader path
 // into the shared subscription-merge logic. Profile-driven and filmData-driven
@@ -457,7 +458,7 @@ func extractRecordIdentity(record map[string]any, index int) string {
 		}
 		upper := strings.ToUpper(candidate)
 		if matches := filmCodePattern.FindStringSubmatch(upper); len(matches) == 3 {
-			return matches[1] + "-" + matches[2]
+			return crawlidentity.NormalizeFilmID(matches[1] + "-" + matches[2])
 		}
 		if strings.TrimSpace(candidate) != "" {
 			return candidate
@@ -484,7 +485,7 @@ func normalizeFilmCode(value string) string {
 		return ""
 	}
 	if matches := filmCodePattern.FindStringSubmatch(upper); len(matches) == 3 {
-		return matches[1] + "-" + matches[2]
+		return crawlidentity.NormalizeFilmID(matches[1] + "-" + matches[2])
 	}
 	return ""
 }

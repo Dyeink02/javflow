@@ -6,6 +6,16 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const releaseDir = path.join(repoRoot, 'wails-shell', 'release');
+const packageJsonPath = path.join(repoRoot, 'package.json');
+
+// Keep EXE metadata tied to the source package version. A hard-coded version
+// here can silently produce an executable whose Windows properties disagree
+// with the UI and Wails manifest after the next internal version bump.
+const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+const packageVersion = String(packageInfo.version || '').trim();
+if (!/^\d+\.\d+\.\d+$/.test(packageVersion)) {
+  throw new Error(`package.json version is invalid: ${packageVersion || '(empty)'}`);
+}
 
 const iconPath = path.join(repoRoot, 'build', 'icon.ico');
 const fallbackExes = fs.existsSync(releaseDir)
@@ -27,8 +37,8 @@ const options = {
     LegalCopyright: 'Based on raawaa/jav-scrapy',
     Comments: 'JavFlow - JAV media library automation workflow'
   },
-  'file-version': '0.4.1',
-  'product-version': '0.4.1',
+  'file-version': packageVersion,
+  'product-version': packageVersion,
   icon: iconPath
 };
 

@@ -34,6 +34,7 @@ import (
 	"javflow/internal/common"
 	"javflow/internal/contracts/crawlartifact"
 	"javflow/internal/crawlexecution"
+	"javflow/internal/crawlidentity"
 )
 
 const (
@@ -46,7 +47,7 @@ const (
 )
 
 var (
-	filmCodePattern          = regexp.MustCompile(`(?i)([A-Z@]{1,12})[-_ ]?(\d{2,8})([A-Z]*)`)
+	filmCodePattern          = regexp.MustCompile(`(?i)([A-Z@]{1,12})[-_ ]?(\d{1,8})([A-Z]*)`)
 	limitPattern             = regexp.MustCompile(`(?i)"limit"\s*:\s*(\d+)`)
 	totalPagesPattern        = regexp.MustCompile(`(?i)"totalPages"\s*:\s*(\d+)`)
 	durationPattern          = regexp.MustCompile(`(?i)(\d+)\s*(?:秒|s|sec(?:ond)?s?)`)
@@ -198,11 +199,11 @@ type Summary struct {
 // results but never drives crawl execution.
 //
 // Practical split:
-// - runner decides what happened during execution
-// - crawlquality explains what persisted outputs/logs now say happened
-// - bridge/UI consume the resulting review snapshot
-// - if counts look wrong, compare persisted filmData/log files here before
-//   touching runner execution code
+//   - runner decides what happened during execution
+//   - crawlquality explains what persisted outputs/logs now say happened
+//   - bridge/UI consume the resulting review snapshot
+//   - if counts look wrong, compare persisted filmData/log files here before
+//     touching runner execution code
 type Service struct{}
 
 type filmDataMetrics struct {
@@ -779,7 +780,7 @@ func normalizeFilmCode(value string) string {
 	if len(match) != 4 {
 		return ""
 	}
-	return match[1] + "-" + match[2] + match[3]
+	return crawlidentity.NormalizeFilmID(match[1] + "-" + match[2] + match[3])
 }
 
 // The unfinished report is parsed back into counters so stopped/partial runs

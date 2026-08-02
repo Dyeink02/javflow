@@ -33,6 +33,7 @@ type CrawlConfig struct {
 	RetryCount                  int               `json:"retryCount"`
 	RetryDelay                  time.Duration     `json:"retryDelay"`
 	Nomag                       bool              `json:"nomag"`
+	MetadataOnly                bool              `json:"metadataOnly"`
 	Allmag                      bool              `json:"allmag"`
 	Nopic                       bool              `json:"nopic"`
 	StrictSSL                   bool              `json:"strictSSL"`

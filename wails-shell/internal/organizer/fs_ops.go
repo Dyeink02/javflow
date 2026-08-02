@@ -42,10 +42,27 @@ func isManagedDirectoryName(value string) bool {
 	if trimmed == "" {
 		return false
 	}
-	if strings.HasPrefix(trimmed, strings.ToLower(batchDeleteStagingPrefix)) {
+	// Every organizer-owned hidden directory is excluded from inventory. This
+	// includes state/cache folders created by newer builds, not only the legacy
+	// batch-delete staging prefix.
+	if strings.HasPrefix(trimmed, ".video-organizer-") || strings.HasPrefix(trimmed, "video-organizer-") {
 		return true
 	}
-	for _, name := range []string{waitingDirName, unmatchedDirName, toDeleteDirName, introAdDirName, logsDirName, stateDirName} {
+	// These application-owned directories can sit beside a media tree when the
+	// user selects a broad download root. They are never organizer candidates,
+	// so skip them during the one-pass inventory as well as during deletion.
+	for _, name := range []string{
+		waitingDirName,
+		unmatchedDirName,
+		toDeleteDirName,
+		introAdDirName,
+		logsDirName,
+		stateDirName,
+		"log",
+		"AV\u8ba2\u9605",
+		"JAV\u722c\u866b",
+		"\u5a92\u4f53\u5e93\u522e\u524a",
+	} {
 		if strings.ToLower(name) == trimmed {
 			return true
 		}
@@ -277,8 +294,12 @@ func removeDirectoryWithRetry(targetPath string, maxAttempts int) error {
 	return fmt.Errorf("删除目录后仍可见 %s", targetPath)
 }
 
-func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct{}, logf func(string, string)) int {
+func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct{}, logf func(string, string), progressSinks ...ProgressSink) int {
 	removedCount := 0
+	var progressf ProgressSink
+	if len(progressSinks) > 0 {
+		progressf = progressSinks[0]
+	}
 	var walk func(currentPath string, isRoot bool)
 	walk = func(currentPath string, isRoot bool) {
 		entries, err := os.ReadDir(currentPath)
@@ -305,11 +326,27 @@ func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct
 		if err != nil || len(restEntries) > 0 {
 			return
 		}
-		if err := os.Remove(currentPath); err == nil {
+		removeErr := runWithProgressHeartbeat(
+			"清理空目录",
+			currentPath,
+			ProgressEntry{
+				"phase":             progressPhaseFinalizeProgress,
+				"finalizeTotal":     organizerFinalizeUnits,
+				"finalizeProcessed": 3,
+				"operation":         "清理空目录",
+				"currentPath":       currentPath,
+			},
+			progressf,
+			func() error { return os.Remove(currentPath) },
+			logf,
+		)
+		if removeErr == nil {
 			removedCount++
 			if logf != nil {
 				logf("info", "\u5df2\u5220\u9664\u7a7a\u76ee\u5f55\uff1a"+currentPath)
 			}
+		} else if logf != nil {
+			logf("warn", fmt.Sprintf("清理空目录失败：%s，原因：%s", currentPath, removeErr.Error()))
 		}
 	}
 	walk(rootPath, true)

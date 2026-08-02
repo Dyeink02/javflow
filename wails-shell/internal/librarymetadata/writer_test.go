@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,10 +21,10 @@ func TestWriteMetadata_NFOOnly(t *testing.T) {
 		BackdropPath: filepath.Join(tmpDir, "BBAN-452-backdrop.jpg"),
 	}
 	info := &MovieInfo{
-		Number:    "BBAN-452",
-		Title:     "Written Title",
-		Plot:      "Plot",
-		CoverURL:  "", // skip download
+		Number:      "BBAN-452",
+		Title:       "Written Title",
+		Plot:        "Plot",
+		CoverURL:    "", // skip download
 		BackdropURL: "",
 	}
 
@@ -39,6 +40,39 @@ func TestWriteMetadata_NFOOnly(t *testing.T) {
 	}
 	if result.PosterPath != "" || result.BackdropPath != "" || result.LandscapePath != "" {
 		t.Error("expected no image paths when URLs are empty")
+	}
+}
+
+func TestWriteMetadata_RestoresSplitSuffixInNFO(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, displayCode := range []string{"MIDD-820-A", "OFJE-250-C", "OFJE-250-D"} {
+		t.Run(displayCode, func(t *testing.T) {
+			baseCode := displayCode[:len(displayCode)-2]
+			item := LibraryMediaItem{
+				Code:        baseCode,
+				DisplayCode: displayCode,
+				NfoPath:     filepath.Join(tmpDir, displayCode+".nfo"),
+			}
+			result := WriteMetadata(WriteOptions{
+				Item:       item,
+				Info:       &MovieInfo{Number: baseCode, Title: baseCode + " Split release"},
+				SkipImages: true,
+			})
+			if result.Error != "" {
+				t.Fatalf("WriteMetadata error: %s", result.Error)
+			}
+			data, err := os.ReadFile(item.NfoPath)
+			if err != nil {
+				t.Fatalf("read split NFO: %v", err)
+			}
+			text := string(data)
+			if !strings.Contains(text, "<title>"+displayCode+" Split release</title>") {
+				t.Fatalf("expected split title in NFO, got %s", text)
+			}
+			if !strings.Contains(text, "<originaltitle>"+displayCode+" Split release</originaltitle>") {
+				t.Fatalf("expected split originaltitle in NFO, got %s", text)
+			}
+		})
 	}
 }
 

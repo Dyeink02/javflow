@@ -76,7 +76,7 @@ func WriteMetadata(options WriteOptions) WriteResult {
 // jobs. The legacy WriteMetadata wrapper keeps existing callers compatible.
 func WriteMetadataContext(parent context.Context, options WriteOptions) WriteResult {
 	item := options.Item
-	info := options.Info
+	info := normalizeInfoForItem(item, options.Info)
 
 	if info == nil {
 		return WriteResult{Error: "缺少影片元数据"}
@@ -222,6 +222,51 @@ func WriteMetadataContext(parent context.Context, options WriteOptions) WriteRes
 	}
 
 	return result
+}
+
+// normalizeInfoForItem restores a local split suffix for output metadata while
+// keeping the shared remote lookup result keyed by the base number. A/B files
+// therefore reuse one scrape request but receive distinct Emby titles.
+func normalizeInfoForItem(item LibraryMediaItem, info *MovieInfo) *MovieInfo {
+	if info == nil {
+		return nil
+	}
+	outputCode := strings.TrimSpace(item.DisplayCode)
+	baseCode := strings.TrimSpace(item.Code)
+	if outputCode == "" || baseCode == "" || strings.EqualFold(outputCode, baseCode) {
+		return info
+	}
+
+	next := *info
+	next.Number = outputCode
+	title := strings.TrimSpace(next.Title)
+	if stripped := stripLeadingMovieCode(title, outputCode); stripped != title {
+		title = stripped
+	} else if stripped := stripLeadingMovieCode(title, baseCode); stripped != title {
+		title = stripped
+	}
+	next.Title = title
+	return &next
+}
+
+func stripLeadingMovieCode(title, code string) string {
+	title = strings.TrimSpace(title)
+	code = strings.TrimSpace(code)
+	if title == "" || code == "" {
+		return title
+	}
+	if strings.EqualFold(title, code) {
+		return ""
+	}
+	upper := strings.ToUpper(title)
+	prefix := strings.ToUpper(code)
+	for _, separator := range []string{" - ", "-", " : ", ": ", ":", " _ ", "_", " ", "\u3000"} {
+		candidate := prefix + separator
+		if strings.HasPrefix(upper, candidate) {
+			return strings.TrimSpace(title[len(candidate):])
+		}
+	}
+	return title
 }
 
 func isForbiddenImageHost(host string) bool {

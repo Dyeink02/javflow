@@ -170,6 +170,12 @@
               <span data-ui-text="toggles.nopicTitle"></span>
               <small data-ui-text="toggles.nopicHelp"></small>
             </label>
+
+            <label class="toggle-card">
+              <input id="metadataOnly" type="checkbox" />
+              <span data-ui-text="toggles.metadataOnlyTitle"></span>
+              <small data-ui-text="toggles.metadataOnlyHelp"></small>
+            </label>
           </div>
 
           <div class="actions">
@@ -316,11 +322,18 @@
               </div>
               <div id="failed-box" class="state-card">
                 <div class="state-card-header">
-                  <span class="state-card-title" data-ui-text="state.failedLabel">未抓取说明</span>
+                  <span class="state-card-title" data-ui-text="state.failedLabel">失败与重复</span>
                   <span id="failed-total" class="state-card-count" style="background:rgba(255,110,157,0.12);color:var(--accent-danger);">0</span>
                 </div>
                 <div id="failed-items" class="state-card-body">
                   <span class="state-chip chip-missing">MIAA-001</span>
+                </div>
+                <div id="duplicate-box" class="failed-subsection hidden">
+                  <p class="message-label message-label-row">
+                    <span data-ui-text="state.duplicateLabel">重复番号</span>
+                    <span id="duplicate-total" class="message-count">0</span>
+                  </p>
+                  <div id="duplicate-items" class="item-grid"></div>
                 </div>
               </div>
               <div id="filtered-box" class="state-card">
@@ -342,14 +355,7 @@
                 </div>
               </div>
             </div>
-            <!-- 隐藏容器：供stateController写入重复/分页缺口数据 -->
-            <div id="duplicate-box" class="task-box hidden">
-              <p class="message-label message-label-row">
-                <span data-ui-text="state.duplicateLabel"></span>
-                <span id="duplicate-total" class="message-count">0</span>
-              </p>
-              <div id="duplicate-items" class="item-grid"></div>
-            </div>
+            <!-- 分页缺口仍单独保留，重复番号已并入“失败与重复”卡片。 -->
             <div id="page-gap-box" class="page-gap-box hidden">
               <p class="message-label" data-ui-text="state.pageGapLabel"></p>
               <div id="page-gap-items" class="item-grid"></div>

@@ -41,3 +41,38 @@ func TestBuildNFO_BBAN452(t *testing.T) {
 	}
 	t.Logf("NFO preview:\n%s", out)
 }
+
+func TestBuildNFO_DoesNotDuplicateProviderNumberPrefix(t *testing.T) {
+	info := &MovieInfo{
+		Number: "MIDD-820-A",
+		Title:  "MIDD-820-A - Split release",
+	}
+
+	nfo, err := BuildNFO(info)
+	if err != nil {
+		t.Fatalf("BuildNFO failed: %v", err)
+	}
+	out := string(nfo)
+	if strings.Contains(out, "MIDD-820-A MIDD-820-A") {
+		t.Fatalf("NFO duplicated the number prefix: %s", out)
+	}
+	if !strings.Contains(out, "<title>MIDD-820-A - Split release</title>") {
+		t.Fatalf("NFO did not preserve the provider prefix: %s", out)
+	}
+}
+
+func TestTitleHasNumberPrefixRequiresSeparator(t *testing.T) {
+	for _, test := range []struct {
+		title  string
+		number string
+		want   bool
+	}{
+		{title: "MIDD-820-A - 标题", number: "MIDD-820-A", want: true},
+		{title: "MIDD-820-A 标题", number: "MIDD-820-A", want: true},
+		{title: "MIDD-820-Amazing", number: "MIDD-820-A", want: false},
+	} {
+		if got := titleHasNumberPrefix(test.title, test.number); got != test.want {
+			t.Errorf("titleHasNumberPrefix(%q, %q) = %v, want %v", test.title, test.number, got, test.want)
+		}
+	}
+}

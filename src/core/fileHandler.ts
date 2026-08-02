@@ -419,6 +419,10 @@ class FileHandler {
       ),
       category: this.mergeUniqueText(normalizedExisting.category, normalizedIncoming.category),
       actress,
+      releaseDate: normalizedExisting.releaseDate || normalizedIncoming.releaseDate,
+      maker: normalizedExisting.maker || normalizedIncoming.maker,
+      label: normalizedExisting.label || normalizedIncoming.label,
+      series: normalizedExisting.series || normalizedIncoming.series,
       actressCount,
       magnetLinks: this.mergeMagnetLinks(normalizedExisting.magnetLinks, normalizedIncoming.magnetLinks),
       backupMagnetLinks: this.mergeMagnetLinks(
@@ -453,6 +457,10 @@ class FileHandler {
       coverImage: data.coverImage?.trim() || undefined,
       category: this.mergeUniqueText(data.category || [], []),
       actress,
+      releaseDate: data.releaseDate?.trim() || undefined,
+      maker: data.maker?.trim() || undefined,
+      label: data.label?.trim() || undefined,
+      series: data.series?.trim() || undefined,
       actressCount: this.normalizeActressCount(data.actressCount, actress.length),
       filteredByActressCount: Boolean(data.filteredByActressCount),
       filterReason: String(data.filterReason || '').trim() || undefined,
@@ -573,9 +581,13 @@ class FileHandler {
         continue;
       }
 
+      const existing = map.get(link);
+      const size = String(item.size || '').trim() || existing?.size || '';
+      const displayName = String(item.displayName || '').trim() || existing?.displayName || '';
       map.set(link, {
         link,
-        size: String(item.size || '').trim()
+        size,
+        ...(displayName ? { displayName } : {})
       });
     }
 

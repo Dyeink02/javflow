@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file writes Emby/Jellyfin-compatible NFO XML from normalized movie metadata.
+//
+//	This file writes Emby/Jellyfin-compatible NFO XML from normalized movie metadata.
 //
 // File map for maintainers:
-//   1) NFOData, NFOActor, and NFOPoster types.
-//   2) NFO generation from MovieInfo.
-//   3) XML encoding and pretty-print helpers.
-//
+//  1. NFOData, NFOActor, and NFOPoster types.
+//  2. NFO generation from MovieInfo.
+//  3. XML encoding and pretty-print helpers.
 package librarymetadata
 
 import (
@@ -99,7 +99,10 @@ func BuildNFO(info *MovieInfo) ([]byte, error) {
 
 	title := strings.TrimSpace(info.Title)
 	number := strings.TrimSpace(info.Number)
-	if number != "" && !strings.HasPrefix(strings.ToUpper(title), strings.ToUpper(number)+" ") && !strings.EqualFold(title, number) {
+	// `info.Number` is the display number at write time. For split files this
+	// is intentionally `MIDD-820-A`/`MIDD-820-B`, even though the provider was
+	// queried once with the shared base number `MIDD-820`.
+	if number != "" && !titleHasNumberPrefix(title, number) {
 		title = number + " " + title
 	}
 
@@ -128,4 +131,32 @@ func BuildNFO(info *MovieInfo) ([]byte, error) {
 	}
 	header := []byte(xml.Header)
 	return append(header, output...), nil
+}
+
+// titleHasNumberPrefix recognizes the separators used by providers when they
+// put a code in front of a title. Checking the character after the code avoids
+// treating a title such as "MIDD-820-Amazing" as already prefixed, while also
+// preventing duplicate output for "MIDD-820-A - 标题".
+func titleHasNumberPrefix(title, number string) bool {
+	title = strings.TrimSpace(title)
+	number = strings.TrimSpace(number)
+	if title == "" || number == "" {
+		return false
+	}
+	if strings.EqualFold(title, number) {
+		return true
+	}
+	if len(title) < len(number) || !strings.EqualFold(title[:len(number)], number) {
+		return false
+	}
+	remainder := title[len(number):]
+	if remainder == "" {
+		return true
+	}
+	for _, separator := range []string{" ", "\u3000", "-", "_", ":", "：", "."} {
+		if strings.HasPrefix(remainder, separator) {
+			return true
+		}
+	}
+	return false
 }

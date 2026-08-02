@@ -27,6 +27,8 @@
     deleteProgress: 'delete-progress',
     introAdStart: 'intro-ad-start',
     introAdProgress: 'intro-ad-progress',
+    finalizeStart: 'finalize-start',
+    finalizeProgress: 'finalize-progress',
     completed: 'completed'
   });
 
@@ -49,6 +51,27 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   }
 
+  function shortenProgressPath(value, maxLength = 96) {
+    const path = String(value || '').trim();
+    if (!path || path.length <= maxLength) {
+      return path;
+    }
+    return `${path.slice(0, Math.max(12, maxLength - 28))}...${path.slice(-24)}`;
+  }
+
+  function formatElapsed(value) {
+    const elapsedMs = toSafeNumber(value, 0);
+    if (elapsedMs < 1000) {
+      return '';
+    }
+    const seconds = Math.floor(elapsedMs / 1000);
+    if (seconds < 60) {
+      return `，已耗时 ${seconds} 秒`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    return `，已耗时 ${minutes} 分 ${seconds % 60} 秒`;
+  }
+
   function createProgress(scope, phase, payload = {}) {
     // Progress payloads should carry numbers and phase identity only. Domain
     // services publish structured state; wording is derived centrally here.
@@ -69,23 +92,37 @@
     const total = toSafeNumber(progress.total, 0);
     const processed = toSafeNumber(progress.processed, 0);
     const adFileAction = normalizeAdFileAction(progress.adFileAction);
+    const operation = String(progress.operation || '').trim();
+    const currentPath = shortenProgressPath(progress.currentPath);
+    const location = currentPath ? ` 当前：${currentPath}` : '';
+    const elapsed = formatElapsed(progress.elapsedMs);
+    const heartbeat = progress.heartbeat ? '（仍在处理）' : '';
 
     if (phase === ORGANIZER_PROGRESS_PHASES.waitingProgress || phase === ORGANIZER_PROGRESS_PHASES.waitingStart) {
-      return `待整理总数 ${total} 个，已执行 ${processed} 个。`;
+      return `待整理总数 ${total} 个，已执行 ${processed} 个。${operation ? ` ${operation}` : ''}${heartbeat}${location}${elapsed}`;
     }
 
     if (phase === ORGANIZER_PROGRESS_PHASES.deleteProgress || phase === ORGANIZER_PROGRESS_PHASES.deleteStart) {
       return adFileAction === 'delete-directly'
-        ? `广告处理总数 ${total} 个，已直接删除 ${processed} 个。`
-        : `待删除总数 ${total} 个，已执行 ${processed} 个。`;
+        ? `广告处理总数 ${total} 个，已直接删除 ${processed} 个。${operation ? ` ${operation}` : ''}${heartbeat}${location}${elapsed}`
+        : `待删除总数 ${total} 个，已执行 ${processed} 个。${operation ? ` ${operation}` : ''}${heartbeat}${location}${elapsed}`;
     }
 
     if (phase === ORGANIZER_PROGRESS_PHASES.introAdProgress || phase === ORGANIZER_PROGRESS_PHASES.introAdStart) {
-      return `含开头广告总数 ${total} 个，已归档 ${processed} 个。`;
+      return `含开头广告总数 ${total} 个，已归档 ${processed} 个。${operation ? ` ${operation}` : ''}${location}${elapsed}`;
     }
 
     if (phase === ORGANIZER_PROGRESS_PHASES.scanProgress || phase === ORGANIZER_PROGRESS_PHASES.scanStart) {
-      return `扫描进度 ${processed}/${total}。`;
+      return `扫描进度 ${processed}/${total}。${operation ? ` ${operation}` : ''}${location}${elapsed}`;
+    }
+
+    if (phase === ORGANIZER_PROGRESS_PHASES.finalizeStart || phase === ORGANIZER_PROGRESS_PHASES.finalizeProgress) {
+      const finalizeTotal = toSafeNumber(progress.finalizeTotal, 4);
+      const finalizeProcessed = toSafeNumber(progress.finalizeProcessed, 0);
+      const subTotal = toSafeNumber(progress.subTotal, 0);
+      const subProcessed = toSafeNumber(progress.subProcessed, 0);
+      const subText = subTotal > 0 ? `，当前子任务 ${subProcessed}/${subTotal}` : '';
+      return `整理收尾进度 ${finalizeProcessed}/${finalizeTotal}：${operation || '准备收尾'}${subText}${heartbeat}${location}${elapsed}。`;
     }
 
     if (phase === ORGANIZER_PROGRESS_PHASES.scanCompleted) {
@@ -159,6 +196,7 @@
     LEARNING_PROGRESS_PHASES,
     normalizeAdFileAction,
     createProgress,
+    shortenProgressPath,
     buildOrganizerProgressMessage,
     buildLearningProgressMessage,
     buildProgressMessage

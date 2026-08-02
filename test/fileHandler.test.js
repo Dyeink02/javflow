@@ -63,6 +63,33 @@ describe('FileHandler', () => {
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
 
+  it('persists magnet display names while merging duplicate records', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jav-file-handler-display-name-'));
+    const handler = new FileHandler(outputDir);
+    const link = 'magnet:?xt=urn:btih:display-name&dn=ABA-250-c';
+
+    await handler.writeFilmDataToFile({
+      title: 'ABA-250 第一条',
+      sourceLink: 'https://www.javbus.com/ABA-250',
+      category: [],
+      actress: [],
+      magnetLinks: [{ link, size: '2GB', displayName: 'ABA-250-c' }]
+    });
+    await handler.writeFilmDataToFile({
+      title: 'ABA-250 第二条',
+      sourceLink: 'https://www.javbus.com/aba-250/',
+      category: [],
+      actress: [],
+      magnetLinks: [{ link, size: '2GB' }]
+    });
+    await handler.flush(true);
+
+    const records = JSON.parse(fs.readFileSync(path.join(outputDir, 'filmData.json'), 'utf8'));
+    assert.strictEqual(records[0].magnetLinks[0].displayName, 'ABA-250-c');
+
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  });
+
   it('deduplicates records by film id from title or sourceLink', async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jav-file-handler-film-id-'));
     const handler = new FileHandler(outputDir);

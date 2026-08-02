@@ -165,14 +165,22 @@ function createOrganizerService({ fs, path }) {
       .trim()
       .replace(/[_\s]+/g, '-')
       .replace(/-+/g, '-');
-    const match = compactValue.match(/^([A-Z]{2,12})-?(\d{2,8})([A-Z]*)$/);
+    // Keep archived compatibility matching aligned with the active Go rule:
+    // TL-1, TL-01, and TL-00001 all refer to canonical TL-001.
+    const match = compactValue.match(/^([A-Z]{2,12})-?(\d{1,8})([A-Z]*)$/);
 
     if (!match) {
       return compactValue;
     }
 
     const [, prefix, digits, suffix] = match;
-    return `${prefix}-${digits}${suffix}`.replace(/-+/g, '-');
+    const parsedNumber = Number.parseInt(digits, 10);
+    const normalizedDigits = Number.isFinite(parsedNumber)
+      ? parsedNumber < 100
+        ? String(parsedNumber).padStart(3, '0')
+        : String(parsedNumber)
+      : digits;
+    return `${prefix}-${normalizedDigits}${suffix}`.replace(/-+/g, '-');
   }
 
   function normalizeCodeToken(code) {
@@ -181,7 +189,7 @@ function createOrganizerService({ fs, path }) {
 
   function extractFilmId(value) {
     const normalizedValue = String(value || '').toUpperCase();
-    const directMatch = normalizedValue.match(/([A-Z]{2,12}-?\d{2,8}[A-Z]*)/);
+    const directMatch = normalizedValue.match(/([A-Z]{2,12}-?\d{1,8}[A-Z]*)/);
     if (directMatch && directMatch[1]) {
       return normalizeFilmId(directMatch[1]);
     }
@@ -189,7 +197,7 @@ function createOrganizerService({ fs, path }) {
     try {
       const parsedUrl = new URL(String(value || ''));
       const pathname = parsedUrl.pathname.split('/').filter(Boolean).pop() || '';
-      const pathMatch = pathname.toUpperCase().match(/([A-Z]{2,12}-?\d{2,8}[A-Z]*)/);
+      const pathMatch = pathname.toUpperCase().match(/([A-Z]{2,12}-?\d{1,8}[A-Z]*)/);
       return pathMatch && pathMatch[1] ? normalizeFilmId(pathMatch[1]) : '';
     } catch {
       return '';
@@ -232,7 +240,8 @@ function createOrganizerService({ fs, path }) {
       }
       return {
         link,
-        size: ''
+        size: '',
+        displayName: ''
       };
     }
 
@@ -247,7 +256,8 @@ function createOrganizerService({ fs, path }) {
 
     return {
       link,
-      size: String(rawEntry.size || '').trim()
+      size: String(rawEntry.size || '').trim(),
+      displayName: String(rawEntry.displayName || '').trim()
     };
   }
 
@@ -592,7 +602,7 @@ function createOrganizerService({ fs, path }) {
       .toUpperCase()
       .replace(/\s+/g, '');
     const patterns = [
-      /^([A-Z]{2,6})[-_]?(\d{2,6})$/,
+      /^([A-Z]{2,6})[-_]?(\d{1,6})$/,
       /^(N\d{3,6})$/,
       /^(T-?\d{3,6})$/,
       /^(CARIB\d{2,6})$/,
@@ -653,7 +663,7 @@ function createOrganizerService({ fs, path }) {
       return normalizeFilmId(`FC2-PPV-${fc2Match[1]}`);
     }
 
-    const standardMatch = normalized.match(/([A-Z]{2,12})[-_ ]*([0-9]{2,8})/i);
+    const standardMatch = normalized.match(/([A-Z]{2,12})[-_ ]*([0-9]{1,8})/i);
     if (standardMatch) {
       const prefix = String(standardMatch[1] || '').toUpperCase();
       const number = String(standardMatch[2] || '');
@@ -662,7 +672,7 @@ function createOrganizerService({ fs, path }) {
       }
     }
 
-    const compactMatch = normalized.match(/\b([A-Z]{2,12})([0-9]{2,8})\b/i);
+    const compactMatch = normalized.match(/\b([A-Z]{2,12})([0-9]{1,8})\b/i);
     if (compactMatch) {
       const prefix = String(compactMatch[1] || '').toUpperCase();
       const number = String(compactMatch[2] || '');
@@ -1611,6 +1621,11 @@ function createOrganizerService({ fs, path }) {
     const suffixStrategy = parseConflictSuffixStrategy(suffixInput);
     const adFileAction = normalizeAdFileAction(options.adFileAction);
     const strictExpectedCodes = options.strictExpectedCodes !== false;
+    // Missing-code detection remains available for review, while magnet
+    // generation is opt-in. Keep the boolean normalization at the service
+    // boundary so archived callers cannot accidentally enable follow-up
+    // downloads with truthy strings such as "false".
+    const retryMissingMagnets = options.retryMissingMagnets === true;
     const expectedInput = await resolveExpectedInputForRun(options);
     const expectedCodeSets = buildExpectedCodeSets(expectedInput.expectedCodes);
     const expectedCodeEntryMap = buildExpectedCodeEntryMap(expectedInput.expectedCodeEntries);
@@ -1639,7 +1654,8 @@ function createOrganizerService({ fs, path }) {
       rootPath: normalizedRootPath,
       minSizeMB,
       adFileAction,
-      adModelType
+      adModelType,
+      retryMissingMagnets
     });
 
     emitLog(
@@ -1775,6 +1791,7 @@ function createOrganizerService({ fs, path }) {
       expectedCodeSets,
       expectedCodeEntryMap,
       detectedFilmCodes: phaseJudgeResult.detectedFilmCodes,
+      retryMissingMagnets,
       adRiskRecords: phaseIntroAdResult.adRiskRecords,
       renameRecords: phaseRenameResult.renameRecords,
       unmatchedRecords: phaseJudgeResult.unmatchedRecords,

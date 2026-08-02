@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"javflow/internal/crawlidentity"
 )
 
 // learning_samples.go owns sample discovery, normalization, and persistence
@@ -46,7 +48,7 @@ var (
 	}
 	codeListSplitPattern = regexp.MustCompile(`[\r\n,，、;\t ]+`)
 	codeTokenPattern     = regexp.MustCompile(`[^A-Z0-9]`)
-	codeNormalizePattern = regexp.MustCompile(`^([A-Z]{2,12})-?(\d{2,8})([A-Z]*)$`)
+	codeNormalizePattern = regexp.MustCompile(`^([A-Z]{2,12})-?(\d{1,8})([A-Z]*)$`)
 )
 
 type ProgressSink func(map[string]any)
@@ -764,7 +766,9 @@ func normalizeFilmCode(rawValue string) string {
 	}
 	matches := codeNormalizePattern.FindStringSubmatch(compactValue)
 	if len(matches) == 4 {
-		return matches[1] + "-" + matches[2] + matches[3]
+		// Delegate numeric width/leading-zero handling to the shared identity
+		// contract so ad samples cannot diverge from crawler/organizer records.
+		return crawlidentity.NormalizeFilmID(matches[1] + "-" + matches[2] + matches[3])
 	}
 	return compactValue
 }

@@ -16,9 +16,10 @@ import (
 
 // CodeExtractionResult holds the normalized code plus any suffix tags/part markers.
 type CodeExtractionResult struct {
-	Code string
-	Tags string
-	Part string
+	Code          string
+	Tags          string
+	Part          string
+	candidatePart string
 }
 
 var (
@@ -46,9 +47,15 @@ var (
 
 	tagMarkers = []string{"-C", "-c", "_C", "_c", "-CH", "-ch", "_CH", "_ch"}
 	partMarker = regexp.MustCompile(`(?i)[-_]?(cd\d+|part\d+|pt\d+)`)
-	// Organizer exposes only these three fixed suffix styles. Keep the suffix
-	// separate from the lookup code so split files can share one metadata query.
-	fixedPartMarker = regexp.MustCompile(`(?i)([-_](?:[AB]|[12])|_DUP[12])$`)
+	// Alphabetic, numeric, and duplicate suffixes stay separate from the lookup
+	// code so every local split file can share one metadata query.
+	// The end anchor is intentional: a token in the middle of a noisy filename
+	// must not turn the whole file into a false A/B or duplicate part.
+	fixedPartMarker = regexp.MustCompile(`(?i)(_DUP\d+|[-_](?:[AB]|[D-Z])|[-_]\d+)$`)
+	// -C is historically used for Chinese subtitles. Keep it as a tag when it
+	// appears by itself, but expose it as a candidate so the scanner can promote
+	// it to a split part when sibling files prove it belongs to a series.
+	contextualCPartMarker = regexp.MustCompile(`(?i)([-_]C)$`)
 )
 
 // ExtractCodeFromFilename extracts a JAV code from a media filename.
@@ -84,6 +91,15 @@ func ExtractCodeFromFilename(filename string) CodeExtractionResult {
 			name = candidateName
 		}
 	}
+	candidatePart := ""
+	if part == "" {
+		if match := contextualCPartMarker.FindStringSubmatch(name); len(match) > 1 {
+			candidateName := strings.TrimSuffix(name, match[1])
+			if candidateCode := extractNormalizedCode(candidateName); candidateCode != "" {
+				candidatePart = "C"
+			}
+		}
+	}
 
 	// Extract Chinese subtitle / other tags.
 	tag := ""
@@ -101,10 +117,10 @@ func ExtractCodeFromFilename(filename string) CodeExtractionResult {
 	name = strings.ReplaceAll(name, "_", "-")
 
 	if code := extractNormalizedCode(name); code != "" {
-		return CodeExtractionResult{Code: code, Tags: tag, Part: part}
+		return CodeExtractionResult{Code: code, Tags: tag, Part: part, candidatePart: candidatePart}
 	}
 
-	return CodeExtractionResult{Tags: tag, Part: part}
+	return CodeExtractionResult{Tags: tag, Part: part, candidatePart: candidatePart}
 }
 
 func extractNormalizedCode(name string) string {

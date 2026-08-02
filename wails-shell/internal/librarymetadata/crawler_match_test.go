@@ -55,6 +55,48 @@ func TestBuildCrawlSource_FromFilmData_BBAN452(t *testing.T) {
 	}
 }
 
+func TestCrawlSourceReturnsDefensiveRecordCopies(t *testing.T) {
+	source := &CrawlSource{
+		records: map[string]CrawlerRecord{
+			"ABP-001": {
+				Code:    "ABP-001",
+				Actors:  []string{"演员 A"},
+				Genres:  []string{"剧情"},
+				Aliases: []string{"ABP-0010"},
+			},
+			"ZZZ-002": {Code: "ZZZ-002"},
+		},
+		aliases:   map[string]string{},
+		ambiguous: map[string]struct{}{},
+	}
+
+	record, ok := source.Lookup("ABP-001")
+	if !ok {
+		t.Fatal("expected ABP-001 lookup")
+	}
+	record.Actors[0] = "被调用方修改"
+	record.Genres[0] = "被调用方修改"
+	record.Aliases[0] = "被调用方修改"
+
+	readBack, ok := source.Lookup("ABP-001")
+	if !ok {
+		t.Fatal("expected ABP-001 lookup after mutation")
+	}
+	if readBack.Actors[0] != "演员 A" || readBack.Genres[0] != "剧情" || readBack.Aliases[0] != "ABP-0010" {
+		t.Fatalf("lookup returned internal slices: %#v", readBack)
+	}
+
+	records := source.Records()
+	if len(records) != 2 || records[0].Code != "ABP-001" || records[1].Code != "ZZZ-002" {
+		t.Fatalf("Records should be sorted by code: %#v", records)
+	}
+	records[0].Actors[0] = "再次修改"
+	readBack, _ = source.Lookup("ABP-001")
+	if readBack.Actors[0] != "演员 A" {
+		t.Fatalf("Records returned internal actor slice: %#v", readBack)
+	}
+}
+
 func TestBuildCrawlSource_ExplicitSelectionDoesNotMergeHistory(t *testing.T) {
 	selectedDir := t.TempDir()
 	otherDir := t.TempDir()

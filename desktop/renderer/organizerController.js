@@ -102,7 +102,7 @@
     const STORAGE_KEYS = {
       organizerGuideShown: 'jav.organizer.guide.v1.shown'
     };
-    const ORGANIZER_TOTAL_STAGES = 6;
+    const ORGANIZER_TOTAL_STAGES = 7;
     const messages = {
       idle: '等待开始整理。',
       running: '正在整理视频文件，请稍候...',
@@ -232,9 +232,6 @@
       if (elements.organizerMatched) {
         elements.organizerMatched.textContent = String(summary.qualifiedVideo ?? 0);
       }
-      if (elements.organizerMovedWaiting) {
-        elements.organizerMovedWaiting.textContent = String(summary.movedToWaiting ?? 0);
-      }
       if (elements.organizerMovedUnmatched) {
         elements.organizerMovedUnmatched.textContent = String(summary.movedToUnmatched ?? 0);
       }
@@ -278,17 +275,25 @@
       return `已整理：${percent}% 当前阶段：${stageIndex}/${ORGANIZER_TOTAL_STAGES}`;
     }
 
+    function shortenProgressPath(value, maxLength = 88) {
+      if (progressSchema && typeof progressSchema.shortenProgressPath === 'function') {
+        return progressSchema.shortenProgressPath(value, maxLength);
+      }
+      const path = String(value || '').trim();
+      return path.length > maxLength ? `${path.slice(0, maxLength - 28)}...${path.slice(-24)}` : path;
+    }
+
     function buildIdleSummary() {
       return `已整理：0% 当前阶段：0/${ORGANIZER_TOTAL_STAGES}\n正在执行：等待开始整理`;
     }
 
     function buildCompletedSummary(summary = {}, dryRun = false) {
       const completionLabel = dryRun ? '预览完成' : '整理完成';
-      return `${buildProgressHeadline(100, ORGANIZER_TOTAL_STAGES)}\n${completionLabel}：待整理 ${
-        summary.movedToWaiting || 0
-      } 个，未命中 ${summary.movedToUnmatched || 0} 个，待删除 ${summary.movedToDelete || 0} 个，含开头广告 ${summary.movedToIntroAd || 0} 个，直接删除 ${
-        summary.deletedDirectly || 0
-      } 个，遗漏番号 ${summary.missingCodeCount || 0} 条。`;
+      return `${buildProgressHeadline(100, ORGANIZER_TOTAL_STAGES)}\n${completionLabel}：扫描 ${
+        summary.scannedTotal || 0
+      } 个，视频 ${summary.videoTotal || 0} 个，命中番号 ${summary.qualifiedVideo || 0} 个，未命中番号 ${
+        summary.movedToUnmatched || 0
+      } 个，待删除文件 ${summary.movedToDelete || 0} 个，失败 ${summary.failedOperations || 0} 个。`;
     }
 
     function buildRunningSummary(percent, stageIndex, actionLabel) {
@@ -346,9 +351,18 @@
         stageIndex = 6;
         stageProgress = buildRatio(processed, total, phase === organizerPhases.introAdStart || phase === 'intro-ad-start' ? 0 : 0.25);
         actionLabel = '识别开头广告、复核并输出报告';
+      } else if (phase === organizerPhases.finalizeStart || phase === organizerPhases.finalizeProgress || phase === 'finalize-start' || phase === 'finalize-progress') {
+        const finalizeTotal = toSafeNumber(progress.finalizeTotal, 4);
+        const finalizeProcessed = toSafeNumber(progress.finalizeProcessed, 0);
+        completedStagesBefore = 6;
+        stageIndex = 7;
+        stageProgress = buildRatio(finalizeProcessed, finalizeTotal, phase === organizerPhases.finalizeStart || phase === 'finalize-start' ? 0.05 : 0.1);
+        const operation = String(progress.operation || '').trim() || '整理收尾';
+        const currentPath = shortenProgressPath(progress.currentPath);
+        actionLabel = currentPath ? `${operation}：${currentPath}` : operation;
       } else if (phase === organizerPhases.completed || phase === 'completed') {
-        completedStagesBefore = 5;
-        stageIndex = 6;
+        completedStagesBefore = 6;
+        stageIndex = 7;
         stageProgress = 1;
         actionLabel = '整理完成';
       } else {
@@ -408,17 +422,15 @@
       const phase = String(progress.phase || '');
 
       if (scope === 'organizer') {
-        if (elements.organizerScanned && Number.isFinite(Number(progress.processed))) {
+        const isScanPhase = phase === 'scan-start' || phase === 'scan-progress' || phase === 'scan-completed';
+        if (isScanPhase && elements.organizerScanned && Number.isFinite(Number(progress.processed))) {
           elements.organizerScanned.textContent = String(progress.processed);
         }
-        if (elements.organizerVideoTotal && Number.isFinite(Number(progress.videoTotal))) {
+        if (isScanPhase && elements.organizerVideoTotal && Number.isFinite(Number(progress.videoTotal))) {
           elements.organizerVideoTotal.textContent = String(progress.videoTotal);
         }
-        if (elements.organizerMatched && Number.isFinite(Number(progress.qualifiedVideo))) {
+        if (isScanPhase && elements.organizerMatched && Number.isFinite(Number(progress.qualifiedVideo))) {
           elements.organizerMatched.textContent = String(progress.qualifiedVideo);
-        }
-        if (elements.organizerMovedWaiting && Number.isFinite(Number(progress.processed)) && phase.startsWith('waiting')) {
-          elements.organizerMovedWaiting.textContent = String(progress.processed);
         }
         if (elements.organizerMovedDelete && Number.isFinite(Number(progress.processed)) && phase.startsWith('delete')) {
           elements.organizerMovedDelete.textContent = String(progress.processed);
@@ -445,6 +457,7 @@
         elements.organizerPreviewButton,
         elements.organizerRescueNamesButton,
         elements.organizerLoadCodesButton,
+        elements.organizerDiscoverCodesButton,
         elements.organizerUseLatestOutputButton,
         elements.organizerLearningCodes,
         elements.organizerImportAdSamplesButton,
@@ -567,14 +580,15 @@
         throw new Error(messages.minSizeInvalid);
       }
 
-      if (!settings.crawlOutputDir) {
+      if (!settings.crawlOutputDir && !settings.rootPath) {
         throw new Error(messages.crawlOutputRequired);
       }
 
       if (
         settings.strictExpectedCodes &&
         !settings.preloadedExpected &&
-        (!settings.crawlOutputDir || !String(settings.crawlOutputDir).trim())
+        (!settings.crawlOutputDir || !String(settings.crawlOutputDir).trim()) &&
+        (!settings.rootPath || !String(settings.rootPath).trim())
       ) {
         throw new Error(messages.codeRequired);
       }
@@ -606,7 +620,7 @@
               '• 含开头广告/ (广告风险视频)\n' +
               '• logs/ (运行日志)\n' +
               '• 更改前后对照.txt 等6个报告文件\n\n' +
-              '其余内容会先归集，再通过一个临时目录一次性删除！\n\n' +
+              '只会删除扫描阶段明确确认的广告/小文件；未知内容、隐藏目录和软件产物都会保留，不会创建临时删除目录。\n\n' +
               '此操作不可逆，是否继续？';
           }
 
@@ -767,12 +781,10 @@
         await dependencyController.deleteDependencyState();
       });
 
-      bindOpenOrganizerPathButton(elements.organizerOpenRootButton, 'root');
       bindOpenOrganizerPathButton(elements.organizerOpenWaitingButton, 'waiting');
+      bindOpenOrganizerPathButton(elements.organizerOpenOrganizedButton, 'root');
       bindOpenOrganizerPathButton(elements.organizerOpenUnmatchedButton, 'unmatched');
       bindOpenOrganizerPathButton(elements.organizerOpenDeleteButton, 'delete');
-      bindOpenOrganizerPathButton(elements.organizerOpenIntroAdButton, 'intro-ad');
-      bindOpenOrganizerPathButton(elements.organizerOpenReportsButton, 'reports');
 
       bindAsyncClick(elements.organizerStartButton, async () => {
         await runOrganizerTask(Boolean(elements.organizerDryRun && elements.organizerDryRun.checked));

@@ -24,8 +24,12 @@ import (
 // 3) canonical ID cleanup and comparison utilities
 
 var (
-	directFilmIDPattern     = regexp.MustCompile(`([A-Z]{2,12}-?\d{2,8}[A-Z]*)`)
-	normalizedFilmIDPattern = regexp.MustCompile(`^([A-Z]{2,12})-?(\d{2,8})([A-Z]*)$`)
+	// A release can be written with one to eight digits (for example TL-1,
+	// TL-01, or TL-00001). NormalizeFilmID converts all of those spellings to
+	// the same three-digit identity so resume/reconciliation does not split
+	// one film into multiple records.
+	directFilmIDPattern     = regexp.MustCompile(`([A-Z]{2,12}-?\d{1,8}[A-Z]*)`)
+	normalizedFilmIDPattern = regexp.MustCompile(`^([A-Z]{2,12})-?(\d{1,8})([A-Z]*)$`)
 )
 
 // NormalizeFilmID is the single normalization rule for film-code text shared by

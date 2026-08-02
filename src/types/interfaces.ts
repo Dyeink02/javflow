@@ -13,6 +13,7 @@ interface Config {
   search: string | null;
   base: string | null;
   nomag: boolean;
+  metadataOnly?: boolean;
   allmag: boolean;
   nopic: boolean;
   timeout?: number;
@@ -50,6 +51,7 @@ interface RuntimeOptions {
   base?: string | null;
   proxy?: string | null;
   nomag?: boolean | null;
+  metadataOnly?: boolean | null;
   allmag?: boolean | null;
   nopic?: boolean | null;
   limit?: number | string | null;
@@ -86,11 +88,17 @@ interface Metadata {
   uc: string;
   category: string[];
   actress: string[];
+  releaseDate?: string;
+  maker?: string;
+  label?: string;
+  series?: string;
 }
 
 interface MagnetLink {
   link: string;
   size: string;
+  /** Original `dn` value decoded from the magnet URI, preserving case/suffixes. */
+  displayName?: string;
 }
 
 interface MagnetResult {
@@ -107,6 +115,10 @@ interface FilmData {
   backupMagnetLinks?: MagnetLink[];
   category: string[];
   actress: string[];
+  releaseDate?: string;
+  maker?: string;
+  label?: string;
+  series?: string;
   actressCount?: number;
   filteredByActressCount?: boolean;
   filteredByFilmCode?: boolean;

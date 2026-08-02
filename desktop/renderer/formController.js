@@ -272,6 +272,9 @@
       if (Object.prototype.hasOwnProperty.call(draft, 'nopic')) {
         elements.nopic.checked = Boolean(draft.nopic);
       }
+      if (Object.prototype.hasOwnProperty.call(draft, 'metadataOnly') && elements.metadataOnly) {
+        elements.metadataOnly.checked = Boolean(draft.metadataOnly);
+      }
 
       return true;
     }
@@ -604,6 +607,7 @@
         nomag: getElementChecked(elements.nomag),
         allmag: getElementChecked(elements.allmag),
         magnetContentValidation: getElementChecked(elements.magnetContentValidation),
+        metadataOnly: getElementChecked(elements.metadataOnly),
         nopic: getElementChecked(elements.nopic)
       };
     }
@@ -966,6 +970,7 @@
         elements.nomag,
         elements.allmag,
         elements.magnetContentValidation,
+        elements.metadataOnly,
         elements.nopic
       ].forEach((element) => {
         if (!element) {
@@ -1169,6 +1174,9 @@
       elements.nomag.checked = Boolean(initialSettings.nomag);
       elements.allmag.checked = Boolean(initialSettings.allmag);
       elements.magnetContentValidation.checked = Boolean(initialSettings.magnetContentValidation);
+      if (elements.metadataOnly) {
+        elements.metadataOnly.checked = Boolean(initialSettings.metadataOnly);
+      }
       elements.nopic.checked = Boolean(initialSettings.nopic);
       applyCrawlerDraftSnapshot(draftSettings);
       hydratingFormState = false;

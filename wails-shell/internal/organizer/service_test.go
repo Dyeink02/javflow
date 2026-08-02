@@ -111,6 +111,46 @@ func TestRunOrganizerMovesQualifiedVideoAndDeletesSourceFolder(t *testing.T) {
 	}
 }
 
+func TestRunOrganizerDirectDeletePreservesSoftwareArtifactInSourceFolder(t *testing.T) {
+	service := NewService()
+	rootDir := t.TempDir()
+	sourceDir := filepath.Join(rootDir, "ABP-990")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	writeSparseFile(t, filepath.Join(sourceDir, "ABP-990.mp4"), 2*1024*1024)
+	if err := os.WriteFile(filepath.Join(sourceDir, "ad.mp4"), []byte("ad"), 0o644); err != nil {
+		t.Fatalf("write small video: %v", err)
+	}
+	artifactPath := filepath.Join(sourceDir, "filmData.json")
+	if err := os.WriteFile(artifactPath, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write crawler artifact: %v", err)
+	}
+
+	result, err := service.RunOrganizer(RunOptions{
+		RootPath:              rootDir,
+		MinSizeMB:             1,
+		VideoExtensions:       "mp4",
+		AdFileAction:          adFileActionDeleteDirectly,
+		IncludeSubdirectories: true,
+		StrictExpectedCodes:   true,
+		ExpectedCodes:         []string{"ABP-990"},
+		AdDetectionEnabled:    false,
+	})
+	if err != nil {
+		t.Fatalf("RunOrganizer returned error: %v", err)
+	}
+	if result.Summary.DeletedDirectly != 1 {
+		t.Fatalf("expected only the classified ad to be deleted, got %d", result.Summary.DeletedDirectly)
+	}
+	if _, err := os.Stat(artifactPath); err != nil {
+		t.Fatalf("expected crawler artifact to be preserved: %v", err)
+	}
+	if _, err := os.Stat(sourceDir); err != nil {
+		t.Fatalf("expected source folder to remain for preserved artifact: %v", err)
+	}
+}
+
 func TestRunOrganizerMatchesMagnetDisplayNameAliasInStrictMode(t *testing.T) {
 	service := NewService()
 	rootDir := t.TempDir()
@@ -345,11 +385,33 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	if err := os.WriteFile(filepath.Join(validDir, "ad.txt"), []byte("ad"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	managedNestedDir := filepath.Join(validDir, ".video-organizer-cache")
+	if err := os.MkdirAll(managedNestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managedNestedDir, "state.json"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(validDir, "filmData.json"), []byte("software artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(trashDir, "promo.mp4"), []byte("ad"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rootJunk := filepath.Join(rootDir, "root-junk.txt")
 	if err := os.WriteFile(rootJunk, []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, artifactName := range []string{"filmData.json", "crawl-profile.json", "magnet-links.txt"} {
+		if err := os.WriteFile(filepath.Join(rootDir, artifactName), []byte("software artifact"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	softwareStateDir := filepath.Join(rootDir, ".video-organizer-generated")
+	if err := os.MkdirAll(softwareStateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(softwareStateDir, "state.json"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -395,13 +457,36 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 			t.Fatalf("expected split output %s: %v", name, err)
 		}
 	}
-	for _, removedPath := range []string{validDir, trashDir, unlistedDir, rootJunk} {
+	if _, err := os.Stat(validDir); err != nil {
+		t.Fatalf("expected source directory to remain because it contains a software cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(validDir, "ad.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected explicitly classified ad file to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(managedNestedDir, "state.json")); err != nil {
+		t.Fatalf("expected nested software cache to be preserved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(validDir, "filmData.json")); err != nil {
+		t.Fatalf("expected nested crawler artifact to be preserved: %v", err)
+	}
+	for _, removedPath := range []string{trashDir} {
 		if _, err := os.Stat(removedPath); !os.IsNotExist(err) {
 			t.Fatalf("expected batch-deleted path %s, stat err=%v", removedPath, err)
 		}
 	}
+	if entries, err := os.ReadDir(unlistedDir); err != nil || len(entries) != 0 {
+		t.Fatalf("expected unmatched source directory to remain empty for manual review, entries=%v err=%v", entries, err)
+	}
 	unmatchedVideo := filepath.Join(paths.UnmatchedDir, "FSET-739.mp4")
-	for _, preservedPath := range []string{paths.WaitingDir, paths.UnmatchedDir, unmatchedVideo, paths.IntroAdDir, paths.LogsDir, paths.StateDir, paths.ToDeleteDir, logPath, toDeleteMarker} {
+	preservedArtifacts := []string{
+		rootJunk,
+		filepath.Join(rootDir, "filmData.json"),
+		filepath.Join(rootDir, "crawl-profile.json"),
+		filepath.Join(rootDir, "magnet-links.txt"),
+		softwareStateDir,
+		filepath.Join(softwareStateDir, "state.json"),
+	}
+	for _, preservedPath := range append([]string{paths.WaitingDir, paths.UnmatchedDir, unmatchedVideo, paths.IntroAdDir, paths.LogsDir, paths.StateDir, paths.ToDeleteDir, logPath, toDeleteMarker}, preservedArtifacts...) {
 		if _, err := os.Stat(preservedPath); err != nil {
 			t.Fatalf("expected preserved path %s: %v", preservedPath, err)
 		}

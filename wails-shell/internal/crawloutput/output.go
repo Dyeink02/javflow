@@ -31,15 +31,19 @@ import (
 )
 
 type FilmData struct {
-	Title                  string   `json:"title"`
-	SourceLink             string   `json:"sourceLink"`
-	Category               []string `json:"category,omitempty"`
-	Actress                []string `json:"actress,omitempty"`
-	CoverImage             string   `json:"coverImage,omitempty"`
-	ReleaseDate            string   `json:"releaseDate,omitempty"`
-	MagnetLinks            []struct {
-		Link string `json:"link"`
-		Size string `json:"size"`
+	Title       string   `json:"title"`
+	SourceLink  string   `json:"sourceLink"`
+	Category    []string `json:"category,omitempty"`
+	Actress     []string `json:"actress,omitempty"`
+	CoverImage  string   `json:"coverImage,omitempty"`
+	ReleaseDate string   `json:"releaseDate,omitempty"`
+	Maker       string   `json:"maker,omitempty"`
+	Label       string   `json:"label,omitempty"`
+	Series      string   `json:"series,omitempty"`
+	MagnetLinks []struct {
+		Link        string `json:"link"`
+		Size        string `json:"size"`
+		DisplayName string `json:"displayName,omitempty"`
 	} `json:"magnetLinks,omitempty"`
 	Magnet                 string `json:"magnet,omitempty"`
 	ActressCount           int    `json:"actressCount,omitempty"`
@@ -139,32 +143,64 @@ func SyncInternalArtifactsFromVisible(userDataDir string, outputDir string, meta
 	if err != nil {
 		return err
 	}
+	// This operation is deliberately different from a resume: subscription
+	// finalization has just rewritten the public filmData.json and must rebuild
+	// the hidden snapshot from that visible, filtered view. NewWriter normally
+	// prefers the hidden snapshot, so explicitly replace it here when the public
+	// file is readable (including a valid empty array).
+	visiblePath := crawlartifact.ResolveCrawlOutputPaths(outputDir).FilmDataPath
+	writer.loadRecordsFromPath(visiblePath)
 	writer.SetArtifactMetadata(metadata)
 	return writer.Flush()
 }
 
 func (w *Writer) loadFromDisk() {
-	path := crawlartifact.ResolveCrawlOutputPaths(w.outputDir).FilmDataPath
+	// Resume prefers the app-managed complete snapshot. If it was removed by
+	// the user, fall back to the public file so old portable runs remain usable.
+	// The order is important: the public file may intentionally contain only a
+	// subscription subset while the hidden copy retains the complete crawl.
+	candidates := make([]string, 0, 2)
+	if path := strings.TrimSpace(w.artifactPaths.FilmDataPath); path != "" {
+		candidates = append(candidates, path)
+	}
+	if path := strings.TrimSpace(crawlartifact.ResolveCrawlOutputPaths(w.outputDir).FilmDataPath); path != "" {
+		if len(candidates) == 0 || !strings.EqualFold(candidates[0], path) {
+			candidates = append(candidates, path)
+		}
+	}
+	for _, path := range candidates {
+		if w.loadRecordsFromPath(path) {
+			return
+		}
+	}
+}
+
+// loadRecordsFromPath replaces the in-memory index only when path contains a
+// valid filmData array. Returning false lets callers try a lower-priority
+// compatibility path without destroying a successfully loaded snapshot.
+func (w *Writer) loadRecordsFromPath(path string) bool {
 	if strings.TrimSpace(path) == "" {
-		return
+		return false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return false
 	}
 	var records []FilmData
 	if err := json.Unmarshal(data, &records); err != nil {
-		return
+		return false
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.records = records
+	w.filmIDIndex = map[string]int{}
 	for i, r := range records {
 		key := r.IdentityKey()
 		if key != "" {
 			w.filmIDIndex[key] = i
 		}
 	}
+	return true
 }
 
 // WriteFilmData is the one mutation path for filmData records. Deduplication,
@@ -198,10 +234,56 @@ func (w *Writer) WriteFilmData(data FilmData) (bool, error) {
 			w.records[idx].FilterRemark = data.FilterRemark
 			changed = true
 		}
+		if existing.Maker == "" && data.Maker != "" {
+			w.records[idx].Maker = strings.TrimSpace(data.Maker)
+			changed = true
+		}
+		if existing.Label == "" && data.Label != "" {
+			w.records[idx].Label = strings.TrimSpace(data.Label)
+			changed = true
+		}
+		if existing.Series == "" && data.Series != "" {
+			w.records[idx].Series = strings.TrimSpace(data.Series)
+			changed = true
+		}
 		if existing.Magnet == "" && data.Magnet != "" {
 			w.records[idx].Magnet = data.Magnet
-			w.records[idx].MagnetLinks = data.MagnetLinks
 			changed = true
+		}
+		// Older filmData records may contain the same magnet without the
+		// displayName field. Enrich those records on a later crawl so the
+		// original case/suffix remains available to organizer and audit views.
+		// Merge backup candidates instead of discarding links discovered by a
+		// later retry. Keep the first selected `Magnet` stable, but retain every
+		// unique backup with any newly available display name/size enrichment.
+		storedLinks := w.records[idx].MagnetLinks
+		for _, incoming := range data.MagnetLinks {
+			incomingLink := strings.TrimSpace(incoming.Link)
+			if incomingLink == "" {
+				continue
+			}
+			found := false
+			for magnetIndex, stored := range storedLinks {
+				if !strings.EqualFold(strings.TrimSpace(stored.Link), incomingLink) {
+					continue
+				}
+				found = true
+				if stored.DisplayName == "" && incoming.DisplayName != "" {
+					w.records[idx].MagnetLinks[magnetIndex].DisplayName = incoming.DisplayName
+					changed = true
+				}
+				if stored.Size == "" && incoming.Size != "" {
+					w.records[idx].MagnetLinks[magnetIndex].Size = incoming.Size
+					changed = true
+				}
+				break
+			}
+			if !found {
+				incoming.Link = incomingLink
+				w.records[idx].MagnetLinks = append(w.records[idx].MagnetLinks, incoming)
+				storedLinks = w.records[idx].MagnetLinks
+				changed = true
+			}
 		}
 		if changed {
 			w.dirty = true
@@ -314,11 +396,14 @@ func (w *Writer) visibleRecordsLocked() ([]FilmData, []crawlartifact.FilteredFil
 		}
 		visibleRecords = append(visibleRecords, record)
 		if record.FilteredByActressCount || record.FilteredByFilmCode {
-			reason := "filmCode"
+			reasons := make([]string, 0, 2)
 			if record.FilteredByActressCount {
-				reason = "actressCount"
+				reasons = append(reasons, "actressCount")
 			}
-			addFilteredEntry(record, reason, strings.TrimSpace(record.FilterRemark))
+			if record.FilteredByFilmCode {
+				reasons = append(reasons, "filmCode")
+			}
+			addFilteredEntry(record, strings.Join(reasons, "+"), strings.TrimSpace(record.FilterRemark))
 		}
 	}
 	return visibleRecords, filteredEntries
@@ -605,13 +690,25 @@ func buildOrganizerArtifactData(records []FilmData) ([]string, []crawlartifact.C
 		entry, exists := codeMap[code]
 		if !exists {
 			entry = &crawlartifact.CodeEntry{
-				Code:  code,
-				Title: strings.TrimSpace(record.Title),
+				Code:   code,
+				Title:  strings.TrimSpace(record.Title),
+				Maker:  strings.TrimSpace(record.Maker),
+				Label:  strings.TrimSpace(record.Label),
+				Series: strings.TrimSpace(record.Series),
 			}
 			codeMap[code] = entry
 		}
 		if entry.Title == "" {
 			entry.Title = strings.TrimSpace(record.Title)
+		}
+		if entry.Maker == "" {
+			entry.Maker = strings.TrimSpace(record.Maker)
+		}
+		if entry.Label == "" {
+			entry.Label = strings.TrimSpace(record.Label)
+		}
+		if entry.Series == "" {
+			entry.Series = strings.TrimSpace(record.Series)
 		}
 
 		appendUniqueMagnetEntries(entry, record)
@@ -644,7 +741,7 @@ func appendUniqueMagnetEntries(entry *crawlartifact.CodeEntry, record FilmData) 
 		seen[strings.ToLower(strings.TrimSpace(item.Link))] = struct{}{}
 	}
 
-	appendMagnet := func(link string, size string) {
+	appendMagnet := func(link string, size string, displayName string) {
 		trimmed := strings.TrimSpace(link)
 		if trimmed == "" {
 			return
@@ -655,16 +752,17 @@ func appendUniqueMagnetEntries(entry *crawlartifact.CodeEntry, record FilmData) 
 		}
 		seen[key] = struct{}{}
 		entry.Magnets = append(entry.Magnets, crawlartifact.MagnetEntry{
-			Link: trimmed,
-			Size: strings.TrimSpace(size),
+			Link:        trimmed,
+			Size:        strings.TrimSpace(size),
+			DisplayName: strings.TrimSpace(displayName),
 		})
 	}
 
 	for _, item := range record.MagnetLinks {
-		appendMagnet(item.Link, item.Size)
+		appendMagnet(item.Link, item.Size, item.DisplayName)
 	}
 	for _, line := range strings.Split(record.Magnet, "\n") {
-		appendMagnet(line, "")
+		appendMagnet(line, "", "")
 	}
 }
 

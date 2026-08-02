@@ -22,7 +22,7 @@ import (
 	"javflow/internal/crawlidentity"
 )
 
-var filmCodePattern = regexp.MustCompile(`([A-Z]{2,12})-?(\d{2,8}[A-Z]*)`)
+var filmCodePattern = regexp.MustCompile(`([A-Z]{2,12})-?(\d{1,8}[A-Z]*)`)
 
 func normalizeName(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))

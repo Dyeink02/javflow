@@ -31,6 +31,7 @@
     'app:get-dependency-status',
     'app:get-actress-rankings',
     'app:load-crawl-film-codes',
+    'app:discover-organizer-codes',
     'app:list-av-subscriptions',
     'app:scan-av-subscriptions-from-output',
     'app:add-av-subscription',
@@ -267,6 +268,7 @@
       importAdLearningSamples: optionsCommand('app:import-ad-learning-samples'),
       learnAdSamplesByCodes: optionsCommand('app:learn-ad-samples-by-codes'),
       loadCrawlFilmCodes: optionsCommand('app:load-crawl-film-codes'),
+      discoverOrganizerCodes: optionsCommand('app:discover-organizer-codes'),
       listAvSubscriptions: noPayloadCommand('app:list-av-subscriptions-v2'),
       // Preferred field is `artifactInput`; `outputDir` remains accepted only as
       // a compatibility alias while subscription import is being decoupled from

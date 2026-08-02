@@ -43,4 +43,23 @@ describe('progressSchema shared contract', () => {
     assert.ok(learningMessage.includes('命中视频 5'));
     assert.ok(learningMessage.includes('新增样本 2'));
   });
+
+  it('shows finalization sub-progress and the active path', () => {
+    const message = progressSchema.buildOrganizerProgressMessage({
+      phase: progressSchema.ORGANIZER_PROGRESS_PHASES.finalizeProgress,
+      finalizeTotal: 4,
+      finalizeProcessed: 1,
+      operation: '一次性删除批量临时目录',
+      subTotal: 20,
+      subProcessed: 8,
+      currentPath: 'Z:/media/slow-folder',
+      heartbeat: true,
+      elapsedMs: 1800
+    });
+
+    assert.ok(message.includes('整理收尾进度 1/4'));
+    assert.ok(message.includes('当前子任务 8/20'));
+    assert.ok(message.includes('Z:/media/slow-folder'));
+    assert.ok(message.includes('仍在处理'));
+  });
 });

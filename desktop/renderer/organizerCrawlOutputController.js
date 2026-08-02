@@ -500,6 +500,46 @@
       return result;
     }
 
+    // Read-only fallback for legacy libraries: identify unambiguous codes from
+    // local video paths, persist the hidden snapshot, and feed that snapshot
+    // through the same preload boundary as crawler artifacts.
+    async function discoverLocalCodes() {
+      const rootPath = normalizeOutputDir(elements.organizerRoot && elements.organizerRoot.value);
+      if (!rootPath) {
+        throw new Error('请先选择目标根目录');
+      }
+      const videoExtensions = normalizeOutputDir(
+        elements.organizerVideoExtensions && elements.organizerVideoExtensions.value
+      );
+      const result = await desktopApi.discoverOrganizerCodes({
+        rootPath,
+        includeSubdirectories: Boolean(
+          elements.organizerIncludeSubdirectories && elements.organizerIncludeSubdirectories.checked
+        ),
+        videoExtensions
+      });
+      const resolvedRoot = result.rootPath || rootPath;
+      if (elements.organizerCrawlOutput) {
+        elements.organizerCrawlOutput.value = resolvedRoot;
+      }
+      applyLoadedExpectedResult(
+        {
+          ...result,
+          outputDir: resolvedRoot,
+          sourceType: 'local-discovery',
+          sourcePath: result.statePath,
+          filmDataPath: result.statePath,
+          codeCount: Array.isArray(result.codes) ? result.codes.length : 0
+        },
+        resolvedRoot
+      );
+      appendOrganizerLog(
+        result.unidentifiedFiles > 0 ? 'warn' : 'info',
+        `本地番号识别完成：识别 ${Array.isArray(result.codes) ? result.codes.length : 0} 个番号，视频 ${result.videoFiles || 0} 个，未识别 ${result.unidentifiedFiles || 0} 个。隐藏快照：${result.statePath || '未生成'}${result.reportPath ? `；未命中清单：${result.reportPath}` : ''}`
+      );
+      return result;
+    }
+
     // Event binding stays intentionally narrow: this controller only owns
     // crawl-output preload input and expected-code snapshot state. Organizer run
     // execution buttons remain in organizerController.
@@ -532,6 +572,7 @@
           });
         }
       );
+      bindAsyncClick(elements.organizerDiscoverCodesButton, discoverLocalCodes);
     }
 
     function resetCodeMetaView() {
@@ -543,6 +584,7 @@
       getCurrentOrganizerInputState,
       applyLatestCrawlOutput,
       loadExpectedCodes,
+      discoverLocalCodes,
       bindEvents,
       resetCodeMetaView,
       getLoadedSnapshotForOutput

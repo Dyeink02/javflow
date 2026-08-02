@@ -24,14 +24,19 @@ export function getMagnetDisplayName(magnetLink: string): string {
     return '';
   }
 
+  const parseValue = rawValue.replace(/&amp;/gi, '&');
+
   try {
-    const magnetUrl = new URL(rawValue);
+    const magnetUrl = new URL(parseValue);
     const decodedName = magnetUrl.searchParams.get('dn') || '';
-    return decodeURIComponent(decodedName.replace(/\+/g, ' ')).trim();
+    if (decodedName.trim()) {
+      return decodeURIComponent(decodedName.replace(/\+/g, ' ')).trim();
+    }
+    return parseValue;
   } catch {
-    const match = rawValue.match(/[?&]dn=([^&]+)/i);
+    const match = parseValue.match(/[?&]dn=([^&]+)/i);
     if (!match?.[1]) {
-      return rawValue;
+      return parseValue;
     }
 
     try {
@@ -108,8 +113,14 @@ export function normalizeAjaxImageParam(value: string | null | undefined): strin
 }
 
 export function extractMagnetLinks(responseBody: string): string[] {
-  const matches = responseBody.match(/magnet:\?xt=urn:btih:[A-F0-9]+&dn=[^&"']+/gi) || [];
-  return Array.from(new Set(matches.map((item) => item.trim()).filter(Boolean)));
+  // Magnet query parameters are not guaranteed to be ordered, and HTML
+  // responses commonly encode ampersands as `&amp;`. Capture the complete URI
+  // first, normalize the entity, then retain only links with a valid BTIH.
+  const matches = responseBody.match(/magnet:\?[^"'<>\s]+/gi) || [];
+  const normalized = matches
+    .map((item) => item.replace(/&amp;/gi, '&').replace(/[),.;]+$/g, '').trim())
+    .filter((item) => /(?:^|[?&])xt=urn:btih:[A-F0-9]+(?:&|$)/i.test(item));
+  return Array.from(new Set(normalized));
 }
 
 export function extractSizeTokens(responseBody: string): string[] {
@@ -165,11 +176,13 @@ export function buildMagnetResult(
       magnet: candidates.map((pair) => pair.magnetLink).join('\n'),
       magnetLinks: candidates.map((pair) => ({
         link: pair.magnetLink,
-        size: formatSize(pair.size)
+        size: formatSize(pair.size),
+        displayName: pair.displayName
       })),
       backupMagnetLinks: sortedBySize.slice(0, normalizedBackupTopN).map((pair) => ({
         link: pair.magnetLink,
-        size: formatSize(pair.size)
+        size: formatSize(pair.size),
+        displayName: pair.displayName
       }))
     };
   }
@@ -184,12 +197,14 @@ export function buildMagnetResult(
     magnetLinks: [
       {
         link: selected.magnetLink,
-        size: formatSize(selected.size)
+        size: formatSize(selected.size),
+        displayName: selected.displayName
       }
     ],
     backupMagnetLinks: sortedBySize.slice(0, normalizedBackupTopN).map((pair) => ({
       link: pair.magnetLink,
-      size: formatSize(pair.size)
+      size: formatSize(pair.size),
+      displayName: pair.displayName
     }))
   };
 }

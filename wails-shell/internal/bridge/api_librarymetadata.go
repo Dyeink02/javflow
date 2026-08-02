@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file exposes library metadata scraping bridge commands to the desktop UI.
+//
+//	This file exposes library metadata scraping bridge commands to the desktop UI.
 //
 // File map for maintainers:
-//   1) Provider, bootstrap, scan, and scrape command handlers.
-//   2) Result marshalling and path normalization.
-//   3) Integration with librarymetadata service and crawl artifacts.
-//
+//  1. Provider, bootstrap, scan, and scrape command handlers.
+//  2. Result marshalling and path normalization.
+//  3. Integration with librarymetadata service and crawl artifacts.
 package bridge
 
 import (
@@ -168,9 +168,18 @@ func (a *API) libraryMetadataAutoSubscribeResult(payload map[string]any) (string
 	if a.lookup.avSubscriptionsV2 == nil || a.lookup.actressLookup == nil {
 		return "", fmt.Errorf("AV 订阅服务尚未就绪")
 	}
-	actressName := nonEmptyString(payload["actressName"])
-	if actressName == "" {
-		return "", fmt.Errorf("女优名称不能为空")
+	crawlOutputDir := normalizeLibraryMetadataCrawlOutputDir(nonEmptyString(payload["crawlOutputDir"]))
+	preferredOutputDir := normalizeLibraryMetadataCrawlOutputDir(nonEmptyString(payload["preferredOutputDir"]))
+	if preferredOutputDir == "" {
+		preferredOutputDir = crawlOutputDir
+	}
+	actressName, err := resolveAutoSubscriptionActressName(
+		nonEmptyString(payload["actressName"]),
+		a.runtime.store.UserDataDir(),
+		firstNonEmpty(crawlOutputDir, preferredOutputDir),
+	)
+	if err != nil {
+		return "", err
 	}
 
 	items, err := a.lookup.avSubscriptionsV2.List()
@@ -206,7 +215,7 @@ func (a *API) libraryMetadataAutoSubscribeResult(payload map[string]any) (string
 		DeclaredTotal:   profile.PreferredCount,
 		DeclaredPages:   profile.TotalPages,
 		DeclaredPerPage: profile.ItemsPerPage,
-		PreferredOutDir: autoSubscriptionOutputDir(nonEmptyString(payload["preferredOutputDir"]), resolvedName),
+		PreferredOutDir: autoSubscriptionOutputDir(preferredOutputDir, resolvedName),
 		Proxy:           nonEmptyString(payload["proxy"]),
 		RuntimeOptions:  a.buildSubscriptionV2RuntimeOptions(payload),
 		SourceType:      "metadata-auto",
@@ -221,6 +230,62 @@ func (a *API) libraryMetadataAutoSubscribeResult(payload map[string]any) (string
 		})
 	}
 	return string(mustRawJSON(map[string]any{"subscription": saved, "added": true})), nil
+}
+
+// resolveAutoSubscriptionActressName applies the actor-safety boundary before
+// any lookup or subscription write occurs. A selected crawler snapshot must
+// carry its own profile target; falling back to the first actor on a movie page
+// would reintroduce the compilation/guest-actor subscription bug.
+func resolveAutoSubscriptionActressName(input, userDataDir, crawlOutputDir string) (string, error) {
+	input = strings.TrimSpace(input)
+	crawlOutputDir = normalizeLibraryMetadataCrawlOutputDir(crawlOutputDir)
+	if crawlOutputDir != "" {
+		if target := crawlProfileActressName(userDataDir, crawlOutputDir); target != "" {
+			return target, nil
+		}
+		return "", fmt.Errorf("所选爬虫产物缺少目标女优信息，已跳过自动订阅")
+	}
+	if input == "" {
+		return "", fmt.Errorf("女优名称不能为空")
+	}
+	return input, nil
+}
+
+func crawlProfileActressName(userDataDir, outputDir string) string {
+	outputDir = normalizeLibraryMetadataCrawlOutputDir(outputDir)
+	if outputDir == "" {
+		return ""
+	}
+	_, profile, err := crawlartifact.ReadCrawlProfileArtifactWithUserData(outputDir, userDataDir)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(profile.ActressName)
+}
+
+// normalizeLibraryMetadataCrawlOutputDir accepts either the crawl output
+// directory or one of its artifact files. The UI intentionally supports both
+// forms, so cross-module actor lookup must use the same containing directory
+// before resolving hidden artifacts.
+func normalizeLibraryMetadataCrawlOutputDir(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	if info, err := os.Stat(trimmed); err == nil && info.Mode().IsRegular() {
+		return filepath.Dir(trimmed)
+	}
+
+	switch strings.ToLower(filepath.Base(trimmed)) {
+	case strings.ToLower(crawlartifact.CrawlFilmDataFile),
+		strings.ToLower(crawlartifact.CrawlProfileFile),
+		strings.ToLower(crawlartifact.OrganizerCodesFile),
+		strings.ToLower(crawlartifact.DefaultMagnetTxt):
+		return filepath.Dir(trimmed)
+	default:
+		return trimmed
+	}
 }
 
 func sameLibraryMetadataActress(left, right string) bool {

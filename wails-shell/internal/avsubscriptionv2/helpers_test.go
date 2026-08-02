@@ -8,6 +8,9 @@ func TestNormalizeFilmCodeCanonicalizesLeadingZeros(t *testing.T) {
 		"FWAY087":                         "FWAY-087",
 		"https://www.javbus.com/fway-087": "FWAY-087",
 		"MIDA-438":                        "MIDA-438",
+		"TL-1":                            "TL-001",
+		"TL-01":                           "TL-001",
+		"TL-00001":                        "TL-001",
 	}
 
 	for input, expected := range tests {

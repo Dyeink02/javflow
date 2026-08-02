@@ -24,12 +24,12 @@ import (
 var (
 	domainNoisePattern       = regexp.MustCompile(`(?i)https?://\S+|[a-z0-9-]+\.(com|net|org|cn|cc|tv|xyz|me|vip|top)`)
 	nonAlphaNumericPattern   = regexp.MustCompile(`[^A-Z0-9]+`)
-	standardCodePattern      = regexp.MustCompile(`(?i)([A-Z]{2,12})[-_ ]*([0-9]{2,8})`)
-	compactCodePattern       = regexp.MustCompile(`(?i)\b([A-Z]{2,12})([0-9]{2,8})\b`)
+	standardCodePattern      = regexp.MustCompile(`(?i)([A-Z]{2,12})[-_ ]*([0-9]{1,8})`)
+	compactCodePattern       = regexp.MustCompile(`(?i)\b([A-Z]{2,12})([0-9]{1,8})\b`)
 	looseExpectedCodePattern = regexp.MustCompile(`(?i)([A-Z]{2,12})[-_ ]*0*([0-9]{1,8})`)
 	fc2CodePattern           = regexp.MustCompile(`(?i)\bFC2[-_ ]*PPV[-_ ]*([0-9]{5,8})\b`)
 	advancedCodePatterns     = []*regexp.Regexp{
-		regexp.MustCompile(`^([A-Z]{2,6})[-_]?(\d{2,6})$`),
+		regexp.MustCompile(`^([A-Z]{2,6})[-_]?(\d{1,6})$`),
 		regexp.MustCompile(`^(N\d{3,6})$`),
 		regexp.MustCompile(`^(T-?\d{3,6})$`),
 		regexp.MustCompile(`^(CARIB\d{2,6})$`),

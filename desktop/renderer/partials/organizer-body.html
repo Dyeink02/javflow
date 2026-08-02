@@ -2,7 +2,7 @@
   partials/organizer-body.html - 视频整理板块主体区域
   布局: 单列流式(.layout，无ranking-card)
     ├── form-panel (整理配置表单 + AI广告学习 + 依赖管理)
-    ├── stats-panel (整理统计 + 报告 + 复盘)
+    ├── stats-panel (6项运行数据 + 最近状态 + 4个常用目录)
     └── log-panel (整理日志)
   与JAV爬虫不同: 无右侧排行栏，无抓取阶段/结果入口面板
   由 [ORGANIZER_BODY] 占位
@@ -36,6 +36,7 @@
                     </div>
                     <div class="organizer-inline-actions">
                       <button id="organizer-load-codes" class="ghost-button" type="button">加载番号名单</button>
+                      <button id="organizer-discover-codes" class="ghost-button" type="button">浏览识别本地番号</button>
                     </div>
                     <small id="organizer-code-source">来源：尚未加载番号名单</small>
                     <small>支持 organizer-codes.json、filmData.json 或原始爬虫结果目录。</small>
@@ -104,7 +105,7 @@
                     disabled
                   />
                   <span>启用批量删除（推荐云盘用户）</span>
-                  <small>先转移全部有效视频，再将其余内容归集后一次性删除；保留待整理、未命中、待删除、日志和报告。</small>
+                  <small>先转移全部有效视频，再只删除扫描确认的广告/小文件；未知内容和软件产物会保留。</small>
                 </label>
               </div>
 
@@ -277,7 +278,6 @@
                   <button id="organizer-start" class="primary-button" type="button">执行整理</button>
                   <button id="organizer-preview" class="secondary-button" type="button">预览扫描</button>
                   <button id="organizer-rescue-names" class="secondary-button" type="button">抢救番号名称</button>
-                  <button id="organizer-open-root" class="ghost-button" type="button">打开根目录</button>
                   <button id="organizer-clear-log" class="ghost-button" type="button">清空整理日志</button>
                 </div>
               </section>
@@ -290,6 +290,7 @@
                   </div>
                 </div>
 
+                <p class="message-label organizer-section-label">显示数据</p>
                 <div class="stat-grid organizer-stat-grid">
                   <article class="stat-card">
                     <span>扫描文件</span>
@@ -304,15 +305,11 @@
                     <strong id="organizer-stat-matched">0</strong>
                   </article>
                   <article class="stat-card">
-                    <span>移入待整理</span>
-                    <strong id="organizer-stat-waiting">0</strong>
-                  </article>
-                  <article class="stat-card">
-                    <span>移入未命中</span>
+                    <span>未命中番号</span>
                     <strong id="organizer-stat-unmatched">0</strong>
                   </article>
                   <article class="stat-card">
-                    <span>移入待删除</span>
+                    <span>待删除文件</span>
                     <strong id="organizer-stat-delete">0</strong>
                   </article>
                   <article class="stat-card">
@@ -328,23 +325,10 @@
                   <div class="task-box">
                     <p class="message-label">常用目录</p>
                     <div class="organizer-quick-actions">
-                      <button id="organizer-open-waiting" class="ghost-button" type="button">打开待整理</button>
+                      <button id="organizer-open-waiting" class="ghost-button" type="button">打开视频文件</button>
+                      <button id="organizer-open-organized" class="ghost-button" type="button">打开整理目录</button>
+                      <button id="organizer-open-delete" class="ghost-button" type="button">打开待删除文件</button>
                       <button id="organizer-open-unmatched" class="ghost-button" type="button">打开未命中</button>
-                      <button id="organizer-open-delete" class="ghost-button" type="button">打开待删除</button>
-                      <button id="organizer-open-intro-ad" class="ghost-button" type="button">打开含开头广告</button>
-                      <button id="organizer-open-reports" class="ghost-button" type="button">打开报告目录</button>
-                    </div>
-                  </div>
-
-                  <div class="task-box">
-                    <p class="message-label">报告文件</p>
-                    <div id="organizer-report-paths" class="organizer-report-list"></div>
-                  </div>
-
-                  <div class="task-box">
-                    <p class="message-label">整理复盘</p>
-                    <div id="organizer-review-panel" class="organizer-review-panel">
-                      <p class="organizer-review-empty">运行完成后会在这里显示：遗漏番号、补抓磁力、误判复核入口。</p>
                     </div>
                   </div>
                 </div>
