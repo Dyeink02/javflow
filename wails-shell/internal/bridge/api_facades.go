@@ -39,8 +39,8 @@ import (
 	"javflow/internal/librarymetadata"
 	"javflow/internal/organizer"
 	"javflow/internal/proxy"
-	"javflow/internal/runtimecache"
 	runtimepaths "javflow/internal/runtime"
+	"javflow/internal/runtimecache"
 	"javflow/internal/settings"
 	"javflow/internal/sidecar"
 	"javflow/internal/subcrawl"
@@ -65,13 +65,13 @@ type runtimeFacade struct {
 // These operations share target-shaping logic and are usually debugged as one
 // functional area.
 type lookupFacade struct {
-	avSubscriptions *avsubscription.Service
+	avSubscriptions   *avsubscription.Service
 	avSubscriptionsV2 *avsubscriptionv2.Service
-	actressLookup   *actresslookup.Service
-	actressRanking  *actressranking.Service
-	antiBlock       *antiblock.Service
-	subCrawl        *subcrawl.Service
-	subCrawlV2      *subcrawlv2.Service
+	actressLookup     *actresslookup.Service
+	actressRanking    *actressranking.Service
+	antiBlock         *antiblock.Service
+	subCrawl          *subcrawl.Service
+	subCrawlV2        *subcrawlv2.Service
 }
 
 // organizerFacade keeps organizer execution and ad-risk learning together so
@@ -154,13 +154,13 @@ func (deps Dependencies) runtimeFacade() runtimeFacade {
 
 func (deps Dependencies) lookupFacade() lookupFacade {
 	return lookupFacade{
-		avSubscriptions: deps.AVSubscriptions,
+		avSubscriptions:   deps.AVSubscriptions,
 		avSubscriptionsV2: deps.AVSubscriptionsV2,
-		actressLookup:   deps.ActressLookup,
-		actressRanking:  deps.ActressRanking,
-		antiBlock:       deps.AntiBlock,
-		subCrawl:        deps.SubCrawl,
-		subCrawlV2:      deps.SubCrawlV2,
+		actressLookup:     deps.ActressLookup,
+		actressRanking:    deps.ActressRanking,
+		antiBlock:         deps.AntiBlock,
+		subCrawl:          deps.SubCrawl,
+		subCrawlV2:        deps.SubCrawlV2,
 	}
 }
 

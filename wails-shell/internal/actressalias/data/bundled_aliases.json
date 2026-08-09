@@ -1,0 +1,20 @@
+[
+  {
+    "canonical": "三上悠亜",
+    "aliases": ["三上悠亚", "三上悠亞", "みかみゆあ", "みかみ ゆあ", "Yua Mikami", "Mikami Yua"],
+    "source": "bundled",
+    "confidence": "verified"
+  },
+  {
+    "canonical": "瀬戸環奈",
+    "aliases": ["濑户环奈", "瀨戶環奈", "せとかんな", "せと かんな", "Kanna Seto", "Seto Kanna"],
+    "source": "bundled",
+    "confidence": "verified"
+  },
+  {
+    "canonical": "小宵こなん",
+    "aliases": ["こよいこなん", "こよい こなん", "Koyoi Konan", "Konan Koyoi"],
+    "source": "bundled",
+    "confidence": "verified"
+  }
+]

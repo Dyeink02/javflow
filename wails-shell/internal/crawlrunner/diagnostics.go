@@ -319,6 +319,130 @@ func (r *Runner) failedDetails(includeInferred bool) []FailedDetail {
 	return result
 }
 
+// pageGapFailureDetails turns an unresolved index-page shortfall into a
+// visible failure entry. These entries are page-level diagnostics, not film
+// IDs, so they are deliberately kept out of failedItemIDs() to avoid
+// subtracting a guessed code from completion accounting.
+func (r *Runner) pageGapFailureDetails() ([]FailedDetail, int) {
+	items := make([]FailedDetail, 0)
+	missingTotal := 0
+	for _, audit := range r.pageAudits {
+		if audit.ExpectedCount == nil {
+			continue
+		}
+		missing := common.MaxInt(*audit.ExpectedCount-audit.ActualCount, 0)
+		if missing == 0 {
+			continue
+		}
+		missingTotal += missing
+		duplicateHint := ""
+		if len(audit.DuplicateItemIDs) > 0 {
+			duplicateHint = "；本页重复番号：" + strings.Join(audit.DuplicateItemIDs, "、")
+		}
+		items = append(items, FailedDetail{
+			Item:         fmt.Sprintf("第 %d 页缺口（%d 条）", audit.PageNumber, missing),
+			SourceLink:   strings.TrimSpace(audit.URL),
+			Reason:       fmt.Sprintf("预计 %d 条，实际 %d 条%s。", *audit.ExpectedCount, audit.ActualCount, duplicateHint),
+			Category:     "分页缺口",
+			RetryCount:   common.MaxInt(audit.RetryCount, 1),
+			RetryAdvice:  "建议重新爬取，优先复查该页是否被拦截或重复展示。",
+			Recoverable:  true,
+			LastFailedAt: strings.TrimSpace(audit.UpdatedAt),
+		})
+	}
+	return items, missingTotal
+}
+
+// reviewFailedDetails merges item-level failures and page-level gaps for the
+// review panel. The displayed total uses missing film slots for page gaps,
+// while the visible list stays compact at one entry per affected page.
+func (r *Runner) reviewFailedDetails(includeInferred bool) ([]FailedDetail, int) {
+	details := r.failedDetails(includeInferred)
+	pageGapDetails, pageGapTotal := r.pageGapFailureDetails()
+	details = append(details, pageGapDetails...)
+	total := len(r.failedItemIDs(includeInferred)) + pageGapTotal
+	if total < len(details) {
+		total = len(details)
+	}
+	return details, total
+}
+
+// reviewDuplicateItems joins tracker-level duplicates with duplicate evidence
+// found before the parser removes repeated links from the detail queue.
+func (r *Runner) reviewDuplicateItems() []string {
+	seen := map[string]struct{}{}
+	for _, item := range r.tracker.DuplicateItemIDs() {
+		if normalized := strings.TrimSpace(item); normalized != "" {
+			seen[normalized] = struct{}{}
+		}
+	}
+	for _, audit := range r.pageAudits {
+		for _, item := range audit.DuplicateItemIDs {
+			if normalized := strings.TrimSpace(item); normalized != "" {
+				seen[normalized] = struct{}{}
+			}
+		}
+	}
+	items := make([]string, 0, len(seen))
+	for item := range seen {
+		items = append(items, item)
+	}
+	sort.Strings(items)
+	return items
+}
+
+// reviewDuplicateEntryCount combines two non-overlapping sources of duplicate
+// evidence: repeated links discovered inside one index page and repeated film
+// IDs discovered across different pages. A retry of the same page is excluded
+// before it reaches Tracker, so it cannot inflate this count.
+func (r *Runner) reviewDuplicateEntryCount() int {
+	total := r.tracker.RawDuplicateEntryCount()
+	for _, audit := range r.pageAudits {
+		total += common.MaxInt(audit.DuplicateEntryCount, 0)
+	}
+	return total
+}
+
+// expectedReviewTotal is the denominator used by the visible completion
+// formula. A configured limit is the user's requested total; otherwise page
+// expectations are more trustworthy than the de-duplicated detail queue.
+func (r *Runner) expectedReviewTotal() int {
+	if r.config.Limit > 0 {
+		return r.config.Limit
+	}
+
+	total := 0
+	for _, audit := range r.pageAudits {
+		if audit.ExpectedCount != nil && *audit.ExpectedCount > 0 {
+			total += *audit.ExpectedCount
+			continue
+		}
+		total += common.MaxInt(audit.ActualCount, 0)
+	}
+	if total > 0 {
+		return total
+	}
+
+	recon := r.tracker.BuildReconciliation()
+	return common.MaxInt(recon.ExpectedEntryCount, common.MaxInt(r.filmsQueued, r.filmCount))
+}
+
+func normalizePageDuplicateIDs(items []string) []string {
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		normalized := strings.TrimSpace(item)
+		if normalized != "" {
+			seen[normalized] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for item := range seen {
+		result = append(result, item)
+	}
+	sort.Strings(result)
+	return result
+}
+
 // failedItemIDs converts failure details into one stable item-level set for
 // completion math. A detail page may have several error records over retries,
 // but it must subtract only once from the final total.
@@ -372,20 +496,17 @@ type completionBreakdown struct {
 // completionBreakdown is the canonical accounting view shared by live stats,
 // terminal reports, and crawl-profile metadata.
 func (r *Runner) completionBreakdown(includeInferredFailures bool) completionBreakdown {
-	recon := r.tracker.BuildReconciliation()
-	total := recon.ExpectedEntryCount
-	if total <= 0 {
-		total = len(recon.ExpectedIDs)
-	}
-	if total <= 0 {
-		total = common.MaxInt(r.filmsQueued, r.filmCount)
-	}
 	return completionBreakdown{
-		Total:      total,
+		Total:      r.expectedReviewTotal(),
 		Filtered:   len(r.filteredItems()),
-		Duplicates: recon.RawDuplicateEntryCount,
-		Failed:     len(r.failedItemIDs(includeInferredFailures)),
+		Duplicates: r.reviewDuplicateEntryCount(),
+		Failed:     reviewFailureCount(r, includeInferredFailures),
 	}
+}
+
+func reviewFailureCount(r *Runner, includeInferredFailures bool) int {
+	_, total := r.reviewFailedDetails(includeInferredFailures)
+	return total
 }
 
 func (r *Runner) effectiveCompletedCount(status RunnerStatus) int {
@@ -484,7 +605,7 @@ func (r *Runner) failedDetailRecord(link string) (FailedDetail, bool) {
 }
 
 func (r *Runner) emitFailedDetailSummaryLog() {
-	failedDetails := r.failedDetails(true)
+	failedDetails, failedDetailsTotal := r.reviewFailedDetails(true)
 	if len(failedDetails) == 0 {
 		return
 	}
@@ -506,17 +627,17 @@ func (r *Runner) emitFailedDetailSummaryLog() {
 	for _, category := range order {
 		parts = append(parts, fmt.Sprintf("%s %d 条", category, summary[category]))
 	}
-	r.emitLog("info", "失败原因汇总："+strings.Join(parts, "，")+"。详细条目已写入"+crawlartifact.DefaultUnfinishedTxt+"。")
+	r.emitLog("info", fmt.Sprintf("失败原因汇总：%s。失败总数 %d 条，详细条目已写入%s。", strings.Join(parts, "，"), failedDetailsTotal, crawlartifact.DefaultUnfinishedTxt))
 }
 
 func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 	includeInferred := isFinalRunnerStatus(status) || status == StatusStopping
-	duplicateItems := r.tracker.DuplicateItemIDs()
+	duplicateItems := r.reviewDuplicateItems()
 	unfinishedItems := r.tracker.GetUncapturedItems()
 	pageGapItems := r.buildPageGapLines()
 	filteredItems := r.filteredItems()
 	completedItems := r.completedItemIDsFor(includeInferred)
-	failedDetails := r.failedDetails(includeInferred)
+	failedDetails, failedDetailsTotal := r.reviewFailedDetails(includeInferred)
 	breakdown := r.completionBreakdown(includeInferred)
 	completedCount := r.effectiveCompletedCount(status)
 
@@ -541,7 +662,7 @@ func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 		"completedItemsTotal":  completedCount,
 		"completedItemIds":     completedItems,
 		"failedDetails":        cloneFailedDetails(failedDetails),
-		"failedDetailsTotal":   len(failedDetails),
+		"failedDetailsTotal":   failedDetailsTotal,
 		"failedCount":          breakdown.Failed,
 		"totalItems":           breakdown.Total,
 		"completedCount":       completedCount,
@@ -594,14 +715,14 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 		}
 	}
 
-	failedDetails := r.failedDetails(true)
+	_, failedDetailsTotal := r.reviewFailedDetails(true)
 	passed := duplicateCount == 0 &&
 		invalidRecordCount == 0 &&
 		len(recon.ExpectedButNotPersistedIDs) == 0 &&
 		len(recon.ExpectedButNotQueuedIDs) == 0 &&
 		len(recon.ProcessedButNotPersistedIDs) == 0 &&
 		len(lowConfidencePages) == 0 &&
-		len(failedDetails) == 0
+		failedDetailsTotal == 0
 
 	summary := "结果二次校验通过：输出结果内部一致性正常；目标是否补齐请以最终任务汇总为准。"
 	if !passed {
@@ -613,7 +734,7 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 			len(recon.ExpectedButNotQueuedIDs),
 			len(recon.ProcessedButNotPersistedIDs),
 			len(lowConfidencePages),
-			len(failedDetails),
+			failedDetailsTotal,
 		)
 	}
 

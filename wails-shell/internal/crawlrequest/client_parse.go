@@ -28,7 +28,11 @@ func (c *Client) FetchIndexPageLinks(ctx context.Context, targetURL string, cook
 	if !IsUsablePageResponse(response) {
 		return nil, response, fmt.Errorf("%s", DescribePageFallbackReason(&response))
 	}
-	return crawlparse.ParsePageLinks(response.Body), response, nil
+	parsed := crawlparse.ParsePageLinksWithDiagnostics(response.Body)
+	response.IndexRawLinkCount = parsed.RawLinkCount
+	response.IndexDuplicateCount = parsed.DuplicateEntryCount
+	response.IndexDuplicateItemIDs = append([]string(nil), parsed.DuplicateItemIDs...)
+	return parsed.Links, response, nil
 }
 
 func (c *Client) FetchMetadata(ctx context.Context, targetURL string, cookieOverride string) (crawlparse.Metadata, PageResponse, error) {

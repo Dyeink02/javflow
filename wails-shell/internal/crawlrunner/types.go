@@ -135,16 +135,18 @@ type Config struct {
 // PageAudit records page-level validation/retry evidence for review and resume
 // diagnostics.
 type PageAudit struct {
-	PageNumber       int    `json:"pageNumber"`
-	URL              string `json:"url"`
-	ExpectedCount    *int   `json:"expectedCount"`
-	ActualCount      int    `json:"actualCount"`
-	RetryCount       int    `json:"retryCount"`
-	ValidationPassed bool   `json:"validationPassed"`
-	ConfidenceScore  int    `json:"confidenceScore"`
-	Confidence       string `json:"confidence"`
-	Reason           string `json:"reason"`
-	UpdatedAt        string `json:"updatedAt"`
+	PageNumber          int      `json:"pageNumber"`
+	URL                 string   `json:"url"`
+	ExpectedCount       *int     `json:"expectedCount"`
+	ActualCount         int      `json:"actualCount"`
+	RetryCount          int      `json:"retryCount"`
+	ValidationPassed    bool     `json:"validationPassed"`
+	ConfidenceScore     int      `json:"confidenceScore"`
+	Confidence          string   `json:"confidence"`
+	Reason              string   `json:"reason"`
+	UpdatedAt           string   `json:"updatedAt"`
+	DuplicateEntryCount int      `json:"duplicateEntryCount,omitempty"`
+	DuplicateItemIDs    []string `json:"duplicateItemIds,omitempty"`
 }
 
 // FailedDetail is the persistent per-item failure contract surfaced in review

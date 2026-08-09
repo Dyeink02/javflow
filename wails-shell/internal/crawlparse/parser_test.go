@@ -41,6 +41,23 @@ func TestParsePageLinksDeduplicatesMovieBoxes(t *testing.T) {
 	}
 }
 
+func TestParsePageLinksWithDiagnosticsPreservesDuplicateEvidence(t *testing.T) {
+	parsed := ParsePageLinksWithDiagnostics(sampleHTML)
+
+	if len(parsed.Links) != 2 {
+		t.Fatalf("expected two queue links, got %#v", parsed.Links)
+	}
+	if parsed.RawLinkCount != 3 {
+		t.Fatalf("expected three source links, got %d", parsed.RawLinkCount)
+	}
+	if parsed.DuplicateEntryCount != 1 {
+		t.Fatalf("expected one duplicate entry, got %d", parsed.DuplicateEntryCount)
+	}
+	if len(parsed.DuplicateItemIDs) != 1 || parsed.DuplicateItemIDs[0] != "ABF-055" {
+		t.Fatalf("expected duplicate ABF-055, got %#v", parsed.DuplicateItemIDs)
+	}
+}
+
 func TestParsePageLinksIncludesDetailLinksWithoutMovieBoxClass(t *testing.T) {
 	links := ParsePageLinks(`
 <html><body>

@@ -64,9 +64,14 @@
       }
 
       const showOrganizer = targetWorkspace === 'organizer';
+      const showActressAtlas = targetWorkspace === 'actressatlas';
       const showSubscription = targetWorkspace === 'subscription';
       const showLibraryMetadata = targetWorkspace === 'librarymetadata';
-      const showCrawler = !showOrganizer && !showSubscription && !showLibraryMetadata;
+      const showCrawler = !showActressAtlas && !showOrganizer && !showSubscription && !showLibraryMetadata;
+
+      if (elements.actressAtlasWorkspace) {
+        elements.actressAtlasWorkspace.classList.toggle('hidden', !showActressAtlas);
+      }
 
       if (elements.crawlerWorkspace) {
         elements.crawlerWorkspace.classList.toggle('hidden', !showCrawler);
@@ -86,6 +91,10 @@
 
       if (elements.navCrawlerButton) {
         elements.navCrawlerButton.classList.toggle('is-active', showCrawler);
+      }
+
+      if (elements.navActressAtlasButton) {
+        elements.navActressAtlasButton.classList.toggle('is-active', showActressAtlas);
       }
 
       if (elements.navOrganizerButton) {
@@ -123,6 +132,10 @@
 
       if (elements.navCrawlerButton) {
         elements.navCrawlerButton.addEventListener('click', () => setWorkspace('crawler'));
+      }
+
+      if (elements.navActressAtlasButton) {
+        elements.navActressAtlasButton.addEventListener('click', () => setWorkspace('actressatlas'));
       }
 
       if (elements.navOrganizerButton) {

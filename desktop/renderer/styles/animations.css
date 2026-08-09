@@ -8,7 +8,12 @@
    ============================================================ */
 
 .workspace-pane {
-  animation: paneIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  /* A workspace must remain visible even when WebView2 throttles CSS
+     animations during startup. Visibility is a layout contract, not a
+     loading state, so the shell does not depend on this animation. */
+  animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 @keyframes paneIn {
@@ -18,7 +23,11 @@
 
 /* 面板进入动画 - 交错效果 */
 .panel {
-  animation: panelIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  /* Do not leave every ordinary workspace panel at the animation's initial
+     opacity when the desktop window is restored from a suspended state. */
+  animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 .panel:nth-child(1) { animation-delay: 0.05s; }

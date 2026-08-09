@@ -84,6 +84,23 @@ select optgroup {
   white-space: nowrap;
 }
 
+.proxy-status-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.proxy-status-chip.checking::before {
+  animation: proxy-status-pulse 1s ease-in-out infinite;
+}
+
+@keyframes proxy-status-pulse {
+  50% { opacity: 0.35; }
+}
+
 .proxy-status-chip.empty {
   color: rgba(255, 255, 255, 0.78);
   background: rgba(255, 255, 255, 0.08);

@@ -26,6 +26,7 @@
       heroBorderFlowController,
       crawlRuntimeController,
       formController,
+      actressAtlasController,
       rankingController,
       organizerController,
       subscriptionController,
@@ -75,6 +76,11 @@
       // cannot keep unrelated buttons unbound.
       await Promise.all([
         Promise.resolve().then(() => formController.bootstrap()),
+        // Preload the actor ranking cache during application startup. The
+        // controller remains view-local, but its cache-first load must finish
+        // before the user opens the workspace so the July ranking is visible
+        // immediately and never waits on an online source by default.
+        Promise.resolve().then(() => actressAtlasController.bootstrap()),
         Promise.resolve().then(() => rankingController.bootstrap()),
         Promise.resolve().then(() => subscriptionController.bootstrap()),
         Promise.resolve().then(() => organizerController.bootstrap()),

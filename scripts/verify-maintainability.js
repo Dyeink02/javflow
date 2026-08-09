@@ -413,6 +413,51 @@ function runControllerDomOwnershipGuard() {
   if (violations.length > 0) {
     throw new Error(`controller dom ownership guard failed:\n- ${violations.join('\n- ')}`);
   }
+
+  // Keep the actor-atlas controller and the shared DOM registry in lockstep.
+  // A missing registry field otherwise fails only after a user clicks an actor,
+  // which is much later than the frontend build and difficult to diagnose from
+  // the resulting WebView error overlay.
+  const atlasController = readRelativeText('desktop/renderer/actressAtlasController.js');
+  const elementRegistry = readRelativeText('desktop/renderer/rendererElementDomains.js');
+  const controllerFields = Array.from(atlasController.matchAll(/elements\.([A-Za-z0-9_]+)/g), (match) => match[1]);
+  const registeredFields = new Set(
+    Array.from(elementRegistry.matchAll(/(?:^|,)\s*([A-Za-z0-9_]+):\s*scope\.getElementById/gm), (match) => match[1])
+  );
+  const missingFields = Array.from(new Set(controllerFields)).filter((field) => !registeredFields.has(field));
+  if (missingFields.length > 0) {
+    throw new Error(`actor-atlas DOM registry missing controller fields: ${missingFields.join(', ')}`);
+  }
+}
+
+function runVersionConsistencyGuard() {
+  console.log('\n[verify] version consistency');
+  const packageVersion = JSON.parse(readRelativeText('package.json')).version;
+  const wailsVersion = JSON.parse(readRelativeText('wails-shell/wails.json')).info.productVersion;
+  const expectedBadge = `>v${packageVersion}<`;
+  const requiredFiles = [
+    ['desktop/common/text/appInfo.js', `const APP_VERSION = '${packageVersion}'`],
+    ['desktop/renderer/uiText.js', `version: '${packageVersion}'`],
+    ['wails-shell/internal/crawlrunner/runner.go', `AppVersion: "${packageVersion}"`],
+    ['wails-shell/internal/dependency/service.go', `JavFlow/${packageVersion}`],
+    ['desktop/renderer/partials/crawler-hero.html', expectedBadge],
+    ['desktop/renderer/partials/organizer-hero.html', expectedBadge],
+    ['desktop/renderer/partials/subscription-hero.html', expectedBadge],
+    ['desktop/renderer/partials/librarymetadata-hero.html', expectedBadge],
+    ['desktop/renderer/partials/actressatlas-hero.html', expectedBadge]
+  ];
+  const failures = [];
+  if (wailsVersion !== packageVersion) {
+    failures.push(`wails-shell/wails.json productVersion=${wailsVersion}, expected ${packageVersion}`);
+  }
+  for (const [relativePath, expectedSnippet] of requiredFiles) {
+    if (!readRelativeText(relativePath).includes(expectedSnippet)) {
+      failures.push(`${relativePath} is missing ${expectedSnippet}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`version consistency guard failed:\n- ${failures.join('\n- ')}`);
+  }
 }
 
 function runRendererEntryBoundaryGuard() {
@@ -1154,6 +1199,7 @@ function main() {
   runFrontendBoundaryCheck();
   runFrontendDependencyOrderGuard();
   runControllerDomOwnershipGuard();
+  runVersionConsistencyGuard();
   runRendererEntryBoundaryGuard();
   runArtifactResolverBoundaryGuard();
   runRendererBootstrapReentryGuard();

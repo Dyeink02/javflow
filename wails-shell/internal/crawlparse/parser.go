@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
+
+	"javflow/internal/crawlidentity"
 
 	"golang.org/x/net/html"
 )
@@ -73,19 +76,44 @@ type FilmData struct {
 	Series      string   `json:"series,omitempty"`
 }
 
+// PageLinkParseResult retains page-level duplicate evidence while still
+// exposing the de-duplicated link list used by the detail queue. The runner
+// needs both views: queueing a duplicate is wasteful, but hiding it makes the
+// review panel incorrectly report zero duplicates.
+type PageLinkParseResult struct {
+	Links               []string
+	RawLinkCount        int
+	DuplicateEntryCount int
+	DuplicateItemIDs    []string
+}
+
 // ParsePageLinks extracts movie-box links from one listing page and leaves
 // paging/control flow to upper layers.
 func ParsePageLinks(htmlText string) []string {
+	return ParsePageLinksWithDiagnostics(htmlText).Links
+}
+
+// ParsePageLinksWithDiagnostics keeps the existing de-duplicated queue input
+// while recording duplicate film identities found in the source page.
+func ParsePageLinksWithDiagnostics(htmlText string) PageLinkParseResult {
 	root, err := html.Parse(strings.NewReader(htmlText))
 	if err != nil {
-		return nil
+		return PageLinkParseResult{}
 	}
 	links := make([]string, 0)
 	seen := map[string]struct{}{}
+	identityCounts := map[string]int{}
 	var walk func(*html.Node)
 	walk = func(node *html.Node) {
 		if node.Type == html.ElementNode && node.Data == "a" && (hasClass(node, "movie-box") || looksLikeFilmDetailHref(getAttr(node, "href"))) {
 			if href := strings.TrimSpace(getAttr(node, "href")); href != "" {
+				identity := crawlidentity.ExtractFilmID(href)
+				if identity == "" {
+					identity = strings.ToLower(strings.TrimRight(href, "/"))
+				}
+				if identity != "" {
+					identityCounts[identity]++
+				}
 				if _, exists := seen[href]; !exists {
 					seen[href] = struct{}{}
 					links = append(links, href)
@@ -97,7 +125,23 @@ func ParsePageLinks(htmlText string) []string {
 		}
 	}
 	walk(root)
-	return links
+
+	duplicateIDs := make([]string, 0)
+	duplicateEntryCount := 0
+	for identity, count := range identityCounts {
+		if count > 1 {
+			duplicateIDs = append(duplicateIDs, identity)
+			duplicateEntryCount += count - 1
+		}
+	}
+	sort.Strings(duplicateIDs)
+
+	return PageLinkParseResult{
+		Links:               links,
+		RawLinkCount:        len(identityCounts) + duplicateEntryCount,
+		DuplicateEntryCount: duplicateEntryCount,
+		DuplicateItemIDs:    duplicateIDs,
+	}
 }
 
 func looksLikeFilmDetailHref(href string) bool {

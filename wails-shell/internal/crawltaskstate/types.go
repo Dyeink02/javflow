@@ -28,16 +28,18 @@ import (
 // 3) builder/restore shared state contract types
 
 type PageAuditRecord struct {
-	PageNumber       int     `json:"pageNumber"`
-	URL              string  `json:"url"`
-	ExpectedCount    *int    `json:"expectedCount"`
-	ActualCount      int     `json:"actualCount"`
-	RetryCount       int     `json:"retryCount"`
-	ValidationPassed bool    `json:"validationPassed"`
-	ConfidenceScore  float64 `json:"confidenceScore"`
-	Confidence       string  `json:"confidence"`
-	Reason           string  `json:"reason"`
-	UpdatedAt        string  `json:"updatedAt"`
+	PageNumber          int      `json:"pageNumber"`
+	URL                 string   `json:"url"`
+	ExpectedCount       *int     `json:"expectedCount"`
+	ActualCount         int      `json:"actualCount"`
+	RetryCount          int      `json:"retryCount"`
+	ValidationPassed    bool     `json:"validationPassed"`
+	ConfidenceScore     float64  `json:"confidenceScore"`
+	Confidence          string   `json:"confidence"`
+	Reason              string   `json:"reason"`
+	UpdatedAt           string   `json:"updatedAt"`
+	DuplicateEntryCount int      `json:"duplicateEntryCount,omitempty"`
+	DuplicateItemIDs    []string `json:"duplicateItemIds,omitempty"`
 }
 
 // ResultValidationReport is the post-run consistency snapshot. It explains how

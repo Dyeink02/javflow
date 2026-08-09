@@ -89,9 +89,12 @@ type PageRequestOptions struct {
 // PageResponse is the normalized response shape shared by plain-page and
 // XMLHttpRequest helpers.
 type PageResponse struct {
-	URL        string `json:"url"`
-	StatusCode int    `json:"statusCode"`
-	Body       string `json:"body"`
+	URL                   string   `json:"url"`
+	StatusCode            int      `json:"statusCode"`
+	Body                  string   `json:"body"`
+	IndexRawLinkCount     int      `json:"indexRawLinkCount,omitempty"`
+	IndexDuplicateCount   int      `json:"indexDuplicateCount,omitempty"`
+	IndexDuplicateItemIDs []string `json:"indexDuplicateItemIds,omitempty"`
 }
 
 // Client owns retry/header/cookie behavior for the non-browser fetch path.

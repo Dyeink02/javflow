@@ -5,16 +5,14 @@
   
   CSS Grid 布局规则:
   
-  .layout (第18-23行)
-    - 2列网格: 2.1fr(主内容) + 1fr(右侧栏)
-    - 用于 JAV爬虫板块(crawler-layout)、视频整理、AV订阅
+  .layout
+    - 默认支持主内容 + 侧栏的通用网格
+    - JAV 爬虫通过 #crawler-layout 覆盖为单列；视频整理和 AV 订阅按各自布局规则使用
   
   JAV爬虫板块布局 (#crawler-layout):
-  ┌──────────────────────────────┬───────────┐
-  │ layout-main-column (col:1)   │ ranking   │
-  │  ├─ form-panel               │ -card     │
-  │  └─ (end)                    │ (col:2)   │
-  ├──────────────────────────────┴───────────┤
+  ┌──────────────────────────────────────────┐
+  │ layout-main-column (抓取设置)             │
+  ├──────────────────────────────────────────┤
   │ layout-main-body (col:1/-1 全宽)          │
   │  ├─ crawl-ops-grid (抓取阶段+结果入口)      │
   │  └─ state-section (状态说明)               │
@@ -27,7 +25,7 @@
     防止Grid自动布局将新元素错误分配到右侧列
   
   视频整理/AV订阅:
-    .layout单列流式，无ranking-card
+    .layout单列流式
     ├── form-panel
     ├── stats-panel
     └── log-panel
@@ -66,19 +64,13 @@
   min-width: 0;
 }
 
-/* 爬虫板块布局：主列 + 右侧榜单 */
+/* 爬虫板块布局：榜单已迁移至演员图鉴，当前只保留单列主流程 */
 #crawler-layout {
-  grid-template-columns: minmax(0, 2.1fr) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 #crawler-layout .layout-main-column {
-  grid-column: 1;
-}
-
-#crawler-layout .ranking-card {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: stretch;
+  grid-column: 1 / -1;
 }
 
 #crawler-layout .log-panel {
@@ -185,6 +177,6 @@
    防线规则 - 所有未被显式定位的子元素默认全宽
    防止 CSS Grid 自动布局将元素错误分配到右侧列
    ============================================================ */
-#crawler-layout > :not(.layout-main-column):not(.ranking-card):not(.layout-main-body) {
+#crawler-layout > :not(.layout-main-column):not(.layout-main-body) {
   grid-column: 1 / -1;
 }

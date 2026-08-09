@@ -90,6 +90,19 @@ func getTrackedPageLinks(links []string, limit int, expectedCount int) []string 
 	return crawlindex.GetTrackedPageLinks(links, limit, expectedCount)
 }
 
+// indexSourceEntryCount preserves the listing-page population before duplicate
+// links are removed for queueing. Older/custom fetchers may not populate the
+// diagnostic field, so the unique link count remains a compatible fallback.
+func indexSourceEntryCount(response crawlrequest.PageResponse, uniqueLinkCount int) int {
+	if response.IndexRawLinkCount > 0 {
+		return response.IndexRawLinkCount
+	}
+	if uniqueLinkCount < 0 {
+		return 0
+	}
+	return uniqueLinkCount
+}
+
 func intPtr(v int) *int {
 	return &v
 }
@@ -145,16 +158,18 @@ func convertRestoredPageAudits(records []crawltaskstate.PageAuditRecord) []PageA
 	result := make([]PageAudit, 0, len(records))
 	for _, record := range records {
 		result = append(result, PageAudit{
-			PageNumber:       record.PageNumber,
-			URL:              record.URL,
-			ExpectedCount:    record.ExpectedCount,
-			ActualCount:      record.ActualCount,
-			RetryCount:       record.RetryCount,
-			ValidationPassed: record.ValidationPassed,
-			ConfidenceScore:  int(record.ConfidenceScore),
-			Confidence:       record.Confidence,
-			Reason:           record.Reason,
-			UpdatedAt:        record.UpdatedAt,
+			PageNumber:          record.PageNumber,
+			URL:                 record.URL,
+			ExpectedCount:       record.ExpectedCount,
+			ActualCount:         record.ActualCount,
+			RetryCount:          record.RetryCount,
+			ValidationPassed:    record.ValidationPassed,
+			ConfidenceScore:     int(record.ConfidenceScore),
+			Confidence:          record.Confidence,
+			Reason:              record.Reason,
+			UpdatedAt:           record.UpdatedAt,
+			DuplicateEntryCount: record.DuplicateEntryCount,
+			DuplicateItemIDs:    append([]string(nil), record.DuplicateItemIDs...),
 		})
 	}
 	return result

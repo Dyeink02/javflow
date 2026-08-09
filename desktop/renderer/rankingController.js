@@ -132,6 +132,13 @@
     let bootstrapCompleted = false;
     let bootstrapPromise = null;
     let crawlCacheSnapshots = [];
+    // The crawler-side ranking panel was retired after its actress ranking
+    // workflow moved to Actor Atlas. Keep this compatibility controller in the
+    // bundle because the shared bootstrap contract still constructs it, but do
+    // not touch missing DOM nodes when the retired panel is absent.
+    const rankingPanelMounted = Boolean(
+      elements && elements.rankingMode && elements.rankingSourceChannel && elements.rankingView
+    );
 
     function appendRankingLog(level, message, timestamp = new Date().toISOString()) {
       logController.appendLog(level, message, timestamp);
@@ -648,6 +655,10 @@
     }
 
     function bootstrap() {
+      if (!rankingPanelMounted) {
+        bootstrapCompleted = true;
+        return Promise.resolve();
+      }
       if (bootstrapCompleted) {
         return Promise.resolve();
       }
