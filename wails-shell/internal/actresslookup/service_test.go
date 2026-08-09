@@ -54,7 +54,7 @@ func TestFetchHTMLAddsAgeVerificationCookie(t *testing.T) {
 func TestResolveTargetReturnsProfileFromSearchResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/searchstar/三上悠亜":
+		case "/searchstar/三上悠亚", "/searchstar/三上悠亜":
 			_, _ = writer.Write([]byte(`
 				<html><body>
 					<a class="avatar-box" href="/star/okq">
@@ -92,6 +92,28 @@ func TestResolveTargetReturnsProfileFromSearchResult(t *testing.T) {
 	}
 	if profile.FillCount != 194 || profile.TotalPages != 7 {
 		t.Fatalf("unexpected fill count/pages: %+v", profile)
+	}
+}
+
+func TestResolveTargetMatchesChineseVariantAgainstJapaneseDirectoryName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/searchstar/三上悠亚", "/searchstar/三上悠亜":
+			_, _ = writer.Write([]byte(`<html><body><a class="avatar-box" href="/star/okq"><img title="三上悠亜" /></a></body></html>`))
+		case "/star/okq":
+			_, _ = writer.Write([]byte(buildStarPageHTML("三上悠亜", 194, 397, 30)))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	profile, err := NewService().ResolveTarget(ResolveOptions{ActressName: "三上悠亚", PreferredBase: server.URL})
+	if err != nil {
+		t.Fatalf("resolve Chinese variant: %v", err)
+	}
+	if profile.ResolvedActressName != "三上悠亜" || profile.ResolvedBase != server.URL+"/star/okq" {
+		t.Fatalf("unexpected variant resolution: %+v", profile)
 	}
 }
 

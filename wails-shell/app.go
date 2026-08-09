@@ -1,4 +1,4 @@
-﻿// main is the current Wails desktop composition root.
+// main is the current Wails desktop composition root.
 //
 // Ownership summary:
 // 1) assemble long-lived desktop services once at startup
@@ -71,7 +71,10 @@ func NewApp(repoRoot string) *App {
 	avSubscriptionService := avsubscription.NewService(paths)
 	avSubscriptionV2Service := avsubscriptionv2.NewService(paths, crawlFetchService)
 	organizerService := organizer.NewService(paths)
-	actressLookupService := actresslookup.NewService()
+	// Actor lookup reuses the already-configured crawl fetch service only when
+	// a JAV site returns a verification page. The recovery implementation stays
+	// owned by crawlfetch/crawlrequest.
+	actressLookupService := actresslookup.NewServiceWithAliasCache(paths.UserData, crawlFetchService)
 	actressRankingService := actressranking.NewService()
 	subCrawlService := subcrawl.NewService(bus, paths, avSubscriptionService)
 	adLearningService := adlearning.NewService(paths)

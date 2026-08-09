@@ -9,6 +9,7 @@ require (
 	github.com/metatube-community/metatube-sdk-go v1.4.0
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/net v0.52.0
+	golang.org/x/text v0.35.0
 )
 
 require (
@@ -98,7 +99,6 @@ require (
 	golang.org/x/image v0.37.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect

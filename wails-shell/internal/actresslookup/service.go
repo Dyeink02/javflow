@@ -14,6 +14,7 @@
 package actresslookup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"javflow/internal/actressalias"
 	"javflow/internal/contracts/subscriptiontarget"
 	"javflow/internal/proxy"
 )
@@ -62,7 +64,24 @@ var (
 
 // Service is a stateless coordinator that turns a name or target URL into a
 // reusable subscriptiontarget.TargetProfile contract.
-type Service struct{}
+type Service struct {
+	pageFetcher verifiedPageFetcher
+	aliases     *actressalias.Index
+}
+
+// verifiedPageFetcher is implemented by the existing crawler fetch service.
+// Lookup owns actor parsing, while the crawler remains the sole owner of
+// browser-based age/verification recovery.
+type verifiedPageFetcher interface {
+	FetchLookupHTML(ctx context.Context, targetURL string) (string, string, error)
+}
+
+// proxyVerifiedPageFetcher is implemented by the Go crawler fetch facade. It
+// keeps lookup verification on the proxy that the Actor Atlas user applied,
+// rather than on the one captured when the application launched.
+type proxyVerifiedPageFetcher interface {
+	FetchLookupHTMLWithProxy(ctx context.Context, targetURL string, proxyValue string) (string, string, error)
+}
 
 // ResolveOptions is the thin lookup input shared by crawler prefill and future
 // subscription refresh flows.
@@ -72,6 +91,14 @@ type ResolveOptions struct {
 	PreferredBase string
 	FallbackBases []string
 	Proxy         string
+	// EnrichProfile controls the optional second-source profile lookup. It is
+	// enabled by the actor-detail UI, but remains opt-in for crawl/subscription
+	// target resolution so a background workflow does not make extra requests.
+	EnrichProfile bool
+	// BasicProfileOnly is used by the ranking cache warmer. It keeps the same
+	// verified identity and body-profile lookup but omits work cards so opening
+	// the Actor Atlas does not preload film lists for every ranked performer.
+	BasicProfileOnly bool
 }
 
 // searchCandidate is one search-result card extracted from /searchstar pages.
@@ -88,6 +115,8 @@ type starPage struct {
 	AllCount      int
 	HasMovieGrid  bool
 	LatestItemURL string
+	AvatarURL     string
+	Works         []subscriptiontarget.ActressWork
 }
 
 // fetchedPage keeps the raw HTML together with the parsed page summary so the
@@ -98,16 +127,133 @@ type fetchedPage struct {
 	StarPage    starPage
 }
 
-func NewService() *Service {
-	return &Service{}
+func NewService(fetchers ...verifiedPageFetcher) *Service {
+	return NewServiceWithAliasCache("", fetchers...)
+}
+
+// NewServiceWithAliasCache keeps the application-data location outside the
+// lookup algorithm. Tests may use NewService without touching a user cache.
+func NewServiceWithAliasCache(userDataDir string, fetchers ...verifiedPageFetcher) *Service {
+	service := &Service{aliases: actressalias.New(userDataDir)}
+	if len(fetchers) > 0 {
+		service.pageFetcher = fetchers[0]
+	}
+	return service
+}
+
+// resolveAliasQuery applies only a unique, verified alias automatically.
+// Fuzzy or colliding records remain visible errors rather than silently
+// opening a similarly named performer's directory.
+func (s *Service) resolveAliasQuery(value string) (string, actressalias.Resolution, error) {
+	query := strings.TrimSpace(value)
+	resolution := actressalias.Resolution{Query: query, MatchKind: "missing"}
+	if s != nil && s.aliases != nil {
+		resolution = s.aliases.Resolve(query)
+	}
+	if resolution.Unique && strings.TrimSpace(resolution.Canonical) != "" {
+		return resolution.Canonical, resolution, nil
+	}
+	if len(resolution.Candidates) > 0 {
+		names := make([]string, 0, len(resolution.Candidates))
+		for _, candidate := range resolution.Candidates {
+			names = append(names, candidate.Canonical)
+		}
+		return "", resolution, fmt.Errorf("actor alias is ambiguous: %s", strings.Join(uniqStrings(names...), ", "))
+	}
+	return query, resolution, nil
+}
+
+// RememberAlias is called by the bridge only after an external metadata result
+// has also been verified against a canonical JAV directory.
+func (s *Service) RememberAlias(canonical string, aliases []string, source string) error {
+	if s == nil || s.aliases == nil {
+		return fmt.Errorf("actress alias index is not initialized")
+	}
+	return s.aliases.Remember(actressalias.Record{Canonical: canonical, Aliases: aliases, Source: source, Confidence: "provider-and-jav-verified", UpdatedAt: time.Now().Format(time.RFC3339)})
+}
+
+// rememberProviderAliases persists only provider-supplied aliases after a
+// canonical JAV directory has already been resolved.
+func (s *Service) rememberProviderAliases(canonical string, fields map[string]string) {
+	if s == nil || s.aliases == nil || strings.TrimSpace(canonical) == "" {
+		return
+	}
+	aliases := make([]string, 0)
+	for _, key := range []string{"别名", "alternateName", "additionalName"} {
+		for _, value := range strings.FieldsFunc(fields[key], func(r rune) bool {
+			return r == '/' || r == '、' || r == ',' || r == '，' || r == '\n'
+		}) {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				aliases = append(aliases, trimmed)
+			}
+		}
+	}
+	if len(aliases) == 0 {
+		return
+	}
+	_ = s.aliases.Remember(actressalias.Record{
+		Canonical: canonical, Aliases: aliases, Source: "minnano-av", Confidence: "provider-verified", UpdatedAt: time.Now().Format(time.RFC3339),
+	})
 }
 
 func normalizeName(value string) string {
+	// Searches are frequently entered using Chinese variants while JAV sources
+	// publish Japanese glyphs. Normalize the common variants before comparing so
+	// "三上悠亚" resolves the same directory as "三上悠亜".
+	nameVariants := strings.NewReplacer(
+		"亚", "亜", "爱", "愛", "泽", "沢", "桥", "橋", "樱", "桜",
+		"岛", "島", "户", "戸", "边", "辺", "叶", "葉", "织", "織",
+		"风", "風", "齐", "斉", "园", "園", "宫", "宮", "冈", "岡",
+		"华", "華", "优", "優", "内", "内",
+	)
 	return strings.ToLower(
 		strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "", "·", "", "・", "", "•", "", "(", "", ")", "", "（", "", "）", "").Replace(
-			strings.TrimSpace(value),
+			nameVariants.Replace(strings.TrimSpace(value)),
 		),
 	)
+}
+
+// siteSearchName converts the common Chinese character variants before a
+// request is sent. normalizeName already does this for comparisons, but a
+// directory search must also use the spelling actually indexed by the source
+// site, for example "三上悠亚" -> "三上悠亜".
+func siteSearchName(value string) string {
+	return actressalias.DirectoryName(value)
+}
+
+func isVerificationPage(htmlText string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(htmlText))
+	return strings.Contains(normalized, "age verification javbus") ||
+		strings.Contains(normalized, "driver-verify") ||
+		strings.Contains(normalized, "just a moment") ||
+		strings.Contains(normalized, "one moment, please") ||
+		strings.Contains(normalized, "cf-chl")
+}
+
+// fetchLookupPage starts with the light HTTP path. When JavBus returns a
+// verification document, it delegates to the crawler's existing recovery
+// service instead of duplicating or altering the Cloudflare/age-check code.
+func (s *Service) fetchLookupPage(ctx context.Context, targetURL string, proxyValue string) (string, string, error) {
+	body, resolvedURL, err := fetchHTML(targetURL, proxyValue)
+	if err != nil || !isVerificationPage(body) || s == nil || s.pageFetcher == nil {
+		return body, resolvedURL, err
+	}
+
+	var verifiedBody string
+	var verifiedURL string
+	var verifiedErr error
+	if proxyFetcher, ok := s.pageFetcher.(proxyVerifiedPageFetcher); ok {
+		verifiedBody, verifiedURL, verifiedErr = proxyFetcher.FetchLookupHTMLWithProxy(ctx, targetURL, proxyValue)
+	} else {
+		verifiedBody, verifiedURL, verifiedErr = s.pageFetcher.FetchLookupHTML(ctx, targetURL)
+	}
+	if verifiedErr != nil {
+		return "", "", verifiedErr
+	}
+	if isVerificationPage(verifiedBody) {
+		return "", "", fmt.Errorf("站点仍处于验证页，请先在 JAV 爬虫中完成一次验证后再搜索")
+	}
+	return verifiedBody, verifiedURL, nil
 }
 
 func toOrigin(input string) string {
@@ -194,12 +340,19 @@ func newHTTPClient(proxyValue string) (*http.Client, error) {
 }
 
 func fetchHTML(targetURL string, proxyValue string) (string, string, error) {
+	return fetchHTMLContext(context.Background(), targetURL, proxyValue)
+}
+
+// fetchHTMLContext is the small HTTP path used by public profile providers.
+// Keeping the context-aware request here prevents a profile lookup from
+// surviving a cancelled actor-detail request indefinitely.
+func fetchHTMLContext(ctx context.Context, targetURL string, proxyValue string) (string, string, error) {
 	client, err := newHTTPClient(proxyValue)
 	if err != nil {
 		return "", "", err
 	}
 
-	request, err := http.NewRequest(http.MethodGet, strings.TrimSpace(targetURL), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(targetURL), nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -377,10 +530,14 @@ func findCandidates(doc *html.Node, baseOrigin string) []searchCandidate {
 }
 
 // parseStarPage extracts count and paging hints from a resolved actress page.
-func parseStarPage(htmlText string) (starPage, error) {
+func parseStarPage(htmlText string, sourceURLs ...string) (starPage, error) {
 	doc, err := html.Parse(strings.NewReader(htmlText))
 	if err != nil {
 		return starPage{}, err
+	}
+	sourceURL := ""
+	if len(sourceURLs) > 0 {
+		sourceURL = strings.TrimSpace(sourceURLs[0])
 	}
 
 	bodyText := nodeText(doc)
@@ -403,7 +560,7 @@ func parseStarPage(htmlText string) (starPage, error) {
 	if latestNode := firstNodeBy(doc, func(node *html.Node) bool {
 		return node.Type == html.ElementNode && strings.EqualFold(node.Data, "a") && hasClass(node, "movie-box")
 	}); latestNode != nil {
-		latestItemURL = strings.TrimSpace(getAttr(latestNode, "href"))
+		latestItemURL = absolutePublicURL(getAttr(latestNode, "href"), sourceURL)
 	}
 
 	actressName := ""
@@ -423,6 +580,18 @@ func parseStarPage(htmlText string) (starPage, error) {
 		}
 	}
 
+	avatarURL := ""
+	if avatarBox := firstNodeBy(doc, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "avatar-box")
+	}); avatarBox != nil {
+		if image := firstNodeBy(avatarBox, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && strings.EqualFold(node.Data, "img")
+		}); image != nil {
+			avatarURL = absolutePublicURL(getAttr(image, "src"), sourceURL)
+		}
+	}
+	works := parseJAVBusWorks(doc, sourceURL)
+
 	return starPage{
 		ActressName:  strings.TrimSpace(actressName),
 		ItemsPerPage: itemsPerPage,
@@ -432,6 +601,8 @@ func parseStarPage(htmlText string) (starPage, error) {
 			return node.Type == html.ElementNode && strings.EqualFold(node.Data, "a") && hasClass(node, "movie-box")
 		}) > 0,
 		LatestItemURL: strings.TrimSpace(latestItemURL),
+		AvatarURL:     avatarURL,
+		Works:         works,
 	}, nil
 }
 
@@ -528,18 +699,18 @@ func buildTargetCandidates(targetURL string, options ResolveOptions) []string {
 
 // fetchStarPage tries the candidate URL set, validates that the response looks
 // like an actress directory page, and returns one normalized parse result.
-func (s *Service) fetchStarPage(targetURL string, options ResolveOptions) (fetchedPage, error) {
+func (s *Service) fetchStarPage(ctx context.Context, targetURL string, options ResolveOptions) (fetchedPage, error) {
 	candidates := buildTargetCandidates(targetURL, options)
 	errors := make([]string, 0, len(candidates))
 
 	for _, candidateURL := range candidates {
-		htmlText, resolvedURL, err := fetchHTML(candidateURL, options.Proxy)
+		htmlText, resolvedURL, err := s.fetchLookupPage(ctx, candidateURL, options.Proxy)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s：%s", candidateURL, err.Error()))
 			continue
 		}
 
-		page, err := parseStarPage(htmlText)
+		page, err := parseStarPage(htmlText, resolvedURL)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s：%s", candidateURL, err.Error()))
 			continue
@@ -573,7 +744,7 @@ func buildProfile(actressName string, resolvedURL string, page starPage) subscri
 		resolvedActressName = strings.TrimSpace(actressName)
 	}
 
-	return subscriptiontarget.TargetProfile{
+	profile := subscriptiontarget.TargetProfile{
 		ActressName:         strings.TrimSpace(actressName),
 		ResolvedActressName: resolvedActressName,
 		ResolvedBase:        strings.TrimSpace(resolvedURL),
@@ -585,23 +756,132 @@ func buildProfile(actressName string, resolvedURL string, page starPage) subscri
 		ItemsPerPage:        page.ItemsPerPage,
 		TotalPages:          totalPages,
 		LatestItemURL:       strings.TrimSpace(page.LatestItemURL),
+		AvatarURL:           strings.TrimSpace(page.AvatarURL),
+		Works:               append([]subscriptiontarget.ActressWork(nil), page.Works...),
+		DisplayedWorks:      len(page.Works),
+		DataSources:         []string{"JAVBus"},
 	}
+	return profile
+}
+
+func selectCanonicalWorks(primary, secondary []subscriptiontarget.ActressWork) []subscriptiontarget.ActressWork {
+	if len(primary) > 0 {
+		return uniqueWork(primary)
+	}
+	return uniqueWork(secondary)
+}
+
+func (s *Service) enrichProfile(ctx context.Context, profile subscriptiontarget.TargetProfile, options ResolveOptions) subscriptiontarget.TargetProfile {
+	if !options.EnrichProfile {
+		return profile
+	}
+	profile.DataFetchedAt = time.Now().Format(time.RFC3339)
+	details, err := s.fetchMinnanoProfile(ctx, profile.ResolvedActressName, options.Proxy)
+	if err != nil {
+		// JAVBus data remains useful when the secondary profile source is
+		// unavailable. The UI will show the source list and missing fields rather
+		// than manufacturing placeholder measurements.
+		return profile
+	}
+	if details.ResolvedName != "" {
+		profile.ResolvedActressName = details.ResolvedName
+	}
+	if details.AvatarURL != "" {
+		if profile.AvatarURL == "" {
+			profile.AvatarURL = details.AvatarURL
+		}
+	}
+	if len(details.Images) > 0 {
+		profile.PromotionImageURLs = distinctPromotionImages(profile.AvatarURL, profile.PromotionImageURLs, details.Images)
+	}
+	if len(details.Fields) > 0 {
+		profile.ProfileFields = details.Fields
+		s.rememberProviderAliases(profile.ResolvedActressName, details.Fields)
+	}
+	// JAVBus is the canonical source for JAV work identifiers. Minnano's
+	// `av123456.html` values are site-internal record IDs, not JAV numbers, so
+	// only use its works when the primary JAVBus page returned none.
+	if !options.BasicProfileOnly {
+		profile.Works = selectCanonicalWorks(profile.Works, details.Works)
+		profile.DisplayedWorks = len(details.Works)
+		if len(profile.Works) > 0 {
+			profile.DisplayedWorks = len(profile.Works)
+		}
+	}
+	if options.BasicProfileOnly {
+		profile.Works = nil
+		profile.DisplayedWorks = 0
+	}
+	profile.DataSources = uniqStrings(append(profile.DataSources, "みんなのAV.com")...)
+	return profile
+}
+
+// distinctPromotionImages keeps the public-photo collection semantically
+// separate from the actor avatar. Some public profile pages expose their
+// portrait in both fields; displaying it twice makes the Atlas look as though
+// two different publicity photos were found.
+func distinctPromotionImages(avatarURL string, groups ...[]string) []string {
+	avatarKey := canonicalProfileImageURL(avatarURL)
+	seen := map[string]struct{}{}
+	result := make([]string, 0)
+	for _, group := range groups {
+		for _, rawURL := range group {
+			value := strings.TrimSpace(rawURL)
+			key := canonicalProfileImageURL(value)
+			if value == "" || key == "" || key == avatarKey {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func canonicalProfileImageURL(rawURL string) string {
+	value := strings.TrimSpace(rawURL)
+	parsed, err := neturl.Parse(value)
+	if err != nil || parsed.Host == "" {
+		return strings.ToLower(value)
+	}
+	parsed.Fragment = ""
+	parsed.RawQuery = ""
+	return strings.ToLower(parsed.String())
 }
 
 // ResolveTarget starts from actress name search, selects one candidate, and
 // returns a stable target profile for later crawl execution.
 func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.TargetProfile, error) {
-	actressName := strings.TrimSpace(options.ActressName)
+	requestedName := strings.TrimSpace(options.ActressName)
+	actressName := requestedName
 	if actressName == "" {
 		return subscriptiontarget.TargetProfile{}, fmt.Errorf("缺少女优名称，无法填充抓取信息。")
 	}
+	aliasResolution := actressalias.Resolution{Query: requestedName, MatchKind: "missing"}
+	resolvedName, resolvedAlias, aliasErr := s.resolveAliasQuery(requestedName)
+	if aliasErr != nil {
+		return subscriptiontarget.TargetProfile{}, aliasErr
+	}
+	actressName = resolvedName
+	aliasResolution = resolvedAlias
 
 	origins := buildBaseOrigins(options)
 	lookupErrors := make([]string, 0, len(origins))
+	lookupContext, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
 
 	for _, origin := range origins {
-		searchStarURL := origin + "/searchstar/" + neturl.QueryEscape(actressName)
-		searchHTML, _, err := fetchHTML(searchStarURL, options.Proxy)
+		if lookupContext.Err() != nil {
+			lookupErrors = append(lookupErrors, "全站演员检索超时")
+			break
+		}
+		// Use the directory's Japanese glyphs for the request while keeping the
+		// original input for strict candidate matching and UI presentation.
+		searchStarURL := origin + "/searchstar/" + neturl.QueryEscape(siteSearchName(actressName))
+		searchHTML, _, err := s.fetchLookupPage(lookupContext, searchStarURL, options.Proxy)
 		if err != nil {
 			lookupErrors = append(lookupErrors, fmt.Sprintf("%s：%s", origin, err.Error()))
 			continue
@@ -632,7 +912,7 @@ func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.Targ
 			continue
 		}
 
-		fetched, err := s.fetchStarPage(candidate.Href, ResolveOptions{
+		fetched, err := s.fetchStarPage(lookupContext, candidate.Href, ResolveOptions{
 			ActressName:   actressName,
 			TargetURL:     candidate.Href,
 			PreferredBase: origin,
@@ -644,7 +924,15 @@ func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.Targ
 			continue
 		}
 
-		return buildProfile(candidate.ActressName, fetched.ResolvedURL, fetched.StarPage), nil
+		profile := buildProfile(candidate.ActressName, fetched.ResolvedURL, fetched.StarPage)
+		profile.RequestedActressName = requestedName
+		profile.AliasMatchKind = aliasResolution.MatchKind
+		profile.AliasMatchedAs = aliasResolution.MatchedAs
+		if options.BasicProfileOnly {
+			profile.Works = nil
+			profile.DisplayedWorks = 0
+		}
+		return s.enrichProfile(lookupContext, profile, options), nil
 	}
 
 	return subscriptiontarget.TargetProfile{}, fmt.Errorf("未能定位女优目录。%s", strings.Join(lookupErrors, "；"))
@@ -659,9 +947,16 @@ func (s *Service) InspectTarget(options ResolveOptions) (subscriptiontarget.Targ
 		return s.ResolveTarget(options)
 	}
 
-	fetched, err := s.fetchStarPage(targetURL, options)
+	inspectContext, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	fetched, err := s.fetchStarPage(inspectContext, targetURL, options)
 	if err == nil {
-		return buildProfile(actressName, fetched.ResolvedURL, fetched.StarPage), nil
+		profile := buildProfile(actressName, fetched.ResolvedURL, fetched.StarPage)
+		if options.BasicProfileOnly {
+			profile.Works = nil
+			profile.DisplayedWorks = 0
+		}
+		return s.enrichProfile(inspectContext, profile, options), nil
 	}
 	if actressName == "" {
 		return subscriptiontarget.TargetProfile{}, err

@@ -223,7 +223,7 @@ function prepareDerivedStages() {
     '说明：该清单用于安装过程公开透明展示，列出安装包内主要内容。',
     '',
     '核心程序：',
-    '- javflow.exe',
+    '- javflow.exe（演员资料与作品分页功能）',
     '- Uninstall.exe（安装后生成）',
     '',
     '运行时与依赖：',

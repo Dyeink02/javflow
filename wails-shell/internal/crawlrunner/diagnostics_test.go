@@ -102,6 +102,63 @@ func TestStateDetailsIncludesInferredFailuresForFinalStatus(t *testing.T) {
 	}
 }
 
+func TestStateDetailsSeparatesPageDuplicatesFromPageFailures(t *testing.T) {
+	outputDir := t.TempDir()
+	runner, err := NewRunner(Config{Output: outputDir, Limit: 30}, outputDir)
+	if err != nil {
+		t.Fatalf("create runner: %v", err)
+	}
+
+	expected := 30
+	runner.pageAudits = []PageAudit{{
+		PageNumber:          1,
+		URL:                 "https://example.com/star/test/1",
+		ExpectedCount:       &expected,
+		ActualCount:         24,
+		DuplicateEntryCount: 1,
+		DuplicateItemIDs:    []string{"FSDSS-390"},
+	}}
+
+	details := runner.stateDetails(StatusCompleted)
+	if got := details["failedDetailsTotal"].(int); got != 6 {
+		t.Fatalf("expected six missing source entries, got %d", got)
+	}
+	failed := details["failedDetails"].([]FailedDetail)
+	if len(failed) != 1 || failed[0].Item != "第 1 页缺口（6 条）" {
+		t.Fatalf("unexpected page-gap details: %#v", failed)
+	}
+	duplicates := details["duplicateItems"].([]string)
+	if len(duplicates) != 1 || duplicates[0] != "FSDSS-390" {
+		t.Fatalf("expected page duplicate FSDSS-390, got %#v", duplicates)
+	}
+
+	stats := runner.statsForStatus(StatusCompleted)
+	if stats.TotalItems != 30 || stats.DuplicateItemsCount != 1 || stats.FailedItemsCount != 6 {
+		t.Fatalf("unexpected page review accounting: %+v", stats)
+	}
+	if stats.Completed != 23 {
+		t.Fatalf("expected completed=30-1-6=23, got %d", stats.Completed)
+	}
+}
+
+func TestPageAuditDuplicateEvidenceSurvivesSnapshotConversion(t *testing.T) {
+	expected := 30
+	records := convertPageAuditsForSnapshot([]PageAudit{{
+		PageNumber:          1,
+		ExpectedCount:       &expected,
+		ActualCount:         30,
+		DuplicateEntryCount: 2,
+		DuplicateItemIDs:    []string{"FSDSS-390", "FSDSS-681"},
+	}})
+	restored := convertRestoredPageAudits(records)
+	if len(restored) != 1 || restored[0].DuplicateEntryCount != 2 {
+		t.Fatalf("duplicate count lost after snapshot conversion: %#v", restored)
+	}
+	if len(restored[0].DuplicateItemIDs) != 2 || restored[0].DuplicateItemIDs[1] != "FSDSS-681" {
+		t.Fatalf("duplicate IDs lost after snapshot conversion: %#v", restored)
+	}
+}
+
 func TestRestorePersistedOutputStateReadsFilmDataFile(t *testing.T) {
 	outputDir := t.TempDir()
 	filmDataPath := filepath.Join(outputDir, "filmData.json")

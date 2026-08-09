@@ -31,6 +31,7 @@
     return Object.assign(
       {},
       elementDomains.collectShellElements(scope),
+	      elementDomains.collectActressAtlasElements(scope),
       elementDomains.collectCrawlerElements(scope),
       elementDomains.collectOrganizerElements(scope),
       elementDomains.collectSubscriptionElements(scope),

@@ -17,14 +17,36 @@
   // list limited to navigation and top-level container ownership.
   function collectShellElements(scope) {
     return {
+	      navActressAtlasButton: scope.getElementById('nav-actressatlas'),
       navCrawlerButton: scope.getElementById('nav-crawler'),
       navOrganizerButton: scope.getElementById('nav-organizer'),
       navSubscriptionButton: scope.getElementById('nav-subscription'),
       navLibraryMetadataButton: scope.getElementById('nav-librarymetadata'),
       crawlerWorkspace: scope.getElementById('crawler-workspace'),
+	      actressAtlasWorkspace: scope.getElementById('actressatlas-workspace'),
       organizerWorkspace: scope.getElementById('organizer-workspace'),
       subscriptionWorkspace: scope.getElementById('subscription-workspace'),
       libraryMetadataWorkspace: scope.getElementById('librarymetadata-workspace')
+    };
+  }
+
+  function collectActressAtlasElements(scope) {
+    return {
+      atlasSearch: scope.getElementById('atlas-search'), atlasSearchButton: scope.getElementById('atlas-search-button'),
+      atlasProxy: scope.getElementById('atlas-proxy'), atlasProxySave: scope.getElementById('atlas-proxy-save'), atlasProxyStatus: scope.getElementById('atlas-proxy-status'), atlasProxyStatusDetail: scope.getElementById('atlas-proxy-status-detail'), atlasProxyIndicator: scope.getElementById('atlas-proxy-indicator'),
+      atlasSearchSummary: scope.getElementById('atlas-search-summary'), atlasSource: scope.getElementById('atlas-source'),
+      atlasModeMonthlyButton: scope.getElementById('atlas-mode-monthly'), atlasModeAnnualButton: scope.getElementById('atlas-mode-annual'),
+      atlasYear: scope.getElementById('atlas-year'), atlasMonth: scope.getElementById('atlas-month'),
+      atlasMonthField: scope.getElementById('atlas-month-field'), atlasRefresh: scope.getElementById('atlas-refresh'),
+      atlasRankingTotal: scope.getElementById('atlas-ranking-total'), atlasRankingNotice: scope.getElementById('atlas-ranking-notice'),
+      atlasRankingList: scope.getElementById('atlas-ranking-list'), atlasRankingFooter: scope.getElementById('atlas-ranking-footer'),
+        atlasDetailEmpty: scope.getElementById('atlas-detail-empty'), atlasDetail: scope.getElementById('atlas-detail'), atlasActivityLogPanel: scope.getElementById('atlas-activity-log-panel'),
+      atlasActorAvatar: scope.getElementById('atlas-actor-avatar'), atlasActorName: scope.getElementById('atlas-actor-name'),
+      atlasActorMeta: scope.getElementById('atlas-actor-meta'), atlasActorProfile: scope.getElementById('atlas-actor-profile'),
+      atlasActorStats: scope.getElementById('atlas-actor-stats'), atlasPromoGrid: scope.getElementById('atlas-promo-grid'),
+      atlasOpenProfile: scope.getElementById('atlas-open-profile'), atlasFillCrawler: scope.getElementById('atlas-fill-crawler'),
+      atlasSubscribe: scope.getElementById('atlas-subscribe'), atlasWorks: scope.getElementById('atlas-works'), atlasWorkRetry: scope.getElementById('atlas-work-retry'), atlasWorkPrevious: scope.getElementById('atlas-work-previous'), atlasWorkPageCurrent: scope.getElementById('atlas-work-page-current'), atlasWorkNext: scope.getElementById('atlas-work-next'),
+        atlasWorkCount: scope.getElementById('atlas-work-count'), atlasActivityLog: scope.getElementById('atlas-activity-log'), atlasActivityLogClear: scope.getElementById('atlas-activity-log-clear')
     };
   }
 
@@ -323,6 +345,7 @@
   }
 
   globalScope.desktopRendererElementDomains = {
+	collectActressAtlasElements,
     collectCrawlerElements,
     collectOrganizerElements,
     collectShellElements,

@@ -34,6 +34,8 @@ const cssOrder = [
   'forms.css',
   'panels.css',
   'log.css',
+  'actressatlas.css',
+  'actressatlas-loading.css',
   'ranking.css',
   'subscription.css',
   'librarymetadata.css',

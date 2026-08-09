@@ -107,6 +107,7 @@ func crawlFoundationPackages() []string {
 
 func infrastructureNeutralPackages() []string {
 	return []string{
+		"internal/actressalias",
 		"internal/actressranking",
 		"internal/adlearning",
 		"internal/antiblock",

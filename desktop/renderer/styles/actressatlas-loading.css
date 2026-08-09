@@ -1,0 +1,35 @@
+/* Actor Atlas image-feedback layer.
+ * Kept separate from the legacy compact stylesheet so loading feedback can
+ * evolve without turning the workspace stylesheet into another large file. */
+.atlas-work-cover-frame {
+  position: relative;
+  display: block;
+  width: 92px;
+  height: 126px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .07);
+}
+
+.atlas-work-cover-frame .atlas-work-cover {
+  position: relative;
+  z-index: 1;
+}
+
+.atlas-work-cover-placeholder.is-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 8px;
+  background: rgba(15, 23, 42, .86);
+}
+
+.atlas-work-cover-frame.is-loaded .atlas-work-cover-placeholder.is-loading {
+  display: none;
+}
+
+.atlas-work-cover-placeholder.is-retryable {
+  cursor: pointer;
+  color: var(--accent-cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

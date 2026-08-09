@@ -7,9 +7,9 @@ import (
 
 const subscriptionMediaRoute = "/subscription-media/"
 
-// subscriptionMediaHandler exposes only the app-managed actor media directory
-// through Wails' internal asset server. WebView2 blocks file:// URLs loaded by
-// the application page, while same-origin asset URLs render normally.
+// subscriptionMediaHandler serves only actor media cached by the application.
+// Keeping this route separate prevents provider hotlink failures in WebView2
+// without exposing arbitrary local paths or the crawler output tree.
 func (a *App) subscriptionMediaHandler() http.Handler {
 	mediaRoot := filepath.Join(a.paths.UserData, "subscriptions-v2", "media")
 	mux := http.NewServeMux()

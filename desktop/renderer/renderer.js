@@ -33,6 +33,7 @@
       crawlResultHistoryControllerFactory: scope.desktopCrawlResultHistoryController,
       stateControllerFactory: scope.desktopStateController,
       formControllerFactory: scope.desktopFormController,
+      actressAtlasControllerFactory: scope.desktopActressAtlasController,
       rankingControllerFactory: scope.desktopRankingController,
       organizerControllerFactory: scope.desktopOrganizerController,
       subscriptionControllerFactory: scope.desktopSubscriptionController,
@@ -54,6 +55,7 @@
       crawlResultHistoryControllerFactory: deps.crawlResultHistoryControllerFactory,
       stateControllerFactory: deps.stateControllerFactory,
       formControllerFactory: deps.formControllerFactory,
+      actressAtlasControllerFactory: deps.actressAtlasControllerFactory,
       rankingControllerFactory: deps.rankingControllerFactory,
       organizerControllerFactory: deps.organizerControllerFactory,
       subscriptionControllerFactory: deps.subscriptionControllerFactory,
@@ -81,6 +83,7 @@
       crawlResultHistoryControllerFactory: deps.crawlResultHistoryControllerFactory,
       stateControllerFactory: deps.stateControllerFactory,
       formControllerFactory: deps.formControllerFactory,
+	      actressAtlasControllerFactory: deps.actressAtlasControllerFactory,
       rankingControllerFactory: deps.rankingControllerFactory,
       organizerControllerFactory: deps.organizerControllerFactory,
       subscriptionControllerFactory: deps.subscriptionControllerFactory,
@@ -189,6 +192,7 @@
     heroBorderFlowController,
     crawlRuntimeController,
     formController,
+    actressAtlasController,
     rankingController,
     organizerController,
     subscriptionController,
@@ -202,6 +206,7 @@
       heroBorderFlowController,
       crawlRuntimeController,
       formController,
+      actressAtlasController,
       rankingController,
       organizerController,
       subscriptionController,
@@ -247,6 +252,20 @@
     if (targetWorkspace === 'crawler') {
       if (formController && typeof formController.bootstrap === 'function') {
         formController.bootstrap();
+      }
+    }
+    if (targetWorkspace === 'actressatlas') {
+      // The first navigation into Actor Atlas explains its proxy requirement
+      // once. The controller owns the notice state so shell routing remains
+      // presentational and does not read crawler settings directly.
+      if (actressAtlasController && typeof actressAtlasController.ensureProxyNotice === 'function') {
+        void actressAtlasController.ensureProxyNotice();
+      }
+      if (actressAtlasController && typeof actressAtlasController.bootstrap === 'function') {
+        void actressAtlasController.bootstrap();
+      }
+      if (actressAtlasController && typeof actressAtlasController.refresh === 'function') {
+        void actressAtlasController.refresh();
       }
     }
   }
@@ -355,6 +374,7 @@
     crawlResultHistoryControllerFactory,
     stateControllerFactory,
     formControllerFactory,
+    actressAtlasControllerFactory,
     rankingControllerFactory,
     organizerControllerFactory,
     subscriptionControllerFactory,
@@ -415,6 +435,13 @@
   const formController = formControllerFactory.createFormController(
     buildFormControllerOptions(elements, desktopApi, logController, stateController, uiText)
   );
+
+  const actressAtlasController = actressAtlasControllerFactory.createActressAtlasController({
+    elements,
+    desktopApi,
+    formController,
+    switchWorkspace: (workspaceKey) => rendererShellController.setWorkspace(workspaceKey)
+  });
 
   // Renderer assembly keeps the three workspaces intentionally loose:
   // 1) crawler owns the editable crawl form plus runtime panels
@@ -488,6 +515,7 @@
       heroBorderFlowController,
       crawlRuntimeController,
       formController,
+      actressAtlasController,
       rankingController,
       organizerController,
       subscriptionController,

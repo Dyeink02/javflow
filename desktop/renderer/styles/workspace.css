@@ -10,7 +10,11 @@
 }
 
 .workspace-pane {
-  animation: workspace-fade 0.25s ease;
+  /* Workspace visibility is controlled by the shell's .hidden class. Keeping
+     opacity independent from CSS animation prevents blank panels on startup. */
+  animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 .workspace-topbar {

@@ -41,20 +41,22 @@ import (
 // - UI/bridge concerns should stay outside this package
 
 const (
-	avfanMonthlyURL        = "https://av-fan.tokyo/ranking/fanza-dvd-actress-monthly.php"
-	avfanYearlyURL         = "https://av-fan.tokyo/ranking/fanza-rental-dvd-actress-top100.php"
-	officialMonthlyURL     = "https://www.dmm.co.jp/mono/dvd/-/ranking/=/mode=actress/term=monthly/"
-	monthlyCacheMaxAgeMS   = 12 * 60 * 60 * 1000
-	yearlyCacheMaxAgeMS    = 7 * 24 * 60 * 60 * 1000
-	cacheVersion           = 2
-	defaultOfficialTimeout = 45 * time.Second
+	avfanMonthlyURL         = "https://av-fan.tokyo/ranking/fanza-dvd-actress-monthly.php"
+	avfanYearlyURL          = "https://av-fan.tokyo/ranking/fanza-rental-dvd-actress-top100.php"
+	officialMonthlyURL      = "https://www.dmm.co.jp/mono/dvd/-/ranking/=/mode=actress/term=monthly/"
+	officialRentalAnnualURL = "https://www.dmm.co.jp/rental/-/ranking/=/article=actress/t=year_%d/"
+	monthlyCacheMaxAgeMS    = 12 * 60 * 60 * 1000
+	yearlyCacheMaxAgeMS     = 7 * 24 * 60 * 60 * 1000
+	cacheVersion            = 2
+	defaultOfficialTimeout  = 45 * time.Second
 )
 
 var (
-	monthlyPeriodPattern = regexp.MustCompile(`(\d{4})\.(\d{2})`)
-	yearPattern          = regexp.MustCompile(`(\d{4})`)
-	worksCountPattern    = regexp.MustCompile(`商品数\s*[:：]\s*(\d+)`)
-	digitsPattern        = regexp.MustCompile(`\d+`)
+	monthlyPeriodPattern  = regexp.MustCompile(`(\d{4})\.(\d{2})`)
+	yearPattern           = regexp.MustCompile(`(\d{4})`)
+	officialAnnualPattern = regexp.MustCompile(`t=year_(\d{4})`)
+	worksCountPattern     = regexp.MustCompile(`商品数\s*[:：]\s*(\d+)`)
+	digitsPattern         = regexp.MustCompile(`\d+`)
 )
 
 type rankingError struct {
@@ -195,7 +197,6 @@ var sourceChannels = map[string]sourceChannel{
 // not scatter wording edits through fetch branches.
 var messages = struct {
 	LocalCacheMissing             string
-	OfficialMonthlyOnly           string
 	RequestedMonthFallbackToCache string
 	SmartOfficialNotice           string
 	AVFanDirectRetryNotice        string
@@ -206,7 +207,6 @@ var messages = struct {
 	OfficialAnnualFallbackTo      func(string) string
 }{
 	LocalCacheMissing:             "本地历史暂无可用榜单缓存，请先成功抓取一次在线榜单。",
-	OfficialMonthlyOnly:           "当前 DMM/FANZA 官方渠道仅提供当前月度女优榜单。",
 	RequestedMonthFallbackToCache: "所选月份暂时无稳定在线源，已回退到本地缓存。",
 	SmartOfficialNotice:           "智能模式将优先使用官方当前月榜，不可用时自动回退。",
 	AVFanDirectRetryNotice:        "检测到当前代理无法访问 AVfan，已自动切换为直连模式继续获取榜单。",
@@ -223,7 +223,7 @@ var messages = struct {
 		return fmt.Sprintf("官方渠道暂时不可用，已自动切换至 %s。", strings.TrimSpace(targetName))
 	},
 	OfficialAnnualFallbackTo: func(targetName string) string {
-		return fmt.Sprintf("官方渠道暂仅支持月榜，已自动切换至 %s。", strings.TrimSpace(targetName))
+		return fmt.Sprintf("官方年榜暂时不可用，已自动切换至 %s。", strings.TrimSpace(targetName))
 	},
 }
 
@@ -246,6 +246,63 @@ func getCacheSkeleton() cacheFile {
 	}
 }
 
+// getBundledInitialCache is the offline-first bootstrap dataset for the Actor
+// Atlas. The official lane keeps the exact 20 rows FANZA returned on
+// 2026-07-31; the AVfan lane is merged from separately captured, verified
+// 100-row snapshots for 2026-03 through 2026-07. Missing months remain
+// missing: snapshots are never padded, recycled, or relabeled.
+func getBundledInitialCache() cacheFile {
+	cache := getCacheSkeleton()
+	works := []RankingItem{
+		{Rank: 1, ActressName: "瀬戸環奈", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1099472/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/seto_kanna.jpg"},
+		{Rank: 2, ActressName: "彩月七緒", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1089946/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/satuki_nao.jpg"},
+		{Rank: 3, ActressName: "河北彩花（河北彩伽）", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1044864/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/kawakita_saika.jpg"},
+		{Rank: 4, ActressName: "石川澪", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1072127/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/isikawa_mio.jpg"},
+		{Rank: 5, ActressName: "小野坂ゆいか", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1093790/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/onosaka_yuika.jpg"},
+		{Rank: 6, ActressName: "逢沢みゆ", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1088602/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/aizawa_miyu.jpg"},
+		{Rank: 7, ActressName: "田野憂", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1093791/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/tano_yuu.jpg"},
+		{Rank: 8, ActressName: "長浜みつり", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1089578/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/nagahama_mituri.jpg"},
+		{Rank: 9, ActressName: "神宮寺ナオ", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1041897/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/zinguuzi_nao.jpg"},
+		{Rank: 10, ActressName: "森沢かな（飯岡かなこ）", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1020685/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/iioka_kanako.jpg"},
+		{Rank: 11, ActressName: "波多野結衣", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=26225/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/hatano_yui.jpg"},
+		{Rank: 12, ActressName: "愛才りあ", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1099161/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/aise_ria.jpg"},
+		{Rank: 13, ActressName: "三澄寧々", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1104816/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/misumi_nene.jpg"},
+		{Rank: 14, ActressName: "幸村泉希", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1104612/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/yukimura_ituki.jpg"},
+		{Rank: 15, ActressName: "鈴村あいり", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1019076/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/suzumura_airi.jpg"},
+		{Rank: 16, ActressName: "北野未奈", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1068671/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/kitano_mina.jpg"},
+		{Rank: 17, ActressName: "宮下玲奈", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1075464/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/miyasita_rena2.jpg"},
+		{Rank: 18, ActressName: "北岡果林", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1092427/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/kitaoka_karin.jpg"},
+		{Rank: 19, ActressName: "涼森れむ", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=1051912/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/suzumori_remu.jpg"},
+		{Rank: 20, ActressName: "仲村みう", ProfileURL: "https://www.dmm.co.jp/mono/dvd/-/list/=/article=actress/id=20640/", ImageURL: "https://pics.dmm.co.jp/mono/actjpgs/medium/nakamura_miu2.jpg"},
+	}
+	persistMonthly(&cache, "official", Result{
+		Title: "【100位まで】月間AV女優ランキング1～20位 - アダルトDVD・ブルーレイ通販 - FANZA通販", SourceName: "FANZA 官方", SourceURL: officialMonthlyURL,
+		Mode: "monthly", PeriodLabel: "2026年07月（FANZA 实际返回 20 位）", PeriodYear: 2026, PeriodMonth: 7,
+		Total: len(works), AvailableYears: []int{2026}, AvailableMonths: []int{7}, FetchedAt: "2026-07-31T01:07:19+08:00", Items: works,
+	})
+	mergeBundledMonthlyHistory(&cache)
+	return cache
+}
+
+// mergeSourceCache overlays user data onto the bundled bootstrap cache. Empty
+// user-data files must not erase the first-run experience; genuine historical
+// entries always win over the bundled snapshot for the same period.
+func mergeSourceCache(base sourceCache, overlay sourceCache) sourceCache {
+	merged := normalizeSourceCache(base)
+	normalizedOverlay := normalizeSourceCache(overlay)
+	for key, entry := range normalizedOverlay.MonthlyByPeriod {
+		merged.MonthlyByPeriod[key] = entry
+	}
+	for key, entry := range normalizedOverlay.AnnualByYear {
+		merged.AnnualByYear[key] = entry
+	}
+	if normalizedOverlay.MonthlyLatestKey != "" {
+		merged.MonthlyLatestKey = normalizedOverlay.MonthlyLatestKey
+	}
+	merged.AvailableYears = normalizeYearList(append(merged.AvailableYears, normalizedOverlay.AvailableYears...))
+	return merged
+}
+
 func normalizeSourceCache(source sourceCache) sourceCache {
 	normalized := buildSourceCache()
 	normalized.MonthlyLatestKey = strings.TrimSpace(source.MonthlyLatestKey)
@@ -262,7 +319,7 @@ func normalizeSourceCache(source sourceCache) sourceCache {
 func loadCache(filePath string) cacheFile {
 	// Cache loading accepts both current and legacy layouts so history imports do
 	// not break when maintainers tighten the main cache schema.
-	skeleton := getCacheSkeleton()
+	skeleton := getBundledInitialCache()
 	trimmedPath := strings.TrimSpace(filePath)
 	if trimmedPath == "" {
 		return skeleton
@@ -270,15 +327,24 @@ func loadCache(filePath string) cacheFile {
 
 	payload, err := os.ReadFile(trimmedPath)
 	if err != nil {
+		// Persist the bundled first-run snapshot so the user has a visible,
+		// inspectable local cache even before the first online refresh succeeds.
+		_ = writeCache(trimmedPath, skeleton)
 		return skeleton
 	}
 
 	var current cacheFile
 	if err := json.Unmarshal(payload, &current); err == nil && len(current.Sources) > 0 {
 		current.Version = cacheVersion
-		skeleton.Sources["avfan"] = normalizeSourceCache(current.Sources["avfan"])
-		skeleton.Sources["official"] = normalizeSourceCache(current.Sources["official"])
-		skeleton.Sources["localHistory"] = normalizeSourceCache(current.Sources["localHistory"])
+		skeleton.Sources["avfan"] = mergeSourceCache(skeleton.Sources["avfan"], current.Sources["avfan"])
+		skeleton.Sources["official"] = mergeSourceCache(skeleton.Sources["official"], current.Sources["official"])
+		skeleton.Sources["localHistory"] = mergeSourceCache(skeleton.Sources["localHistory"], current.Sources["localHistory"])
+		// Empty cache files were produced by earlier builds. Rewrite them once
+		// with the merged snapshot instead of repeatedly reconstructing it only
+		// in memory on every application launch.
+		if len(listMonthlyPeriods(current, []string{"official"})) == 0 {
+			_ = writeCache(trimmedPath, skeleton)
+		}
 		return skeleton
 	}
 
@@ -441,7 +507,7 @@ func listMonthlyPeriods(cache cacheFile, bucketIDs []string) []cachedMonthly {
 		bucket := getSourceBucket(cache, bucketID)
 		for key, entry := range bucket.MonthlyByPeriod {
 			match := regexp.MustCompile(`^(\d{4})-(\d{2})$`).FindStringSubmatch(key)
-			if len(match) != 3 || strings.TrimSpace(entry.Data.Title) == "" {
+			if len(match) != 3 || !hasUsableMonthlyData(entry.Data) {
 				continue
 			}
 			year, _ := strconv.Atoi(match[1])
@@ -457,6 +523,18 @@ func listMonthlyPeriods(cache cacheFile, bucketIDs []string) []cachedMonthly {
 		}
 	}
 	return result
+}
+
+// hasUsableMonthlyData deliberately uses the returned ranking entries as the
+// cache validity contract. Older cache files did not always persist the page
+// title, but they still contain a complete, immediately displayable ranking.
+// Treating a missing cosmetic title as a cache miss caused an unnecessary
+// browser request and left the Actor Atlas blank while the request timed out.
+func hasUsableMonthlyData(data Result) bool {
+	if data.PeriodYear <= 0 || data.PeriodMonth < 1 || data.PeriodMonth > 12 {
+		return false
+	}
+	return len(data.Items) > 0
 }
 
 func listAnnualEntries(cache cacheFile, bucketIDs []string) []cachedAnnual {
@@ -499,6 +577,31 @@ func getMonthlyAvailability(cache cacheFile, bucketIDs []string, selectedYear in
 	return availableYears, normalizeMonthList(monthValues)
 }
 
+// rankingAvailabilityBuckets defines which already-cached periods may be
+// offered by the selected channel. Smart mode is intentionally the union of
+// the real official, AVfan, and imported local records; otherwise a successful
+// official response could hide an older month that was captured by another
+// source. This only exposes records that exist in cache, never guessed dates.
+func rankingAvailabilityBuckets(requestedChannel string, resolvedChannel string, bucketIDs []string) []string {
+	if normalizeRankingChannel(requestedChannel) != "smart" && normalizeRankingChannel(resolvedChannel) != "local" {
+		return bucketIDs
+	}
+	merged := append([]string(nil), bucketIDs...)
+	for _, bucketID := range []string{"official", "avfan", "localHistory"} {
+		seen := false
+		for _, existing := range merged {
+			if existing == bucketID {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			merged = append(merged, bucketID)
+		}
+	}
+	return merged
+}
+
 func getAnnualAvailability(cache cacheFile, bucketIDs []string) []int {
 	values := make([]int, 0)
 	for _, item := range listAnnualEntries(cache, bucketIDs) {
@@ -508,6 +611,13 @@ func getAnnualAvailability(cache cacheFile, bucketIDs []string) []int {
 		values = append(values, getSourceBucket(cache, bucketID).AvailableYears...)
 	}
 	return normalizeYearList(values)
+}
+
+// getAnnualQueryYears only exposes years confirmed by a source response or
+// cache. Do not add the current calendar year: an unpublished annual ranking
+// must not appear as a selectable option.
+func getAnnualQueryYears(cache cacheFile, bucketIDs []string) []int {
+	return getAnnualAvailability(cache, bucketIDs)
 }
 
 func resolveCachedMonthlyEntry(cache cacheFile, bucketIDs []string, year int, month int, exactOnly bool) *cachedMonthly {
@@ -562,7 +672,8 @@ func resolveCachedAnnualEntry(cache cacheFile, bucketIDs []string, year int, exa
 }
 
 func decorateMonthlyResult(cache cacheFile, bucketIDs []string, data Result, requestedChannel string, resolvedChannel string, fromCache bool, stale bool, notice string, errorMessage string, fallbackUsed bool) Result {
-	availableYears, availableMonths := getMonthlyAvailability(cache, bucketIDs, data.PeriodYear)
+	availabilityBuckets := rankingAvailabilityBuckets(requestedChannel, resolvedChannel, bucketIDs)
+	availableYears, availableMonths := getMonthlyAvailability(cache, availabilityBuckets, data.PeriodYear)
 	result := data
 	if normalizeRankingChannel(resolvedChannel) == "local" {
 		result.SourceName = fmt.Sprintf("%s · %s", getChannelLabel("local"), strings.TrimSpace(data.SourceName))
@@ -594,7 +705,7 @@ func decorateAnnualResult(cache cacheFile, bucketIDs []string, data Result, requ
 	result.RequestedSourceLabel = getChannelLabel(requestedChannel)
 	result.ResolvedSource = resolvedChannel
 	result.ResolvedSourceLabel = getChannelLabel(resolvedChannel)
-	result.AvailableYears = getAnnualAvailability(cache, bucketIDs)
+	result.AvailableYears = getAnnualQueryYears(cache, bucketIDs)
 	result.AvailableMonths = []int{}
 	result.FromCache = fromCache
 	result.Stale = stale
@@ -940,6 +1051,28 @@ func findElementsWithClass(root *html.Node, tagName string, classNames ...string
 	})
 }
 
+// parseAVFanAvailableYears accepts AVfan's nested year navigation. The site
+// currently renders links as `div.ranking-year-link > ul > li > a`, so the
+// year-link class is not necessarily the anchor's direct parent.
+func parseAVFanAvailableYears(root *html.Node) []int {
+	years := make([]int, 0)
+	for _, yearLink := range findAll(root, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && strings.EqualFold(node.Data, "a")
+	}) {
+		isRankingYearLink := false
+		for parent := yearLink.Parent; parent != nil; parent = parent.Parent {
+			if hasAllClasses(parent, "ranking-year-link") {
+				isRankingYearLink = true
+				break
+			}
+		}
+		if isRankingYearLink {
+			years = append(years, toIntValue(nodeText(yearLink)))
+		}
+	}
+	return normalizeYearList(years)
+}
+
 func parseAVFanRankingHTML(htmlSource string, mode string, sourceURL string, fallbackYear int) (Result, error) {
 	root, err := parseHTMLDocument(htmlSource)
 	if err != nil {
@@ -1003,12 +1136,7 @@ func parseAVFanRankingHTML(htmlSource string, mode string, sourceURL string, fal
 		})
 	}
 
-	yearValues := make([]int, 0)
-	for _, yearLink := range findElementsWithClass(root, "a") {
-		if parent := yearLink.Parent; parent != nil && hasClass(parent, "ranking-year-link") {
-			yearValues = append(yearValues, toIntValue(nodeText(yearLink)))
-		}
-	}
+	yearValues := parseAVFanAvailableYears(root)
 	if len(items) == 0 {
 		return Result{}, createRankingError("未从 AVfan 榜单页解析到有效内容。", "avfan_parse_empty")
 	}
@@ -1022,7 +1150,7 @@ func parseAVFanRankingHTML(htmlSource string, mode string, sourceURL string, fal
 		PeriodYear:     periodYear,
 		PeriodMonth:    periodMonth,
 		Total:          len(items),
-		AvailableYears: normalizeYearList(yearValues),
+		AvailableYears: yearValues,
 		AvailableMonths: func() []int {
 			if mode == "monthly" && periodMonth > 0 {
 				return []int{periodMonth}
@@ -1051,7 +1179,30 @@ func isAgeCheckPage(pageURL string, htmlSource string, title string) bool {
 		strings.Contains(htmlSource, "/age_check/")
 }
 
+// isAVFanVerificationPage keeps verification failures distinct from empty
+// ranking pages. Cloudflare's challenge markup can otherwise look like a
+// successful HTML response and be misleadingly reported as "no years found".
+func isAVFanVerificationPage(htmlSource string, title string) bool {
+	normalized := strings.ToLower(strings.Join([]string{htmlSource, title}, "\n"))
+	return strings.Contains(normalized, "one moment, please") ||
+		strings.Contains(normalized, "just a moment") ||
+		strings.Contains(normalized, "cf-chl") ||
+		strings.Contains(normalized, "challenge-platform")
+}
+
 func parseOfficialMonthlyRankingHTML(htmlSource string, requestedChannel string) (Result, error) {
+	year, month := getCurrentJapanYearMonth()
+	return parseOfficialRankingHTML(htmlSource, requestedChannel, "monthly", officialMonthlyURL, year, month)
+}
+
+func parseOfficialAnnualRentalRankingHTML(htmlSource string, requestedChannel string, sourceURL string, year int) (Result, error) {
+	return parseOfficialRankingHTML(htmlSource, requestedChannel, "annual", sourceURL, year, 0)
+}
+
+// parseOfficialRankingHTML normalizes DMM/FANZA's shared rank-row markup. The
+// caller supplies the period because the historical rental pages have a
+// generic document title that does not identify the requested year.
+func parseOfficialRankingHTML(htmlSource string, requestedChannel string, mode string, sourceURL string, year int, month int) (Result, error) {
 	root, err := parseHTMLDocument(htmlSource)
 	if err != nil {
 		return Result{}, err
@@ -1064,12 +1215,21 @@ func parseOfficialMonthlyRankingHTML(htmlSource string, requestedChannel string)
 	if pageTitle == "" {
 		pageTitle = "官方女优月榜"
 	}
-	year, month := getCurrentJapanYearMonth()
-
 	rows := findAll(root, func(node *html.Node) bool {
-		return node.Type == html.ElementNode && hasClass(node, "bd-b")
+		if node.Type != html.ElementNode ||
+			(!strings.EqualFold(node.Data, "td") && !(strings.EqualFold(node.Data, "tr") && hasClass(node, "bd-b"))) {
+			return false
+		}
+		// DMM marks most cells with bd-b, but the final pair on each page
+		// intentionally has an empty class. Rank and data are the stable row
+		// contract shared by both variants.
+		return findFirst(node, func(child *html.Node) bool {
+			return child.Type == html.ElementNode && hasClass(child, "rank")
+		}) != nil && findFirst(node, func(child *html.Node) bool {
+			return child.Type == html.ElementNode && hasClass(child, "data")
+		}) != nil
 	})
-	items := make([]RankingItem, 0)
+	itemsByRank := map[int]RankingItem{}
 	for _, row := range rows {
 		rankNode := findFirst(row, func(node *html.Node) bool {
 			return node.Type == html.ElementNode && hasClass(node, "rank")
@@ -1118,15 +1278,22 @@ func parseOfficialMonthlyRankingHTML(htmlSource string, requestedChannel string)
 			}
 		}
 
-		items = append(items, RankingItem{
+		if _, exists := itemsByRank[rankValue]; exists {
+			continue
+		}
+		itemsByRank[rankValue] = RankingItem{
 			Rank:        rankValue,
 			ActressName: actressName,
-			ProfileURL:  absoluteURL(getAttribute(actressAnchor, "href"), officialMonthlyURL),
-			ImageURL:    absoluteURL(getAttribute(imageNode, "src"), officialMonthlyURL),
+			ProfileURL:  absoluteURL(getAttribute(actressAnchor, "href"), sourceURL),
+			ImageURL:    absoluteURL(getAttribute(imageNode, "src"), sourceURL),
 			LatestTitle: strings.TrimSpace(nodeText(latestWorkLink)),
-			LatestURL:   absoluteURL(getAttribute(latestWorkLink, "href"), officialMonthlyURL),
+			LatestURL:   absoluteURL(getAttribute(latestWorkLink, "href"), sourceURL),
 			WorksCount:  worksCount,
-		})
+		}
+	}
+	items := make([]RankingItem, 0, len(itemsByRank))
+	for _, item := range itemsByRank {
+		items = append(items, item)
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -1136,28 +1303,61 @@ func parseOfficialMonthlyRankingHTML(htmlSource string, requestedChannel string)
 		return Result{}, createRankingError("未从 DMM/FANZA 官方月榜解析到女优列表。", "official_parse_empty")
 	}
 
+	periodLabel := fmt.Sprintf("%d年%02d月（官方当前月榜）", year, month)
+	availableYears := []int{year}
+	availableMonths := []int{month}
+	if mode == "annual" {
+		periodLabel = fmt.Sprintf("%d年（FANZA 租赁年榜）", year)
+		availableYears = parseOfficialAnnualAvailableYears(root)
+		availableYears = normalizeYearList(append(availableYears, year))
+		availableMonths = []int{}
+	}
+
 	return Result{
-		Mode:            "monthly",
+		Mode:            mode,
 		SourceName:      getOfficialSourceName(requestedChannel),
-		SourceURL:       officialMonthlyURL,
+		SourceURL:       sourceURL,
 		Title:           pageTitle,
-		PeriodLabel:     fmt.Sprintf("%d年%02d月（官方当前月榜）", year, month),
+		PeriodLabel:     periodLabel,
 		PeriodYear:      year,
 		PeriodMonth:     month,
 		Total:           len(items),
-		AvailableYears:  []int{year},
-		AvailableMonths: []int{month},
+		AvailableYears:  availableYears,
+		AvailableMonths: availableMonths,
 		FetchedAt:       time.Now().Format(time.RFC3339),
 		Items:           items,
 	}, nil
 }
 
+// parseOfficialAnnualAvailableYears reads DMM rental's verified historical
+// year links. Only years exposed by the source page are offered to the UI.
+func parseOfficialAnnualAvailableYears(root *html.Node) []int {
+	years := make([]int, 0)
+	for _, anchor := range findAll(root, func(node *html.Node) bool {
+		return node.Type == html.ElementNode &&
+			strings.EqualFold(node.Data, "a") &&
+			strings.Contains(getAttribute(node, "href"), "t=year_")
+	}) {
+		matches := officialAnnualPattern.FindStringSubmatch(getAttribute(anchor, "href"))
+		if len(matches) != 2 {
+			continue
+		}
+		if year, err := strconv.Atoi(matches[1]); err == nil {
+			years = append(years, year)
+		}
+	}
+	return normalizeYearList(years)
+}
+
 func (s *Service) fetchLatestAVFanMonthlyRanking(proxyValue string) (Result, string, error) {
-	htmlSource, sourceURL, _, err := s.browser.fetchAVFanHTML(avfanMonthlyURL, proxyValue)
+	htmlSource, sourceURL, pageTitle, err := s.browser.fetchAVFanHTML(avfanMonthlyURL, proxyValue)
 	if err != nil {
 		if strings.TrimSpace(proxyValue) != "" && isBrowserProxyError(err) {
-			htmlSource, sourceURL, _, err = s.browser.fetchAVFanHTML(avfanMonthlyURL, "")
+			htmlSource, sourceURL, pageTitle, err = s.browser.fetchAVFanHTML(avfanMonthlyURL, "")
 			if err == nil {
+				if isAVFanVerificationPage(htmlSource, pageTitle) {
+					return Result{}, "", createRankingError("AVfan 当前返回 Cloudflare 验证页，未获得真实榜单。", "avfan_verification_required")
+				}
 				result, parseErr := parseAVFanRankingHTML(htmlSource, "monthly", sourceURL, 0)
 				if parseErr != nil {
 					return Result{}, "", parseErr
@@ -1166,6 +1366,9 @@ func (s *Service) fetchLatestAVFanMonthlyRanking(proxyValue string) (Result, str
 			}
 		}
 		return Result{}, "", err
+	}
+	if isAVFanVerificationPage(htmlSource, pageTitle) {
+		return Result{}, "", createRankingError("AVfan 当前返回 Cloudflare 验证页，未获得真实榜单。", "avfan_verification_required")
 	}
 	result, err := parseAVFanRankingHTML(htmlSource, "monthly", sourceURL, 0)
 	return result, "", err
@@ -1177,11 +1380,11 @@ func (s *Service) fetchAVFanAnnualRanking(year int, proxyValue string) (Result, 
 		preferredYear = time.Now().Year() - 1
 	}
 	landingURL := fmt.Sprintf("%s?year=%d", avfanYearlyURL, preferredYear)
-	htmlSource, _, _, err := s.browser.fetchAVFanHTML(landingURL, proxyValue)
+	htmlSource, _, pageTitle, err := s.browser.fetchAVFanHTML(landingURL, proxyValue)
 	notice := ""
 	if err != nil {
 		if strings.TrimSpace(proxyValue) != "" && isBrowserProxyError(err) {
-			htmlSource, _, _, err = s.browser.fetchAVFanHTML(landingURL, "")
+			htmlSource, _, pageTitle, err = s.browser.fetchAVFanHTML(landingURL, "")
 			if err == nil {
 				notice = messages.AVFanDirectRetryNotice
 			}
@@ -1190,52 +1393,70 @@ func (s *Service) fetchAVFanAnnualRanking(year int, proxyValue string) (Result, 
 			return Result{}, "", err
 		}
 	}
+	if isAVFanVerificationPage(htmlSource, pageTitle) {
+		return Result{}, notice, createRankingError("AVfan 当前返回 Cloudflare 验证页，未获得真实年榜。", "avfan_verification_required")
+	}
 
 	root, parseErr := parseHTMLDocument(htmlSource)
 	if parseErr != nil {
 		return Result{}, notice, parseErr
 	}
-	availableYears := make([]int, 0)
-	for _, yearLink := range findElementsWithClass(root, "a") {
-		if parent := yearLink.Parent; parent != nil && hasClass(parent, "ranking-year-link") {
-			availableYears = append(availableYears, toIntValue(nodeText(yearLink)))
-		}
-	}
-	availableYears = normalizeYearList(availableYears)
+	availableYears := parseAVFanAvailableYears(root)
 
 	initial, err := parseAVFanRankingHTML(htmlSource, "annual", landingURL, preferredYear)
 	if err == nil {
 		initial.AvailableYears = normalizeYearList(append(availableYears, initial.AvailableYears...))
 		return initial, notice, nil
 	}
+	// An explicitly selected year must never be silently replaced by another
+	// year's ranking.  AVfan keeps historical year links even when a year has
+	// no published rows, so falling through here would label (for example)
+	// 2025 data while actually returning 2024 entries.
+	if year > 0 {
+		return Result{}, notice, createRankingError(
+			fmt.Sprintf("%d 年榜当前没有可用的真实排名条目。", preferredYear),
+			"avfan_annual_empty",
+		)
+	}
 
-	fallbackYear := 0
+	fallbackYears := make([]int, 0)
 	for _, value := range availableYears {
-		if value <= preferredYear {
-			fallbackYear = value
-			break
+		// The preferred page was already parsed and found empty. For an
+		// automatic request, move to an older published year instead of
+		// retrying the same empty page.
+		if value < preferredYear {
+			fallbackYears = append(fallbackYears, value)
 		}
 	}
-	if fallbackYear == 0 && len(availableYears) > 0 {
-		fallbackYear = availableYears[0]
+	// Chromium's rendered AVfan page can omit the visible year navigation.
+	// Keep one bounded adjacent-year probe so an automatic request can still
+	// reach a published historical ranking (2025 currently has no rows while
+	// 2024 does) without fabricating a year in the UI.
+	if preferredYear > 1 {
+		fallbackYears = append(fallbackYears, preferredYear-1)
 	}
-	if fallbackYear == 0 {
+	fallbackYears = normalizeYearList(fallbackYears)
+	if len(fallbackYears) == 0 {
 		return Result{}, notice, createRankingError("未找到可用的 AVfan 年榜年份。", "avfan_annual_year_missing")
 	}
 
-	fallbackURL := fmt.Sprintf("%s?year=%d", avfanYearlyURL, fallbackYear)
-	if fallbackYear != preferredYear {
-		htmlSource, _, _, err = s.browser.fetchAVFanHTML(fallbackURL, proxyValue)
-		if err != nil {
-			return Result{}, notice, err
+	for _, fallbackYear := range fallbackYears {
+		fallbackURL := fmt.Sprintf("%s?year=%d", avfanYearlyURL, fallbackYear)
+		fallbackHTML, _, fallbackTitle, fallbackErr := s.browser.fetchAVFanHTML(fallbackURL, proxyValue)
+		if fallbackErr != nil {
+			continue
 		}
+		if isAVFanVerificationPage(fallbackHTML, fallbackTitle) {
+			continue
+		}
+		result, parseErr := parseAVFanRankingHTML(fallbackHTML, "annual", fallbackURL, fallbackYear)
+		if parseErr != nil {
+			continue
+		}
+		result.AvailableYears = normalizeYearList(append(availableYears, result.AvailableYears...))
+		return result, notice, nil
 	}
-	result, err := parseAVFanRankingHTML(htmlSource, "annual", fallbackURL, fallbackYear)
-	if err != nil {
-		return Result{}, notice, err
-	}
-	result.AvailableYears = normalizeYearList(append(availableYears, result.AvailableYears...))
-	return result, notice, nil
+	return Result{}, notice, createRankingError("未找到可用的 AVfan 年榜年份。", "avfan_annual_year_missing")
 }
 
 func (s *Service) fetchOfficialMonthlyRanking(proxyValue string, requestedChannel string) (Result, error) {
@@ -1253,6 +1474,88 @@ func (s *Service) fetchOfficialMonthlyRanking(proxyValue string, requestedChanne
 	return parseOfficialMonthlyRankingHTML(htmlSource, requestedChannel)
 }
 
+func officialRentalAnnualPageURL(year int, page int) string {
+	baseURL := fmt.Sprintf(officialRentalAnnualURL, year)
+	if page <= 1 {
+		return baseURL
+	}
+	return fmt.Sprintf("https://www.dmm.co.jp/rental/-/ranking/=/article=actress/t=year_%d/page=%d/", year, page)
+}
+
+// officialRentalAnnualCandidateYears lists the verified DMM rental history
+// window. They are query choices only; a selection is still displayed only
+// after all 100 real rows have been fetched and validated.
+func officialRentalAnnualCandidateYears(year int) []int {
+	if year <= 0 {
+		year = time.Now().Year() - 1
+	}
+	if year == 2025 {
+		return []int{2025, 2024}
+	}
+	return []int{year}
+}
+
+// fetchOfficialRentalAnnualRanking retrieves all five verified DMM rental
+// result pages. Every page is required: caching a partial Top 100 as a full
+// annual ranking would make the UI misleading.
+func (s *Service) fetchOfficialRentalAnnualRanking(year int, proxyValue string, requestedChannel string) (Result, error) {
+	if year <= 0 {
+		year = time.Now().Year() - 1
+	}
+
+	itemsByRank := map[int]RankingItem{}
+	availableYears := make([]int, 0)
+	var first Result
+	for page := 1; page <= 5; page++ {
+		targetURL := officialRentalAnnualPageURL(year, page)
+		htmlSource, pageURL, title, err := s.browser.fetchOfficialRankingHTML(targetURL, proxyValue)
+		if err != nil {
+			return Result{}, createRankingError("官方租赁年榜暂时不可用，请确认日本地区代理或 VPN 连接。", "official_rental_annual_unavailable")
+		}
+		if strings.Contains(pageURL, "not-available-in-your-region") {
+			return Result{}, createRankingError("当前线路被 DMM/FANZA 限制，请确认已开启日本地区代理或 VPN。", "official_region_blocked")
+		}
+		if isAgeCheckPage(pageURL, htmlSource, title) {
+			return Result{}, createRankingError("当前线路未通过 DMM/FANZA 年龄验证，请确认已开启日本地区代理或 VPN。", "official_age_check_required")
+		}
+
+		parsed, err := parseOfficialAnnualRentalRankingHTML(htmlSource, requestedChannel, targetURL, year)
+		if err != nil {
+			return Result{}, err
+		}
+		if page == 1 {
+			first = parsed
+		}
+		availableYears = append(availableYears, parsed.AvailableYears...)
+		for _, item := range parsed.Items {
+			itemsByRank[item.Rank] = item
+		}
+	}
+
+	items := make([]RankingItem, 0, len(itemsByRank))
+	for _, item := range itemsByRank {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(left int, right int) bool {
+		return items[left].Rank < items[right].Rank
+	})
+	if len(items) != 100 {
+		return Result{}, createRankingError(fmt.Sprintf("官方租赁年榜 %d 年仅解析到 %d/100 位，未保存不完整榜单。", year, len(items)), "official_rental_annual_incomplete")
+	}
+
+	first.Mode = "annual"
+	first.PeriodYear = year
+	first.PeriodMonth = 0
+	first.PeriodLabel = fmt.Sprintf("%d年（FANZA 租赁年榜）", year)
+	first.SourceURL = officialRentalAnnualPageURL(year, 1)
+	first.AvailableYears = normalizeYearList(append(availableYears, officialRentalAnnualCandidateYears(year)...))
+	first.AvailableMonths = []int{}
+	first.Total = len(items)
+	first.Items = items
+	first.FetchedAt = time.Now().Format(time.RFC3339)
+	return first, nil
+}
+
 func getErrorMessage(err error) string {
 	if err == nil {
 		return ""
@@ -1268,8 +1571,13 @@ func (s *Service) getAVFanResult(context rankingContext) (Result, error) {
 
 	if context.Mode == "monthly" {
 		cached := resolveCachedMonthlyEntry(context.Cache, []string{bucketID}, context.Year, context.Month, requestedMonthKey != "")
-		if !context.ForceRefresh && cached != nil && isFresh(cached.Entry, monthlyCacheMaxAgeMS) {
-			return decorateMonthlyResult(context.Cache, []string{bucketID}, cached.Entry.Data, context.RequestedChannel, "avfan", true, false, "", "", false), nil
+		if !context.ForceRefresh && cached != nil {
+			stale := !isFresh(cached.Entry, monthlyCacheMaxAgeMS)
+			notice := ""
+			if stale {
+				notice = "已立即显示本地榜单缓存；点击“刷新榜单”后才会联网更新。"
+			}
+			return decorateMonthlyResult(context.Cache, []string{bucketID}, cached.Entry.Data, context.RequestedChannel, "avfan", true, stale, notice, "", false), nil
 		}
 
 		data, notice, err := s.fetchLatestAVFanMonthlyRanking(context.Proxy)
@@ -1297,8 +1605,13 @@ func (s *Service) getAVFanResult(context rankingContext) (Result, error) {
 	}
 
 	cachedAnnual := resolveCachedAnnualEntry(context.Cache, []string{bucketID}, context.Year, context.Year > 0)
-	if !context.ForceRefresh && cachedAnnual != nil && isFresh(cachedAnnual.Entry, yearlyCacheMaxAgeMS) {
-		return decorateAnnualResult(context.Cache, []string{bucketID}, cachedAnnual.Entry.Data, context.RequestedChannel, "avfan", true, false, "", "", false), nil
+	if !context.ForceRefresh && cachedAnnual != nil {
+		stale := !isFresh(cachedAnnual.Entry, yearlyCacheMaxAgeMS)
+		notice := ""
+		if stale {
+			notice = "已立即显示本地榜单缓存；点击“刷新榜单”后才会联网更新。"
+		}
+		return decorateAnnualResult(context.Cache, []string{bucketID}, cachedAnnual.Entry.Data, context.RequestedChannel, "avfan", true, stale, notice, "", false), nil
 	}
 
 	data, notice, err := s.fetchAVFanAnnualRanking(context.Year, context.Proxy)
@@ -1323,20 +1636,52 @@ func (s *Service) getOfficialResult(context rankingContext) (Result, error) {
 		effectiveRequestedChannel = "fanza"
 	}
 
-	requestedKey := getMonthKey(context.Year, context.Month)
-	cached := resolveCachedMonthlyEntry(context.Cache, []string{bucketID}, context.Year, context.Month, requestedKey != "")
-	if context.Mode != "monthly" {
-		return Result{}, createRankingError(messages.OfficialMonthlyOnly, "official_annual_unsupported")
+	if context.Mode == "annual" {
+		cachedAnnual := resolveCachedAnnualEntry(context.Cache, []string{bucketID}, context.Year, context.Year > 0)
+		if !context.ForceRefresh && cachedAnnual != nil {
+			stale := !isFresh(cachedAnnual.Entry, yearlyCacheMaxAgeMS)
+			notice := ""
+			if stale {
+				notice = "已立即显示本地年榜缓存；点击刷新榜单后才会联网更新。"
+			}
+			return decorateAnnualResult(context.Cache, []string{bucketID}, cachedAnnual.Entry.Data, context.RequestedChannel, effectiveRequestedChannel, true, stale, notice, "", false), nil
+		}
+
+		data, err := s.fetchOfficialRentalAnnualRanking(context.Year, context.Proxy, effectiveRequestedChannel)
+		if err == nil {
+			persistAnnual(&context.Cache, bucketID, data)
+			_ = writeCache(context.CacheFilePath, context.Cache)
+			return decorateAnnualResult(context.Cache, []string{bucketID}, data, context.RequestedChannel, effectiveRequestedChannel, false, false, "", "", false), nil
+		}
+		if cachedAnnual != nil {
+			return decorateAnnualResult(context.Cache, []string{bucketID}, cachedAnnual.Entry.Data, context.RequestedChannel, effectiveRequestedChannel, true, true, "", getErrorMessage(err), false), nil
+		}
+		return Result{}, err
 	}
 
-	if !context.ForceRefresh && cached != nil && isFresh(cached.Entry, monthlyCacheMaxAgeMS) {
-		return decorateMonthlyResult(context.Cache, []string{bucketID}, cached.Entry.Data, context.RequestedChannel, effectiveRequestedChannel, true, false, "", "", false), nil
+	requestedKey := getMonthKey(context.Year, context.Month)
+	cached := resolveCachedMonthlyEntry(context.Cache, []string{bucketID}, context.Year, context.Month, requestedKey != "")
+
+	if !context.ForceRefresh && cached != nil {
+		stale := !isFresh(cached.Entry, monthlyCacheMaxAgeMS)
+		notice := ""
+		if stale {
+			notice = "已立即显示本地榜单缓存；点击“刷新榜单”后才会联网更新。"
+		}
+		return decorateMonthlyResult(context.Cache, []string{bucketID}, cached.Entry.Data, context.RequestedChannel, effectiveRequestedChannel, true, stale, notice, "", false), nil
 	}
 
 	data, err := s.fetchOfficialMonthlyRanking(context.Proxy, effectiveRequestedChannel)
 	if err == nil {
 		persistMonthly(&context.Cache, bucketID, data)
 		_ = writeCache(context.CacheFilePath, context.Cache)
+		latestKey := getMonthKey(data.PeriodYear, data.PeriodMonth)
+		if requestedKey != "" && requestedKey != latestKey {
+			// The official endpoint exposes the current month only. Returning it
+			// for an explicitly selected historical month would silently show the
+			// wrong ranking and prevent the AVfan/local fallback from running.
+			return Result{}, createRankingError(fmt.Sprintf("FANZA 官方暂未提供 %s 的历史月榜。", requestedKey), "official_month_history_missing")
+		}
 		return decorateMonthlyResult(context.Cache, []string{bucketID}, data, context.RequestedChannel, effectiveRequestedChannel, false, false, "", "", false), nil
 	}
 
@@ -1404,14 +1749,14 @@ func buildSourcePlan(requestedChannel string, mode string) []string {
 		return []string{"avfan", "local"}
 	case "fanza", "dmm":
 		if mode == "annual" {
-			return []string{"avfan", "local"}
+			return []string{"official", "avfan", "local"}
 		}
 		return []string{"official", "avfan", "local"}
 	default:
 		if mode == "monthly" {
 			return []string{"official", "avfan", "local"}
 		}
-		return []string{"avfan", "local"}
+		return []string{"official", "avfan", "local"}
 	}
 }
 
@@ -1463,6 +1808,33 @@ func (s *Service) GetActressRankings(options Options) (Result, error) {
 		Proxy:            strings.TrimSpace(options.Proxy),
 		Cache:            cache,
 		CacheFilePath:    strings.TrimSpace(options.CacheFilePath),
+	}
+	// A selected historical month should render an exact verified snapshot
+	// immediately. Without this fast path smart mode would first wait for the
+	// official current-month endpoint, even when an AVfan snapshot for the
+	// requested period is already bundled locally.
+	if requestedChannel == "smart" && mode == "monthly" && !context.ForceRefresh && getMonthKey(context.Year, context.Month) != "" {
+		buckets := []string{"official", "avfan", "localHistory"}
+		if cached := resolveCachedMonthlyEntry(cache, buckets, context.Year, context.Month, true); cached != nil {
+			resolvedChannel := "fanza"
+			if cached.BucketID == "avfan" {
+				resolvedChannel = "avfan"
+			} else if cached.BucketID == "localHistory" {
+				resolvedChannel = "local"
+			}
+			return decorateMonthlyResult(
+				cache,
+				buckets,
+				cached.Entry.Data,
+				requestedChannel,
+				resolvedChannel,
+				true,
+				!isFresh(cached.Entry, monthlyCacheMaxAgeMS),
+				"已立即显示该月份的真实本地快照；点击“刷新榜单”可尝试联网更新。",
+				"",
+				cached.BucketID != "official",
+			), nil
+		}
 	}
 
 	failures := make([]struct {

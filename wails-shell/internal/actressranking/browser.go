@@ -229,7 +229,10 @@ func buildAgePassURL(targetURL string) string {
 	return "https://www.dmm.co.jp/age_check/=/declared=yes/?rurl=" + neturl.QueryEscape(targetURL)
 }
 
-func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, string, string, error) {
+// fetchOfficialRankingHTML completes the DMM/FANZA age declaration in one
+// browser session, then opens the requested ranking URL with the declared
+// session cookie. Monthly and historical rental rankings share this transport.
+func (b *browserService) fetchOfficialRankingHTML(targetURL string, proxyValue string) (string, string, string, error) {
 	ctx, cancel, err := newBrowserContext(proxyValue)
 	if err != nil {
 		return "", "", "", err
@@ -242,7 +245,7 @@ func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, st
 
 	var pageURL string
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(buildAgePassURL(officialMonthlyURL)),
+		chromedp.Navigate(buildAgePassURL(targetURL)),
 		chromedp.Sleep(defaultSettleDelay),
 		chromedp.Location(&pageURL),
 	); err != nil {
@@ -257,7 +260,7 @@ func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, st
 	}
 
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(officialMonthlyURL),
+		chromedp.Navigate(targetURL),
 		chromedp.Sleep(defaultSettleDelay),
 	); err != nil {
 		return "", "", "", err
@@ -277,6 +280,10 @@ func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, st
 	}
 
 	return htmlSource, pageURL, pageTitle, nil
+}
+
+func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, string, string, error) {
+	return b.fetchOfficialRankingHTML(officialMonthlyURL, proxyValue)
 }
 
 func isBrowserProxyError(err error) bool {

@@ -13,6 +13,7 @@ package crawlfetch
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -25,9 +26,9 @@ import (
 // Service is the thin facade that composes request, index parsing, and detail
 // parsing for the Go crawl path.
 type Service struct {
-	client         *crawlrequest.Client
-	options        crawlrequest.PageRequestOptions
-	antiBlockURLs  []string
+	client        *crawlrequest.Client
+	options       crawlrequest.PageRequestOptions
+	antiBlockURLs []string
 }
 
 // ServiceOptions is the bridge/runner-facing fetch configuration contract.
@@ -65,6 +66,42 @@ type DetailResult struct {
 	Metadata crawlparse.Metadata       `json:"metadata"`
 	FilmData crawlparse.FilmData       `json:"filmData"`
 	Response crawlrequest.PageResponse `json:"response"`
+}
+
+// FetchLookupHTML exposes the already-configured page client to read-only
+// actor lookup. It deliberately returns only a normalized document snapshot;
+// actor lookup keeps ownership of its own search and profile parsing.
+//
+// The method reuses the crawler's verified browser/age-check session instead
+// of creating another challenge-bypass implementation for actor search.
+func (s *Service) FetchLookupHTML(ctx context.Context, targetURL string) (string, string, error) {
+	return s.FetchLookupHTMLWithProxy(ctx, targetURL, "")
+}
+
+// FetchLookupHTMLWithProxy reads an actress lookup page through the crawler's
+// established verification recovery while honoring a proxy selected by the
+// caller. Actress Atlas can change its proxy after the app starts, so reusing
+// the startup client here would silently send the verification request through
+// an outdated route.
+func (s *Service) FetchLookupHTMLWithProxy(ctx context.Context, targetURL string, proxyValue string) (string, string, error) {
+	if s == nil || s.client == nil {
+		return "", "", fmt.Errorf("抓取页面客户端未初始化")
+	}
+	client := s.client
+	if strings.TrimSpace(proxyValue) != "" && strings.TrimSpace(proxyValue) != strings.TrimSpace(s.options.Proxy) {
+		options := s.options
+		options.Proxy = strings.TrimSpace(proxyValue)
+		var err error
+		client, err = crawlrequest.NewClient(options)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	response, err := client.GetPage(ctx, targetURL, "")
+	if err != nil {
+		return "", "", err
+	}
+	return response.Body, response.URL, nil
 }
 
 func NewService(options ServiceOptions) (*Service, error) {

@@ -43,7 +43,9 @@ function readPartial(name) {
 }
 
 const parts = {
-  '<!-- CRAWLER_HERO -->': readPartial('crawler-hero.html'),
+	'<!-- ACTRESSATLAS_HERO -->': readPartial('actressatlas-hero.html'),
+	'<!-- ACTRESSATLAS_BODY -->': readPartial('actressatlas-body.html'),
+	'<!-- CRAWLER_HERO -->': readPartial('crawler-hero.html'),
   '<!-- CRAWLER_BODY -->': readPartial('crawler-body.html'),
   '<!-- ORGANIZER_HERO -->': readPartial('organizer-hero.html'),
   '<!-- ORGANIZER_BODY -->': readPartial('organizer-body.html'),

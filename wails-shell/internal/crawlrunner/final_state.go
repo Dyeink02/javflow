@@ -25,24 +25,24 @@ import (
 // 3) duplicate/unresolved summary wording helpers
 
 type FinalStateInput struct {
-	UnresolvedCount           int
-	QueueGapCount             int
-	ProcessedGapCount         int
-	FailedCount               int
-	LowConfidencePageCount    int
-	DuplicateExpectedCount    int
-	DuplicateItemIDs          []string
-	DuplicateItemSummary      string
-	UnfinishedItems           []string
-	ExpectedEntryCount        int
-	RawDuplicateEntryCount    int
-	DuplicateSummary          string
-	ConfiguredTargetCount     int
-	ValidationPassed          bool
-	SecondValidationEnabled   bool
-	CompletedCount            int
-	SkippedByPolicyCount      int
-	ExpectedUniqueCount       int
+	UnresolvedCount         int
+	QueueGapCount           int
+	ProcessedGapCount       int
+	FailedCount             int
+	LowConfidencePageCount  int
+	DuplicateExpectedCount  int
+	DuplicateItemIDs        []string
+	DuplicateItemSummary    string
+	UnfinishedItems         []string
+	ExpectedEntryCount      int
+	RawDuplicateEntryCount  int
+	DuplicateSummary        string
+	ConfiguredTargetCount   int
+	ValidationPassed        bool
+	SecondValidationEnabled bool
+	CompletedCount          int
+	SkippedByPolicyCount    int
+	ExpectedUniqueCount     int
 }
 
 type FinalStateOutput struct {
@@ -98,6 +98,20 @@ func BuildDuplicateSummary(groups []DuplicateGroup, limit int) string {
 	result := strings.Join(ids, "\u3001")
 	if len(groups) > limit {
 		result += fmt.Sprintf(" 等 %d 个番号", len(groups))
+	}
+	return result
+}
+
+// BuildDuplicateItemSummary is used when duplicate evidence comes directly
+// from an index-page parse rather than Tracker's cross-page link groups.
+func BuildDuplicateItemSummary(items []string, limit int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	preview := items[:common.MinInt(limit, len(items))]
+	result := strings.Join(preview, "、")
+	if len(items) > limit {
+		result += fmt.Sprintf(" 等 %d 个番号", len(items))
 	}
 	return result
 }

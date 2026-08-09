@@ -191,6 +191,16 @@ function resolveCachedMonthlyEntry(cache, bucketIds, year, month, options = {}) 
   return latest || null;
 }
 
+// Smart/local views may combine real periods from every persisted source. A
+// source-specific view remains scoped to that source so its period selector
+// never claims data that source did not return.
+function getAvailabilityBucketIds(requestedChannel, resolvedChannel, bucketIds) {
+  if (requestedChannel !== 'smart' && resolvedChannel !== 'local') {
+    return bucketIds;
+  }
+  return Array.from(new Set([...(bucketIds || []), 'official', 'avfan', 'local']));
+}
+
 function resolveCachedAnnualEntry(cache, bucketIds, year, options = {}) {
   const requestedYear = Number.parseInt(String(year || ''), 10);
   const annualEntries = listAnnualEntries(cache, bucketIds);
@@ -252,7 +262,11 @@ function decorateMonthlyResult(params) {
     errorMessage,
     fallbackUsed
   } = params;
-  const availability = getMonthlyAvailability(cache, bucketIds, data.periodYear);
+  const availability = getMonthlyAvailability(
+    cache,
+    getAvailabilityBucketIds(requestedChannel, resolvedChannel, bucketIds),
+    data.periodYear
+  );
 
   return {
     ...data,

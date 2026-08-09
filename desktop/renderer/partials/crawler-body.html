@@ -1,8 +1,7 @@
 <!--
   partials/crawler-body.html - JAV爬虫板块主体区域
-  布局: 2列CSS Grid (.layout)
-    Col1 ─ layout-main-column (抓取设置面板)
-    Col2 ─ ranking-card (女优排行榜，grid-row:1 与左侧齐平)
+  布局: 单列CSS Grid (.layout)
+    抓取设置 ─ layout-main-column (抓取设置面板)
     全宽 ─ layout-main-body (抓取阶段面板 + 结果入口面板 + 状态说明)
     全宽 ─ log-panel (抓取日志)
   由 [CRAWLER_BODY] 占位符替换
@@ -364,67 +363,6 @@
 
         </div>
         <!-- /全宽主干区 -->
-
-        <section class="ranking-card">
-          <div class="ranking-head">
-            <div>
-              <p class="message-label" data-ui-text="ranking.label"></p>
-              <h3 data-ui-text="ranking.title"></h3>
-            </div>
-            <button id="refresh-ranking" class="ghost-button" type="button" data-ui-text="ranking.refreshButton"></button>
-          </div>
-
-          <div class="ranking-controls">
-            <label class="field compact-field">
-              <span data-ui-text="ranking.channelLabel"></span>
-              <select id="ranking-source-channel"></select>
-            </label>
-
-            <label class="field compact-field">
-              <span data-ui-text="ranking.modeLabel"></span>
-              <select id="ranking-mode"></select>
-            </label>
-
-            <label id="ranking-year-field" class="field compact-field hidden">
-              <span data-ui-text="ranking.yearLabel"></span>
-              <select id="ranking-year"></select>
-            </label>
-
-            <label id="ranking-month-field" class="field compact-field hidden">
-              <span data-ui-text="ranking.monthLabel"></span>
-              <select id="ranking-month"></select>
-            </label>
-          </div>
-
-          <p id="ranking-help" class="ranking-help" data-ui-text="ranking.monthHelp"></p>
-          <p id="ranking-channel-tip" class="ranking-note" data-ui-text="ranking.officialProxyTip"></p>
-          <div id="ranking-meta" class="ranking-meta"></div>
-          <div id="ranking-source" class="ranking-source hidden">
-            <span id="ranking-source-text"></span>
-            <button id="open-ranking-source" class="inline-button" type="button" data-ui-text="ranking.openSource"></button>
-          </div>
-          <section class="ranking-cache-panel">
-            <div class="ranking-cache-head">
-              <div>
-                <p class="message-label">内部缓存管理</p>
-                <strong>最近爬取快照</strong>
-              </div>
-              <button id="crawl-cache-refresh" class="ghost-button" type="button">刷新</button>
-            </div>
-            <label class="field compact-field">
-              <span>缓存选择</span>
-              <select id="crawl-cache-select">
-                <option value="">请选择缓存快照</option>
-              </select>
-            </label>
-            <p id="crawl-cache-summary" class="ranking-meta">当前没有内部缓存快照。</p>
-            <div class="actions" style="margin-top:0;">
-              <button id="crawl-cache-remove" class="ghost-button" type="button">清除所选缓存</button>
-              <button id="crawl-cache-clear" class="danger-button" type="button">清空全部缓存</button>
-            </div>
-          </section>
-          <div id="ranking-view" class="ranking-view"></div>
-        </section>
 
         <section class="panel log-panel">
           <div class="panel-head">

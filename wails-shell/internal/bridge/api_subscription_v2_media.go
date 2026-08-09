@@ -165,22 +165,32 @@ func cacheSubscriptionMedia(ctx context.Context, imageURLs []string, mediaDir st
 		if index >= 8 {
 			break
 		}
-		contents, extension, err := downloadSubscriptionMedia(ctx, client, imageURL)
+		localURL, err := cacheNamedSubscriptionMedia(ctx, client, imageURL, "", mediaDir, fmt.Sprintf("photo-%02d", len(localURLs)+1))
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		filePath := filepath.Join(mediaDir, fmt.Sprintf("photo-%02d%s", len(localURLs)+1, extension))
-		if err := os.WriteFile(filePath, contents, 0o644); err != nil {
-			lastErr = err
-			continue
-		}
-		localURLs = append(localURLs, subscriptionMediaAssetURL(mediaDir, filePath))
+		localURLs = append(localURLs, localURL)
 	}
 	if len(localURLs) == 0 && lastErr != nil {
 		return nil, lastErr
 	}
 	return localURLs, nil
+}
+
+// cacheNamedSubscriptionMedia stores one provider image under a controlled
+// application filename. Callers may supply the page URL as Referer when a
+// cover provider rejects unreferenced image requests.
+func cacheNamedSubscriptionMedia(ctx context.Context, client *http.Client, imageURL, referer, mediaDir, fileStem string) (string, error) {
+	contents, extension, err := downloadSubscriptionMedia(ctx, client, imageURL, referer)
+	if err != nil {
+		return "", err
+	}
+	filePath := filepath.Join(mediaDir, fileStem+extension)
+	if err := os.WriteFile(filePath, contents, 0o644); err != nil {
+		return "", err
+	}
+	return subscriptionMediaAssetURL(mediaDir, filePath), nil
 }
 
 func subscriptionMediaHTTPClient(proxyValue string) (*http.Client, error) {
@@ -196,7 +206,7 @@ func subscriptionMediaHTTPClient(proxyValue string) (*http.Client, error) {
 	return &http.Client{Timeout: 15 * time.Second, Transport: transport}, nil
 }
 
-func downloadSubscriptionMedia(ctx context.Context, client *http.Client, imageURL string) ([]byte, string, error) {
+func downloadSubscriptionMedia(ctx context.Context, client *http.Client, imageURL, referer string) ([]byte, string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(imageURL))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, "", fmt.Errorf("unsupported actor image URL")
@@ -207,6 +217,9 @@ func downloadSubscriptionMedia(ctx context.Context, client *http.Client, imageUR
 	}
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36")
 	request.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	if parsedReferer, refererErr := url.Parse(strings.TrimSpace(referer)); refererErr == nil && (parsedReferer.Scheme == "http" || parsedReferer.Scheme == "https") && parsedReferer.Host != "" {
+		request.Header.Set("Referer", parsedReferer.String())
+	}
 
 	response, err := client.Do(request)
 	if err != nil {

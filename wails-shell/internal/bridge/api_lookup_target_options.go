@@ -32,13 +32,17 @@ func (a *API) buildActressLookupOptions(payload map[string]any) actresslookup.Re
 	if proxyValue == "" {
 		proxyValue = nonEmptyString(currentSettings["proxy"])
 	}
+	enrichProfile, _ := payload["includeProfile"].(bool)
+	basicProfileOnly, _ := payload["basicProfileOnly"].(bool)
 
 	return actresslookup.ResolveOptions{
-		ActressName:   nonEmptyString(payload["actressName"]),
-		TargetURL:     targetURL,
-		PreferredBase: preferredBase,
-		FallbackBases: buildSubscriptionFallbackBases(targetURL, preferredBase),
-		Proxy:         proxyValue,
+		ActressName:      nonEmptyString(payload["actressName"]),
+		TargetURL:        targetURL,
+		PreferredBase:    preferredBase,
+		FallbackBases:    buildSubscriptionFallbackBases(targetURL, preferredBase),
+		Proxy:            proxyValue,
+		EnrichProfile:    enrichProfile,
+		BasicProfileOnly: basicProfileOnly,
 	}
 }
 

@@ -22,6 +22,9 @@
     },
     librarymetadata: {
       core: ['#34d399', '#2dd4bf', '#38bdf8', '#a3e635', '#34d399']
+    },
+    actressatlas: {
+      core: ['#6fe7ff', '#4ade80', '#fbbf24', '#fb7185', '#a78bfa', '#6fe7ff']
     }
   };
 

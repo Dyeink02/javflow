@@ -58,6 +58,7 @@ const RENDERER_ASSEMBLY_SNIPPETS = [
   'rendererShellControllerFactory.createRendererShellController(',
   'stateControllerFactory.createStateController(',
   'formControllerFactory.createFormController(',
+	'actressAtlasControllerFactory.createActressAtlasController(',
   'rankingControllerFactory.createRankingController(',
   'organizerControllerFactory.createOrganizerController(',
   'subscriptionControllerFactory.createSubscriptionController(',
@@ -307,6 +308,7 @@ function createRendererWorkspaceBoundaryGuardDefinitions() {
     ],
     rendererEntryPath: 'desktop/renderer/renderer.js',
     requiredEntrySnippets: [
+	  'actressAtlasControllerFactory.createActressAtlasController',
       'rankingControllerFactory.createRankingController',
       'subscriptionControllerFactory.createSubscriptionController',
       'organizerControllerFactory.createOrganizerController',

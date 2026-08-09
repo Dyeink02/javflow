@@ -1009,7 +1009,7 @@ func (r *Runner) executeIndexDiscovery(runnerRef any) error {
 			timeout = 30 * time.Second
 		}
 		pageCtx, cancel := context.WithTimeout(r.runCtx, timeout)
-		links, _, err := r.fetchIndexPage(pageCtx, baseURL, r.config.Search, currentPage)
+		links, response, err := r.fetchIndexPage(pageCtx, baseURL, r.config.Search, currentPage)
 		cancel()
 
 		if err != nil {
@@ -1021,11 +1021,22 @@ func (r *Runner) executeIndexDiscovery(runnerRef any) error {
 		}
 
 		trackedLinks := getTrackedPageLinks(links, r.config.Limit, len(r.tracker.expectedItemIDs))
-		audit := r.createPageAudit(currentPage, buildIndexPageURL(baseURL, r.config.Search, "", currentPage), expectedCount, len(links), 1, true, state.IsLastTargetPage)
+		audit := r.createPageAudit(
+			currentPage,
+			buildIndexPageURL(baseURL, r.config.Search, "", currentPage),
+			expectedCount,
+			indexSourceEntryCount(response, len(links)),
+			1,
+			true,
+			state.IsLastTargetPage,
+			response.IndexDuplicateCount,
+			response.IndexDuplicateItemIDs,
+		)
 		r.pageAudits = append(r.pageAudits, audit)
 		r.tracker.RecordExpectedPageLinks(currentPage, trackedLinks)
 
 		r.emitLog("info", fmt.Sprintf("index page %d parsed %d detail links", currentPage, len(links)))
+		r.emitState(StatusRunning, fmt.Sprintf("index page %d parsed %d detail links", currentPage, len(links)))
 
 		newLinks := make([]string, 0)
 		for _, link := range trackedLinks {
@@ -1205,7 +1216,7 @@ func (r *Runner) executePageGapRecovery(runnerRef any) error {
 			r.emitState(StatusRunning, crawlexecution.BuildPageGapActiveStateMessage(pageNumber))
 
 			pageCtx, cancel := context.WithTimeout(r.runCtx, timeout)
-			links, _, err := r.fetchIndexPage(pageCtx, baseURL, r.config.Search, pageNumber)
+			links, response, err := r.fetchIndexPage(pageCtx, baseURL, r.config.Search, pageNumber)
 			cancel()
 			if err != nil {
 				r.emitLog("warn", fmt.Sprintf("page gap retry failed page=%d err=%s", pageNumber, err.Error()))
@@ -1213,7 +1224,6 @@ func (r *Runner) executePageGapRecovery(runnerRef any) error {
 			}
 
 			trackedLinks := getTrackedPageLinks(links, r.config.Limit, r.tracker.ExpectedEntryCount())
-			r.tracker.RecordExpectedPageLinks(pageNumber, trackedLinks)
 
 			newLinks := make([]string, 0, len(trackedLinks))
 			for _, link := range trackedLinks {
@@ -1223,11 +1233,15 @@ func (r *Runner) executePageGapRecovery(runnerRef any) error {
 				}
 				newLinks = append(newLinks, link)
 			}
+			// A recovery pass revisits an already-audited page. Only genuinely new
+			// links belong in Tracker; recording the whole page again would turn the
+			// retry itself into a false duplicate.
+			r.tracker.RecordExpectedPageLinks(pageNumber, newLinks)
 
 			mergeResult := crawlexecution.CalculatePageGapRecoveryResult(crawlexecution.MergePageGapRecoveryInput{
 				ExpectedCount:      expectedCount,
 				CurrentActualCount: audit.ActualCount,
-				FetchedActualCount: len(trackedLinks),
+				FetchedActualCount: indexSourceEntryCount(response, len(links)),
 				NewLinksCount:      len(newLinks),
 			})
 			recoveredCount += mergeResult.RecoveredCount
@@ -1242,9 +1256,12 @@ func (r *Runner) executePageGapRecovery(runnerRef any) error {
 				retryCount,
 				mergeResult.ValidationPassed,
 				isLastTargetPage,
+				response.IndexDuplicateCount,
+				response.IndexDuplicateItemIDs,
 			)
 			refreshedAudit.Reason = strings.TrimSpace(mergeResult.Reason + "; " + refreshedAudit.Reason)
 			r.replacePageAudit(refreshedAudit)
+			r.emitState(StatusRunning, fmt.Sprintf("page %d gap review updated", pageNumber))
 
 			followUp := crawlexecution.ResolvePageGapAuditFollowUp(
 				pageNumber,
@@ -1422,12 +1439,12 @@ func (r *Runner) finalizeOutputArtifacts(final FinalStateOutput) {
 func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 	// 未完成报告面向人工复盘，因此优先写结论、缺口、失败详情和可恢复项。
 	recon := r.tracker.BuildReconciliation()
-	entryCount := r.tracker.ExpectedEntryCount()
-	rawDupCount := r.tracker.RawDuplicateEntryCount()
-	groups := r.tracker.RawDuplicateGroups()
+	entryCount := r.expectedReviewTotal()
 	uncaptured := r.tracker.GetUncapturedItems()
 	pageGapLines := r.buildPageGapLines()
-	failedDetails := r.failedDetails(true)
+	failedDetails, failedDetailsTotal := r.reviewFailedDetails(true)
+	duplicateItems := r.reviewDuplicateItems()
+	duplicateEntryCount := r.reviewDuplicateEntryCount()
 	lowConfidenceCount := 0
 	for _, audit := range r.pageAudits {
 		if audit.ConfidenceScore < 60 {
@@ -1435,7 +1452,7 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 		}
 	}
 
-	uniqueExpected := common.MaxInt(entryCount-rawDupCount, 0)
+	uniqueExpected := common.MaxInt(r.expectedReviewTotal()-duplicateEntryCount, 0)
 	lines := []string{
 		fmt.Sprintf("# 任务状态：%s", final.Status.Label()),
 		fmt.Sprintf("# 状态说明：%s", final.Message),
@@ -1447,8 +1464,8 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 		lines = append(lines, fmt.Sprintf("# 站点原始条目：%d", entryCount))
 		lines = append(lines, fmt.Sprintf("# 站点唯一番号：%d", uniqueExpected))
 	}
-	if rawDupCount > 0 {
-		lines = append(lines, fmt.Sprintf("# 站点重复条目：%d", rawDupCount))
+	if duplicateEntryCount > 0 {
+		lines = append(lines, fmt.Sprintf("# 站点重复条目：%d", duplicateEntryCount))
 	}
 	lines = append(lines, fmt.Sprintf("# 低可信分页：%d", lowConfidenceCount))
 
@@ -1460,16 +1477,13 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 	}
 
 	lines = append(lines, "# 已定位重复番号")
-	if len(groups) > 0 {
-		for _, g := range groups {
-			linkStr := strings.Join(g.Links, " | ")
-			lines = append(lines, fmt.Sprintf("%s | 出现 %d 次 | %s", g.ItemID, len(g.Links), linkStr))
-		}
+	if len(duplicateItems) > 0 {
+		lines = append(lines, duplicateItems...)
 	} else {
 		lines = append(lines, "当前未发现重复番号。")
 	}
 
-	lines = append(lines, "# 失败详情页")
+	lines = append(lines, fmt.Sprintf("# 失败详情页（共 %d 条）", failedDetailsTotal))
 	if len(failedDetails) > 0 {
 		for _, detail := range failedDetails {
 			itemID := firstNonEmptyNonZero(detail.Item, getDetailItemIDFromLink(detail.SourceLink), extractFilmIDFromLink(detail.SourceLink), normalizeSourceLink(detail.SourceLink))
@@ -1553,8 +1567,9 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 	// 最终状态汇总只做数据收束，不再反推执行过程。
 	// 这里产出的结论会被质量摘要、未完成报告和前端状态面板同时消费。
 	recon := r.tracker.BuildReconciliation()
-	groups := r.tracker.RawDuplicateGroups()
-	failedDetails := r.failedDetails(true)
+	_, failedCount := r.reviewFailedDetails(true)
+	duplicateItems := r.reviewDuplicateItems()
+	duplicateEntryCount := r.reviewDuplicateEntryCount()
 
 	lowConfCount := 0
 	for _, audit := range r.getRecoverableAudits() {
@@ -1572,15 +1587,15 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 		UnresolvedCount:         len(recon.ExpectedButNotPersistedIDs),
 		QueueGapCount:           len(recon.ExpectedButNotQueuedIDs),
 		ProcessedGapCount:       len(recon.ProcessedButNotPersistedIDs),
-		FailedCount:             len(failedDetails),
+		FailedCount:             failedCount,
 		LowConfidencePageCount:  lowConfCount,
-		DuplicateExpectedCount:  len(recon.DuplicateExpectedIDs),
-		DuplicateItemIDs:        recon.DuplicateExpectedIDs,
-		DuplicateItemSummary:    BuildDuplicateSummary(groups, 6),
+		DuplicateExpectedCount:  len(duplicateItems),
+		DuplicateItemIDs:        duplicateItems,
+		DuplicateItemSummary:    BuildDuplicateItemSummary(duplicateItems, 6),
 		UnfinishedItems:         r.tracker.GetUncapturedItems(),
-		ExpectedEntryCount:      recon.ExpectedEntryCount,
-		RawDuplicateEntryCount:  recon.RawDuplicateEntryCount,
-		DuplicateSummary:        BuildDuplicateSummary(groups, 4),
+		ExpectedEntryCount:      r.expectedReviewTotal(),
+		RawDuplicateEntryCount:  duplicateEntryCount,
+		DuplicateSummary:        BuildDuplicateItemSummary(duplicateItems, 4),
 		ConfiguredTargetCount:   r.config.Limit,
 		ValidationPassed:        validationPassed,
 		SecondValidationEnabled: r.config.SecondValidation,
@@ -1590,7 +1605,7 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 	})
 }
 
-func (r *Runner) createPageAudit(pageNumber int, pageURL string, expectedCount *int, actualCount int, retryCount int, validationPassed bool, isLastTargetPage bool) PageAudit {
+func (r *Runner) createPageAudit(pageNumber int, pageURL string, expectedCount *int, actualCount int, retryCount int, validationPassed bool, isLastTargetPage bool, duplicateEntryCount int, duplicateItemIDs []string) PageAudit {
 	confidence := "high"
 	confidenceScore := 100
 	reason := "page count normal"
@@ -1642,16 +1657,18 @@ func (r *Runner) createPageAudit(pageNumber int, pageURL string, expectedCount *
 	}
 
 	return PageAudit{
-		PageNumber:       pageNumber,
-		URL:              pageURL,
-		ExpectedCount:    expectedCount,
-		ActualCount:      actualCount,
-		RetryCount:       retryCount,
-		ValidationPassed: validationPassed,
-		ConfidenceScore:  confidenceScore,
-		Confidence:       confidence,
-		Reason:           fmt.Sprintf("%s confidence=%d", reason, confidenceScore),
-		UpdatedAt:        time.Now().Format(time.RFC3339),
+		PageNumber:          pageNumber,
+		URL:                 pageURL,
+		ExpectedCount:       expectedCount,
+		ActualCount:         actualCount,
+		RetryCount:          retryCount,
+		ValidationPassed:    validationPassed,
+		ConfidenceScore:     confidenceScore,
+		Confidence:          confidence,
+		Reason:              fmt.Sprintf("%s confidence=%d", reason, confidenceScore),
+		UpdatedAt:           time.Now().Format(time.RFC3339),
+		DuplicateEntryCount: common.MaxInt(duplicateEntryCount, 0),
+		DuplicateItemIDs:    normalizePageDuplicateIDs(duplicateItemIDs),
 	}
 }
 
@@ -1799,7 +1816,7 @@ func (r *Runner) buildSnapshot(status RunnerStatus, message string, mode crawlex
 	// 快照是恢复闭环的核心：保存当前进度、队列、校验结果和输出状态。
 	recon := r.tracker.BuildReconciliation()
 	return crawltaskstate.BuildSnapshot(crawltaskstate.BuilderParams{
-		AppVersion: "0.4.2",
+		AppVersion: "0.4.3",
 		Status:     string(status),
 		Message:    strings.TrimSpace(message),
 		StartedAt:  strings.TrimSpace(r.startedAt),
@@ -1911,16 +1928,18 @@ func convertPageAuditsForSnapshot(items []PageAudit) []crawltaskstate.PageAuditR
 	result := make([]crawltaskstate.PageAuditRecord, 0, len(items))
 	for _, item := range items {
 		result = append(result, crawltaskstate.PageAuditRecord{
-			PageNumber:       item.PageNumber,
-			URL:              item.URL,
-			ExpectedCount:    item.ExpectedCount,
-			ActualCount:      item.ActualCount,
-			RetryCount:       item.RetryCount,
-			ValidationPassed: item.ValidationPassed,
-			ConfidenceScore:  float64(item.ConfidenceScore),
-			Confidence:       item.Confidence,
-			Reason:           item.Reason,
-			UpdatedAt:        item.UpdatedAt,
+			PageNumber:          item.PageNumber,
+			URL:                 item.URL,
+			ExpectedCount:       item.ExpectedCount,
+			ActualCount:         item.ActualCount,
+			RetryCount:          item.RetryCount,
+			ValidationPassed:    item.ValidationPassed,
+			ConfidenceScore:     float64(item.ConfidenceScore),
+			Confidence:          item.Confidence,
+			Reason:              item.Reason,
+			UpdatedAt:           item.UpdatedAt,
+			DuplicateEntryCount: item.DuplicateEntryCount,
+			DuplicateItemIDs:    append([]string(nil), item.DuplicateItemIDs...),
 		})
 	}
 	return result

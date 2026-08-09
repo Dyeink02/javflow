@@ -41,6 +41,7 @@ debug.log
 /*更新日志.md
 /*开发变更日志.md
 /docs/版本归档/
+/archive/
 /当前开发基线.md
 /版本发布流程.md
 /A-B分集刮削优化说明.md
@@ -53,6 +54,7 @@ debug.log
 /女优中心参考-v2.html
 /媒体库刮削统计布局测试.html
 /视频整理统计布局测试.html
+/XCHINA_INTEGRATION_PLAN.md
 
 # ---- Crawl outputs ----
 /filmData.json

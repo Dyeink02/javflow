@@ -27,8 +27,19 @@ func (a *API) handleRuntimeBootstrapCommand(command string, payload map[string]a
 	case "app:get-integration-context":
 		return a.handleGetIntegrationContextCommand()
 
+	case "app:resolve-actress-crawl-output":
+		output, err := a.resolveActressCrawlerOutput(payload)
+		if err != nil {
+			return "", true, err
+		}
+		result, err := marshalResult(output)
+		return result, true, err
+
 	case "app:validate-proxy":
 		return a.handleValidateProxyCommand(payload)
+
+	case "app:save-actress-atlas-proxy":
+		return a.handleSaveActressAtlasProxyCommand(payload)
 
 	case "app:list-crawl-cache-snapshots":
 		result, err := a.listCrawlCacheSnapshotsResult()
@@ -80,5 +91,20 @@ func (a *API) handleValidateProxyCommand(payload map[string]any) (string, bool, 
 		targetURL = stringValue(options["targetUrl"])
 	}
 	result, err := marshalResult(a.runtime.proxyService.ValidateProxy(stringValue(payload["proxyValue"]), targetURL))
+	return result, true, err
+}
+
+// handleSaveActressAtlasProxyCommand persists the Actor Atlas proxy through
+// the shared settings store. The crawler, rankings and actress details then
+// recover the same value after an application restart.
+func (a *API) handleSaveActressAtlasProxyCommand(payload map[string]any) (string, bool, error) {
+	proxyValue := nonEmptyString(payload["proxy"])
+	settings, err := a.mutateBridgeSettings(func(current map[string]any) {
+		current["proxy"] = proxyValue
+	})
+	if err != nil {
+		return "", true, err
+	}
+	result, err := marshalResult(map[string]any{"proxy": nonEmptyString(settings["proxy"])})
 	return result, true, err
 }

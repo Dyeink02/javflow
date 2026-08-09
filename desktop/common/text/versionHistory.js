@@ -43,7 +43,8 @@
     { version: '0.30', summary: '核心架构迁移至Go语言开发，软件体积从200MB减小至15MB，爬虫执行引擎全面Go原生接管' },
     { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' },
     { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' },
-    { version: '0.4.2', summary: '内测：统计与过滤修复、媒体库扫描加速、批量删除安全复核' }
+    { version: '0.4.2', summary: '视频整理、媒体库刮削与 AV 订阅体验优化' },
+    { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' }
   ];
 
   const payload = { VERSION_HISTORY };

@@ -30,7 +30,7 @@ const samplePageHTML = `
 func TestClientFetchIndexPageLinks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = writer.Write([]byte(samplePageHTML))
+		_, _ = writer.Write([]byte(samplePageHTML + `<a class="movie-box" href="/ABF-055"></a>`))
 	}))
 	defer server.Close()
 
@@ -48,6 +48,12 @@ func TestClientFetchIndexPageLinks(t *testing.T) {
 	}
 	if len(links) != 2 {
 		t.Fatalf("unexpected links: %#v", links)
+	}
+	if response.IndexRawLinkCount != 3 || response.IndexDuplicateCount != 1 {
+		t.Fatalf("unexpected index diagnostics: %#v", response)
+	}
+	if len(response.IndexDuplicateItemIDs) != 1 || response.IndexDuplicateItemIDs[0] != "ABF-055" {
+		t.Fatalf("unexpected duplicate item IDs: %#v", response.IndexDuplicateItemIDs)
 	}
 }
 

@@ -71,6 +71,10 @@
     let eventsBound = false;
     let bootstrapCompleted = false;
     let hydratingFormState = false;
+    // A cross-workspace handoff can arrive after this controller was disposed
+    // while another tab was open. Keep it here until bootstrap has restored
+    // saved settings, otherwise that restore overwrites the requested target.
+    let pendingActressLookupPrefill = null;
 
     // Form-controller responsibilities:
     // 1) normalize raw user input into stable crawl settings
@@ -792,11 +796,14 @@
     function getLookupContext() {
       return {
         preferredBase: elements.base.value.trim(),
-        magnetOnly: elements.nomag.checked
+        magnetOnly: elements.nomag.checked,
+        // Actor directory and ranking calls must use the proxy currently
+        // visible in the form, even before the user saves a crawler draft.
+        proxy: elements.proxy.value.trim()
       };
     }
 
-    function applyActressLookupResult(result = {}) {
+    function applyActressLookupResultNow(result = {}, options = {}) {
       const fillCount =
         Number.isFinite(result.fillCount) && result.fillCount >= 0 ? result.fillCount : result.preferredCount;
 
@@ -816,8 +823,35 @@
         elements.totalPages.value = String(result.totalPages);
       }
 
+      // Actor-atlas handoff owns its deterministic output choice. Other
+      // ranking/crawler callers intentionally omit this option and therefore
+      // keep the user's current output directory unchanged.
+      if (Object.prototype.hasOwnProperty.call(options, 'output') && elements.output) {
+        elements.output.value = String(options.output || '').trim();
+      }
+
       refreshSuggestedPages();
       persistCrawlerDraft();
+    }
+
+    function applyActressLookupResult(result = {}, options = {}) {
+      if (!bootstrapCompleted || hydratingFormState) {
+        pendingActressLookupPrefill = { result, options };
+        return;
+      }
+      applyActressLookupResultNow(result, options);
+    }
+
+    function queueActressLookupResult(result = {}, options = {}) {
+      // Actor Atlas queues before shell navigation. This makes the handoff
+      // deterministic even though workspace switching triggers an async form
+      // bootstrap that restores the user's older draft first.
+      pendingActressLookupPrefill = { result, options };
+      if (bootstrapCompleted && !hydratingFormState) {
+        const prefill = pendingActressLookupPrefill;
+        pendingActressLookupPrefill = null;
+        applyActressLookupResultNow(prefill.result, prefill.options);
+      }
     }
 
     function bindResultPathButton(button, successPrefix) {
@@ -1186,12 +1220,18 @@
       applyBackgroundImage(initialSettings.backgroundImageUrl);
       logController.updateLogContext(initialLogContext);
       refreshSuggestedPages();
+      bootstrapCompleted = true;
+      if (pendingActressLookupPrefill) {
+        const prefill = pendingActressLookupPrefill;
+        pendingActressLookupPrefill = null;
+        applyActressLookupResultNow(prefill.result, prefill.options);
+        appendFormLog('info', '已应用演员图鉴预填：地址、数量、页数和输出目录已更新。');
+      }
       if (elements.proxy.value.trim()) {
         await validateProxyValue(elements.proxy.value.trim());
       } else {
         setProxyStatus('empty');
       }
-      bootstrapCompleted = true;
       scheduleProxyAutoValidation();
       stateController.setStatus('idle', UI_TEXT.state.defaultMessage);
       appendFormLog('info', UI_TEXT.state.ready);
@@ -1209,6 +1249,7 @@
       dispose,
       getLookupContext,
       applyActressLookupResult,
+      queueActressLookupResult,
       startBridgeCrawl
     };
   }
