@@ -147,9 +147,16 @@
                     <span>遗漏番号补爬磁力</span>
                     <small>开启后，整理时发现名单中有但本地缺少的番号，会自动生成补抓磁力报告；关闭时仅记录遗漏番号。</small>
                   </label>
+
+                  <label class="toggle-card">
+                    <input id="organizer-auto-subscribe-from-output" type="checkbox" />
+                    <span>整理完成后自动订阅目标女优</span>
+                    <small>勾选后，将从上方选择的整理快照、filmData.json 或爬虫结果读取资料，在 AV 订阅中自动建立或更新订阅。</small>
+                  </label>
                 </div>
 
-                <section class="task-box organizer-learning-box">
+                <!-- 暂不在整理页展示广告样本学习；保留完整 DOM 与现有学习链路，后续可直接恢复。 -->
+                <section class="task-box organizer-learning-box" hidden>
                   <p class="message-label">广告样本学习</p>
                   <p class="organizer-learning-tip">
                     可导入"广告开头样本"和"正常开头样本"，也可直接输入番号自动抓帧学习。所有学习仅在本地执行。

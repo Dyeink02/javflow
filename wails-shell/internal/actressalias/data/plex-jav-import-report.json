@@ -1,0 +1,148 @@
+{
+  "repository": "https://github.com/nxxxsooo/plex-jav",
+  "commit": "3236bed",
+  "path": "scraper/data/actress_alias.json",
+  "license": "MIT",
+  "sha256": "4f3503172bbf4b12073c08690e7fc4d75f1ceb9d74f549b2a6caa80163dad494",
+  "importedRecords": 55,
+  "importedAliases": 668,
+  "mergedRecords": 203,
+  "rejectedAliases": [
+    {
+      "canonical": "あかぎ碧",
+      "alias": "木下あずみ",
+      "reason": "normalized alias already belongs to 木下あずみ"
+    },
+    {
+      "canonical": "ゆうひ菜那",
+      "alias": "黒木いくみ",
+      "reason": "normalized alias already belongs to 黒木いくみ"
+    },
+    {
+      "canonical": "五十嵐星蘭",
+      "alias": "蘭々",
+      "reason": "normalized alias already belongs to 蘭々"
+    },
+    {
+      "canonical": "仁美まどか",
+      "alias": "百瀬凛花",
+      "reason": "normalized alias already belongs to 百瀬凛花"
+    },
+    {
+      "canonical": "北條麻妃",
+      "alias": "北条麻妃",
+      "reason": "normalized alias already belongs to 北条麻妃"
+    },
+    {
+      "canonical": "坂咲みほ",
+      "alias": "坂口みほの",
+      "reason": "normalized alias already belongs to 坂口みほの"
+    },
+    {
+      "canonical": "坂咲みほ",
+      "alias": "坂咲美穗",
+      "reason": "normalized alias already belongs to 坂口みほの"
+    },
+    {
+      "canonical": "妃月るい",
+      "alias": "音琴るい",
+      "reason": "normalized alias already belongs to 音琴るい"
+    },
+    {
+      "canonical": "小沢マリア",
+      "alias": "小澤マリア",
+      "reason": "normalized canonical name already belongs to 小澤マリア"
+    },
+    {
+      "canonical": "小野夕子",
+      "alias": "葵",
+      "reason": "normalized alias already belongs to 葵"
+    },
+    {
+      "canonical": "山岸逢花",
+      "alias": "山岸逢花",
+      "reason": "normalized canonical name already belongs to 山岸あや花"
+    },
+    {
+      "canonical": "愛田奈々",
+      "alias": "三津なつみ",
+      "reason": "normalized alias already belongs to 三津なつみ"
+    },
+    {
+      "canonical": "新井エリー",
+      "alias": "晶エリー",
+      "reason": "normalized alias already belongs to 晶エリー"
+    },
+    {
+      "canonical": "永野いち夏",
+      "alias": "いちか",
+      "reason": "normalized alias already belongs to 松本いちか"
+    },
+    {
+      "canonical": "永野いち夏",
+      "alias": "いちかちゃん",
+      "reason": "normalized alias already belongs to 松本いちか"
+    },
+    {
+      "canonical": "沢村レイコ",
+      "alias": "高坂保奈美",
+      "reason": "normalized alias already belongs to 高坂保奈美"
+    },
+    {
+      "canonical": "浅田結梨",
+      "alias": "深田結梨",
+      "reason": "normalized alias already belongs to ゆーりまん"
+    },
+    {
+      "canonical": "涼宮遙香",
+      "alias": "佐佐波綾",
+      "reason": "normalized alias already belongs to 小那海あや"
+    },
+    {
+      "canonical": "涼宮遙香",
+      "alias": "小那海あや",
+      "reason": "normalized alias already belongs to 小那海あや"
+    },
+    {
+      "canonical": "田中レモン",
+      "alias": "楓カレン",
+      "reason": "normalized alias already belongs to 楓カレン"
+    },
+    {
+      "canonical": "由愛可奈",
+      "alias": "水川潤",
+      "reason": "normalized alias already belongs to 水川潤"
+    },
+    {
+      "canonical": "神谷充希",
+      "alias": "あや",
+      "reason": "normalized alias already belongs to 宮崎あや"
+    },
+    {
+      "canonical": "稲場るか",
+      "alias": "稻場流花",
+      "reason": "normalized alias already belongs to 莉々はるか"
+    },
+    {
+      "canonical": "藤浦めぐ",
+      "alias": "めぐり",
+      "reason": "normalized alias already belongs to めぐり"
+    },
+    {
+      "canonical": "藤浦めぐ",
+      "alias": "藤浦惠",
+      "reason": "normalized alias already belongs to めぐり"
+    },
+    {
+      "canonical": "雅さやか",
+      "alias": "香椎りあ",
+      "reason": "normalized alias already belongs to 香椎りあ"
+    },
+    {
+      "canonical": "雅さやか",
+      "alias": "香椎梨亞",
+      "reason": "normalized alias already belongs to 香椎りあ"
+    }
+  ],
+  "generatedAt": "2026-08-13T03:54:31Z"
+}

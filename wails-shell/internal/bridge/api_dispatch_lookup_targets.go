@@ -1,7 +1,6 @@
 package bridge
 
 import (
-	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
@@ -46,14 +45,28 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		return "{}", true, nil
 
 	case "app:resolve-actress-alias":
-		if a.libraryMetadata.library == nil {
-			return "", true, fmt.Errorf("actor metadata service is not initialized")
-		}
 		actorName := strings.TrimSpace(nonEmptyString(payload["actorName"]))
 		if actorName == "" {
 			return "", true, fmt.Errorf("actor name is required")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		// The bundled/user alias index is synchronous and exact after normalization.
+		// Prefer it before any provider request so Chinese aliases do not first fail
+		// against a remote actor directory that only knows the Japanese spelling.
+		if a.lookup.actressLookup != nil {
+			resolution := a.lookup.actressLookup.ResolveAlias(actorName)
+			if resolution.Unique && strings.TrimSpace(resolution.Canonical) != "" {
+				result, err := marshalResult(map[string]any{
+					"name":     resolution.Canonical,
+					"aliases":  []string{actorName, resolution.MatchedAs},
+					"provider": "local-alias-index",
+				})
+				return result, true, err
+			}
+		}
+		if a.libraryMetadata.library == nil {
+			return "", true, fmt.Errorf("actor metadata service is not initialized")
+		}
+		ctx, cancel := a.requestContext(20 * time.Second)
 		defer cancel()
 		alias, err := a.libraryMetadata.library.ResolveActorAlias(ctx, actorName, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		if err != nil {
@@ -66,7 +79,9 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		if a.lookup.actressLookup == nil {
 			return "", true, fmt.Errorf("actress lookup service is not initialized")
 		}
-		target, err := a.lookup.actressLookup.ResolveTarget(a.buildActressLookupOptions(payload))
+		ctx, cancel := a.requestContext(50 * time.Second)
+		defer cancel()
+		target, err := a.lookup.actressLookup.ResolveTargetContext(ctx, a.buildActressLookupOptions(payload))
 		if err != nil {
 			return "", true, err
 		}
@@ -77,15 +92,21 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		if a.lookup.actressLookup == nil {
 			return "", true, fmt.Errorf("actress lookup service is not initialized")
 		}
-		profile, err := a.lookup.actressLookup.InspectTarget(a.buildActressLookupOptions(payload))
+		ctx, cancel := a.requestContext(50 * time.Second)
+		defer cancel()
+		profile, err := a.lookup.actressLookup.InspectTargetContext(ctx, a.buildActressLookupOptions(payload))
 		if err != nil {
 			return "", true, err
 		}
 		if boolValue(payload["cacheProfileMedia"], false) {
-			profile = a.cacheActressAtlasProfileMedia(context.Background(), profile, strings.TrimSpace(nonEmptyString(payload["proxy"])))
+			cacheContext, cancel := a.requestContext(25 * time.Second)
+			defer cancel()
+			profile = a.cacheActressAtlasProfileMedia(cacheContext, profile, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		}
 		if boolValue(payload["cacheWorkCovers"], false) {
-			profile = a.cacheActressAtlasWorkCovers(context.Background(), profile, strings.TrimSpace(nonEmptyString(payload["proxy"])))
+			cacheContext, cancel := a.requestContext(25 * time.Second)
+			defer cancel()
+			profile = a.cacheActressAtlasWorkCovers(cacheContext, profile, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		}
 		result, err := marshalResult(profile)
 		return result, true, err
@@ -95,7 +116,7 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		if err != nil {
 			return "", true, err
 		}
-		cacheContext, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		cacheContext, cancel := a.requestContext(25 * time.Second)
 		defer cancel()
 		profile = a.cacheActressAtlasWorkCovers(cacheContext, profile, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		result, err := marshalResult(map[string]any{"works": profile.Works})
@@ -109,7 +130,7 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		if page < 1 {
 			page = 1
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		ctx, cancel := a.requestContext(35 * time.Second)
 		defer cancel()
 		works, err := a.lookup.actressLookup.FetchWorksPage(ctx, nonEmptyString(payload["targetUrl"]), page, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		if err != nil {
@@ -126,7 +147,7 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 		if actorName == "" {
 			return "", true, fmt.Errorf("actor name is required")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := a.requestContext(30 * time.Second)
 		defer cancel()
 		media, err := a.libraryMetadata.library.ResolveActorMedia(ctx, actorName, strings.TrimSpace(nonEmptyString(payload["proxy"])))
 		if err != nil && len(media.Images) == 0 {

@@ -7,10 +7,14 @@
 #   3) Screenshot capture and output.
 #
 param(
-  [string]$ExePath = "e:\JAVAV\源码\javflow-source-20260725-182718\javflow\wails-shell\release\javflow.exe"
+  [string]$ExePath = ""
 )
 
 $ErrorActionPreference = "SilentlyContinue"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ExePath)) {
+  $ExePath = Join-Path $repoRoot 'wails-shell\release\javflow.exe'
+}
 
 Add-Type @"
 using System;
@@ -87,7 +91,8 @@ $cb = {
 
 [Win32Diag]::EnumWindows([Win32Diag+EnumWindowsProc]$cb, [IntPtr]::Zero) | Out-Null
 
-$outRoot = "e:\JAVAV\源码\JAV-auto-integrated-source-github"
+$outRoot = Join-Path $repoRoot 'log'
+New-Item -ItemType Directory -Path $outRoot -Force | Out-Null
 $windows | Format-Table -AutoSize | Out-String | Tee-Object -FilePath "$outRoot\diag-windows.txt"
 
 $i = 0

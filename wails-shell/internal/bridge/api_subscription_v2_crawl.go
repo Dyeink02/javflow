@@ -93,7 +93,7 @@ func (a *API) startSubscriptionV2CrawlResult(payload map[string]any) (string, er
 			"nopic":                       true,
 			"magnetContentValidation":     false,
 			"magnetExcludeKeywords":       "",
-			"actressCountFilterThreshold": 0,
+			"actressCountFilterThreshold": item.ActressCountFilterThreshold,
 			"goTaskController":            true,
 		}
 
@@ -199,17 +199,18 @@ func (a *API) startSubscriptionV2BatchCrawlResult(payload map[string]any) (strin
 			return "", fmt.Errorf("prepare subscription output for %s: %w", item.ActressName, err)
 		}
 		requests = append(requests, subcrawlv2.CrawlRequest{
-			SubscriptionID: item.ID,
-			ActressName:    item.ActressName,
-			CrawlURL:       item.CrawlURL,
-			PreferredBase:  item.PreferredBase,
-			OutputDir:      rootDir,
-			TargetCount:    len(targetCodes),
-			TargetCodes:    targetCodes,
-			UserDataDir:    a.runtime.store.UserDataDir(),
-			Proxy:          proxy,
-			ConfigCookie:   a.resolveSubcrawlCookie(payload),
-			Timeout:        time.Duration(timeoutMs) * time.Millisecond,
+			SubscriptionID:              item.ID,
+			ActressName:                 item.ActressName,
+			CrawlURL:                    item.CrawlURL,
+			PreferredBase:               item.PreferredBase,
+			OutputDir:                   rootDir,
+			TargetCount:                 len(targetCodes),
+			TargetCodes:                 targetCodes,
+			ActressCountFilterThreshold: item.ActressCountFilterThreshold,
+			UserDataDir:                 a.runtime.store.UserDataDir(),
+			Proxy:                       proxy,
+			ConfigCookie:                a.resolveSubcrawlCookie(payload),
+			Timeout:                     time.Duration(timeoutMs) * time.Millisecond,
 		})
 	}
 	if len(requests) == 0 {

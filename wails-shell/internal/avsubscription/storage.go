@@ -1,21 +1,3 @@
-package avsubscription
-
-import (
-	"crypto/sha1"
-	"encoding/hex"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"time"
-)
-
-const (
-	storageDirName  = "subscriptions"
-	storageFileName = "av-subscriptions.json"
-)
-
 // storage.go owns persistence and ordering rules for subscriptions. If a bug
 // is about saved state, stale counts, or ordering, debug here first.
 //
@@ -28,6 +10,26 @@ const (
 // 1) storage path/hash helpers
 // 2) load/save and state normalization helpers
 // 3) ordering and derived counter refresh helpers
+package avsubscription
+
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"javflow/internal/common"
+)
+
+const (
+	storageDirName  = "subscriptions"
+	storageFileName = "av-subscriptions.json"
+)
 
 // storagePath is the single persisted location for AV subscription state. Keep
 // that path stable so artifact-import and future remote-refresh logic share one
@@ -51,7 +53,11 @@ func (s *Service) loadLocked() ([]Subscription, error) {
 
 	items := []Subscription{}
 	if err := json.Unmarshal(contents, &items); err != nil {
-		return []Subscription{}, nil
+		backupPath, backupErr := common.PreserveCorruptFile(filePath)
+		if backupErr != nil {
+			return nil, fmt.Errorf("subscription state is unreadable and could not be preserved: %w", backupErr)
+		}
+		return nil, fmt.Errorf("subscription state is unreadable; preserved original file at %s", backupPath)
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -67,16 +73,11 @@ func (s *Service) loadLocked() ([]Subscription, error) {
 // source of truth for subscription state.
 func (s *Service) saveLocked(items []Subscription) error {
 	filePath := s.storagePath()
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return err
-	}
-
 	payload, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(filePath, payload, 0o644)
+	return common.WriteFileAtomic(filePath, payload, 0o644)
 }
 
 // buildSubscriptionIdentityHash prefers actress identity over crawl URL so

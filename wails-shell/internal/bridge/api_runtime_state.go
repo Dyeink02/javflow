@@ -1,6 +1,9 @@
 package bridge
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Runtime-state helpers are the bridge-owned synchronization point between the
 // current execution lane and the renderer/bootstrap read models. Keep mode
@@ -19,6 +22,24 @@ import "context"
 // synchronization path.
 func (a *API) SetWailsContext(ctx context.Context) {
 	a.wailsCtx = ctx
+}
+
+// requestContext derives short bridge work from the desktop lifecycle. Actor
+// Atlas requests may outlive a renderer interaction, but they must never
+// outlive the application itself. Commands retain their own bounded timeout
+// while application shutdown cancels all derived work immediately.
+func (a *API) requestContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(a.applicationContext(), timeout)
+}
+
+// applicationContext is the parent for bridge work that already owns its own
+// request timeout or can span several requests. It makes background refreshes
+// stop with the desktop application rather than surviving shutdown.
+func (a *API) applicationContext() context.Context {
+	if a != nil && a.wailsCtx != nil {
+		return a.wailsCtx
+	}
+	return context.Background()
 }
 
 // updateCrawlModes keeps execution/controller mode changes together so crawl

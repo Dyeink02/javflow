@@ -466,7 +466,7 @@ func (w *Writer) flushLocked() error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(jsonPath, jsonBytes, 0644); err != nil {
+		if err := common.WriteFileAtomic(jsonPath, jsonBytes, 0o644); err != nil {
 			return err
 		}
 	}
@@ -474,7 +474,7 @@ func (w *Writer) flushLocked() error {
 	magnetLines := w.buildMagnetLinesLocked(visibleRecords)
 	magnetPath := runPaths.MagnetPath
 	if w.dirty {
-		if err := os.WriteFile(magnetPath, []byte(strings.Join(magnetLines, "\r\n")), 0644); err != nil {
+		if err := common.WriteFileAtomic(magnetPath, []byte(strings.Join(magnetLines, "\r\n")), 0o644); err != nil {
 			return err
 		}
 	}
@@ -664,7 +664,7 @@ func writeJSONFile(filePath string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, payload, 0644)
+	return common.WriteFileAtomic(filePath, payload, 0o644)
 }
 
 func completedCountOrRecordCount(completedCount int, recordCount int) int {

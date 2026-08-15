@@ -253,7 +253,16 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 						"adFileAction": ctx.adFileAction,
 					},
 					ctx.progressf,
-					func() error { return os.RemoveAll(sourceDir) },
+					func() error {
+						// The first check above plans the coarse operation. Check again
+						// at the exact destructive boundary because a downloader or
+						// cloud mount may add an unclassified file while RemoveAll is
+						// waiting to start.
+						if !ctx.batchDeleteDirectorySafe(sourceDir, pendingDeleteSet, protectedPaths) {
+							return fmt.Errorf("\u76ee\u5f55\u5728\u5220\u9664\u524d\u51fa\u73b0\u672a\u786e\u8ba4\u5185\u5bb9")
+						}
+						return os.RemoveAll(sourceDir)
+					},
 					ctx.logf,
 				)
 				if err != nil {

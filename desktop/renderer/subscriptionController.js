@@ -64,7 +64,10 @@
       mediaHydrationRunning: false,
       reorderRunning: false,
       pendingReorderIDs: null,
-      activeBatchCrawl: null
+      activeBatchCrawl: null,
+      listSearch: '',
+      listFilter: 'all',
+      listSort: 'updated'
     };
     let eventsBound = false;
     let bootstrapCompleted = false;
@@ -245,6 +248,73 @@
       });
     }
 
+    function sortSubscriptionItems(items, mode = state.listSort) {
+      const list = (Array.isArray(items) ? items : []).slice();
+      if (mode === 'manual') {
+        return sortSubscriptions(list);
+      }
+
+      const timestamp = (item, field) => parseTimestamp(item && item[field]);
+      return list.sort((left, right) => {
+        const leftPending = normalizeCount(left && left.pendingCount, 0);
+        const rightPending = normalizeCount(right && right.pendingCount, 0);
+        const leftDetected = timestamp(left, 'lastUpdateDetectedAt');
+        const rightDetected = timestamp(right, 'lastUpdateDetectedAt');
+        const leftChecked = timestamp(left, 'lastCheckedAt');
+        const rightChecked = timestamp(right, 'lastCheckedAt');
+
+        if (mode === 'updated' || mode === 'pending') {
+          if (rightPending !== leftPending) return rightPending - leftPending;
+        }
+        if (mode === 'updated' || mode === 'detected') {
+          if (rightDetected !== leftDetected) return rightDetected - leftDetected;
+        }
+        if (mode === 'checked' && rightChecked !== leftChecked) {
+          return rightChecked - leftChecked;
+        }
+        if (mode === 'updated' && rightChecked !== leftChecked) {
+          return rightChecked - leftChecked;
+        }
+        if (mode === 'name') {
+          const nameOrder = normalizeText(left && left.actressName).localeCompare(
+            normalizeText(right && right.actressName),
+            'zh-CN'
+          );
+          if (nameOrder !== 0) return nameOrder;
+        }
+
+        if (rightPending !== leftPending) return rightPending - leftPending;
+        if (rightDetected !== leftDetected) return rightDetected - leftDetected;
+        return normalizeText(left && left.actressName).localeCompare(normalizeText(right && right.actressName), 'zh-CN');
+      });
+    }
+
+    function isSubscriptionVisible(item) {
+      const search = normalizeText(state.listSearch).toLocaleLowerCase('zh-CN');
+      const name = normalizeText(item && item.actressName).toLocaleLowerCase('zh-CN');
+      if (search && !name.includes(search)) {
+        return false;
+      }
+
+      const pending = normalizeCount(item && item.pendingCount, 0);
+      const hasError = Boolean(normalizeText(item && item.lastError));
+      if (state.listFilter === 'updated' && pending <= 0) return false;
+      if (state.listFilter === 'pending' && pending <= 0) return false;
+      if (state.listFilter === 'error' && !hasError) return false;
+      if (state.listFilter === 'unchecked' && normalizeText(item && item.lastCheckedAt)) return false;
+      return true;
+    }
+
+    function visibleSubscriptionList() {
+      return sortSubscriptionItems(state.subscriptions).filter(isSubscriptionVisible);
+    }
+
+    function setRefreshSummary(text) {
+      if (elements.subscriptionRefreshSummary) {
+        elements.subscriptionRefreshSummary.textContent = normalizeText(text) || '尚未执行批量检测。';
+      }
+    }
+
     function setSummaryCounts() {
       const list = Array.isArray(state.subscriptions) ? state.subscriptions : [];
       const total = list.length;
@@ -259,6 +329,9 @@
       if (elements.subscriptionStatPending) elements.subscriptionStatPending.textContent = String(pending);
       if (elements.subscriptionStatChecked) elements.subscriptionStatChecked.textContent = String(checked);
       if (elements.subscriptionStatCheckedSide) elements.subscriptionStatCheckedSide.textContent = String(checked);
+      if (elements.subscriptionListResultCount) {
+        elements.subscriptionListResultCount.textContent = `显示 ${visibleSubscriptionList().length} / ${total} 位`;
+      }
     }
 
     function setSubscriptionCrawlerStatus(message) {
@@ -689,13 +762,14 @@
     }
 
     function currentSubscriptionList() {
-      return sortSubscriptions(state.subscriptions);
+      return sortSubscriptionItems(state.subscriptions);
     }
 
     function updateSubscriptionState(nextItems) {
-      state.subscriptions = sortSubscriptions(Array.isArray(nextItems) ? nextItems : []);
+      state.subscriptions = Array.isArray(nextItems) ? nextItems.slice() : [];
       if (!state.selectedId || !state.subscriptions.some((item) => item.id === state.selectedId)) {
-        state.selectedId = state.subscriptions[0] ? state.subscriptions[0].id : '';
+        const firstVisible = visibleSubscriptionList()[0];
+        state.selectedId = firstVisible ? firstVisible.id : '';
       }
       setSummaryCounts();
       renderSubscriptionList();
@@ -755,6 +829,10 @@
     }
 
     function moveSubscription(item, direction) {
+      if (state.listSort !== 'manual') {
+        setSummaryMessage('请先将排序切换为“手动顺序”，再调整订阅位置。');
+        return;
+      }
       const list = currentSubscriptionList();
       const currentIndex = list.findIndex((entry) => entry.id === (item && item.id));
       const nextIndex = currentIndex + Number(direction || 0);
@@ -771,6 +849,10 @@
     }
 
     function dropSubscription(draggedID, targetItem) {
+      if (state.listSort !== 'manual') {
+        setSummaryMessage('请先将排序切换为“手动顺序”，再拖拽调整订阅位置。');
+        return;
+      }
       const sourceID = normalizeText(draggedID);
       const targetID = normalizeText(targetItem && targetItem.id);
       if (!sourceID || !targetID || sourceID === targetID) {
@@ -790,6 +872,34 @@
       renderSubscriptionList();
       renderSubscriptionDetail();
       void persistSubscriptionOrder(state.subscriptions);
+    }
+
+    async function saveActressFilter(item, rawValue, button) {
+      if (!item || !item.id || !desktopApi || typeof desktopApi.patchAvSubscription !== 'function') {
+        return;
+      }
+      const parsed = Number.parseInt(String(rawValue || '').trim(), 10);
+      const threshold = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+      if (button) {
+        button.disabled = true;
+      }
+      try {
+        const updated = await desktopApi.patchAvSubscription({
+          id: item.id,
+          actressCountFilterThreshold: threshold
+        });
+        if (updated && updated.id) {
+          updateSubscriptionState(state.subscriptions.map((entry) => entry.id === updated.id ? updated : entry));
+          setSummaryMessage(`已保存 ${updated.actressName || '该演员'} 的合集过滤值：${threshold === 0 ? '关闭' : `${threshold} 位演员以上`}`);
+          appendLog('info', `已保存合集过滤：${updated.actressName || '未命名订阅'}，阈值 ${threshold}`);
+        }
+      } catch (error) {
+        appendLog('error', `保存合集过滤失败：${getErrorMessage(error)}`);
+      } finally {
+        if (button) {
+          button.disabled = false;
+        }
+      }
     }
 
     function resolveSubscriptionMediaURLs(item) {
@@ -824,7 +934,7 @@
         force
       });
       if (updated && updated.id) {
-        state.subscriptions = sortSubscriptions(
+        state.subscriptions = sortSubscriptionItems(
           state.subscriptions.map((entry) => (entry.id === updated.id ? updated : entry))
         );
         renderSubscriptionList();
@@ -943,9 +1053,10 @@
       if (!elements.subscriptionList) {
         return;
       }
-      const list = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+      const list = visibleSubscriptionList();
       subscriptionListView.renderSubscriptionList(elements.subscriptionList, list, {
-        emptyMessage: '当前还没有任何 AV 订阅。',
+        emptyMessage: state.subscriptions.length > 0 ? '没有符合当前搜索或筛选条件的订阅。' : '当前还没有任何 AV 订阅。',
+        showOrderControls: state.listSort === 'manual',
         onSelect: (item) => {
           state.selectedId = item && item.id ? item.id : '';
           renderSubscriptionList();
@@ -963,6 +1074,7 @@
         },
         onMove: moveSubscription,
         onDrop: dropSubscription,
+        onSaveActressFilter: saveActressFilter,
         crawlActive: Boolean(getActiveCrawlSession()),
         onBindDelete: (button, item) => {
           bindAsyncClick(button, async () => {
@@ -1287,9 +1399,17 @@
       if (result && Array.isArray(result.subscriptions)) {
         updateSubscriptionState(result.subscriptions);
       }
-      setSummaryMessage(result && result.updatedCount > 0
-        ? `批量检测完成：${result.updatedCount} 条订阅存在更新。`
-        : '批量检测完成：未发现新增。');
+      const checkedCount = normalizeCount(result && result.checkedCount, items.length);
+      const updatedCount = normalizeCount(result && result.updatedCount, 0);
+      const detectedCount = normalizeCount(result && result.detectedCount, 0);
+      const failedCount = normalizeCount(result && result.failedCount, 0);
+      const totalPending = normalizeCount(result && result.totalPending, 0);
+      setRefreshSummary(`本次检查 ${checkedCount} 位，新发现 ${detectedCount} 位，仍待抓取 ${totalPending} 部${failedCount > 0 ? `，失败 ${failedCount} 位` : ''}。`);
+      setSummaryMessage(detectedCount > 0
+        ? `批量检测完成：本次新发现 ${detectedCount} 条订阅有更新。`
+        : updatedCount > 0
+          ? `批量检测完成：没有新发现，仍有 ${updatedCount} 条订阅待抓取。`
+          : '批量检测完成：未发现新增。');
     }
 
     function prepareSubscriptionCrawlerFromItem(item) {
@@ -2016,6 +2136,29 @@
         return;
       }
       eventsBound = true;
+      if (elements.subscriptionListSearch) {
+        elements.subscriptionListSearch.addEventListener('input', () => {
+          state.listSearch = normalizeText(elements.subscriptionListSearch.value);
+          setSummaryCounts();
+          renderSubscriptionList();
+        });
+      }
+      if (elements.subscriptionListFilter) {
+        elements.subscriptionListFilter.addEventListener('change', () => {
+          state.listFilter = normalizeText(elements.subscriptionListFilter.value) || 'all';
+          setSummaryCounts();
+          renderSubscriptionList();
+        });
+      }
+      if (elements.subscriptionListSort) {
+        elements.subscriptionListSort.value = state.listSort;
+        elements.subscriptionListSort.addEventListener('change', () => {
+          state.listSort = normalizeText(elements.subscriptionListSort.value) || 'updated';
+          setSummaryCounts();
+          renderSubscriptionList();
+          renderSubscriptionDetail();
+        });
+      }
       bindAsyncClick(elements.subscriptionDetectAllButton, refreshAllSubscriptions);
       bindAsyncClick(elements.subscriptionImportRecentButton, async () => {
         const option = getSelectedRecentCrawlOption();
@@ -2222,4 +2365,3 @@
     createSubscriptionController
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
-

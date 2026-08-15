@@ -109,6 +109,23 @@
     return segments.join(' · ');
   }
 
+  function buildTimeInfo(label, value, emptyText) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'subscription-time-info';
+
+    const labelNode = document.createElement('span');
+    labelNode.textContent = label;
+    wrapper.appendChild(labelNode);
+
+    const valueNode = document.createElement('strong');
+    valueNode.textContent = value ? formatDateTime(value) : emptyText;
+    if (!value) {
+      valueNode.classList.add('is-empty');
+    }
+    wrapper.appendChild(valueNode);
+    return wrapper;
+  }
+
   function createMetric(label, value) {
     const metric = document.createElement('div');
     metric.className = 'subscription-metric';
@@ -122,6 +139,47 @@
     metric.appendChild(labelNode);
     metric.appendChild(valueNode);
     return metric;
+  }
+
+  function buildActressFilter(item, callbacks) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'subscription-actress-filter';
+
+    const copy = document.createElement('div');
+    copy.className = 'subscription-actress-filter-copy';
+    const label = document.createElement('span');
+    label.textContent = '合集过滤';
+    const hint = document.createElement('small');
+    hint.textContent = '达到该演员数时不输出磁力，0 为关闭';
+    copy.appendChild(label);
+    copy.appendChild(hint);
+
+    const controls = document.createElement('div');
+    controls.className = 'subscription-actress-filter-controls';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.step = '1';
+    input.inputMode = 'numeric';
+    input.value = String(Math.max(0, Number(item && item.actressCountFilterThreshold) || 0));
+    input.setAttribute('aria-label', '合集过滤演员数量阈值');
+    const saveButton = document.createElement('button');
+    saveButton.type = 'button';
+    saveButton.className = 'ghost-button subscription-filter-save-button';
+    saveButton.textContent = '保存';
+    saveButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof callbacks.onSaveActressFilter === 'function') {
+        callbacks.onSaveActressFilter(item, input.value, saveButton);
+      }
+    });
+    controls.appendChild(input);
+    controls.appendChild(saveButton);
+    wrapper.appendChild(copy);
+    wrapper.appendChild(controls);
+    wrapper.addEventListener('click', (event) => event.stopPropagation());
+    return wrapper;
   }
 
   function resolveRankLabel(index, item) {
@@ -223,12 +281,14 @@
   // controller; the view only exposes button binding hooks.
   function createSubscriptionCard(item, index, callbacks = {}) {
     const card = document.createElement('article');
-    card.className = 'subscription-card';
+    const hasPending = Number(item && item.pendingCount || 0) > 0;
+    const hasError = String(item && item.lastError || '').trim() !== '';
+    card.className = `subscription-card${hasPending ? ' has-update' : ''}${hasError ? ' has-error' : ''}`;
     card.dataset.id = String(item && item.id ? item.id : '');
     if (isSelected(callbacks, item)) {
       card.classList.add('is-active');
     }
-    card.draggable = true;
+    card.draggable = callbacks.showOrderControls !== false;
     card.addEventListener('dragstart', (event) => {
       card.classList.add('is-dragging');
       if (event.dataTransfer) {
@@ -290,7 +350,9 @@
 
     head.appendChild(titleWrap);
     head.appendChild(buildStatusChip(item));
-    head.appendChild(buildOrderControls(item, index, callbacks));
+    if (callbacks.showOrderControls !== false) {
+      head.appendChild(buildOrderControls(item, index, callbacks));
+    }
     card.appendChild(head);
 
     const metricGrid = document.createElement('div');
@@ -301,6 +363,14 @@
     metricGrid.appendChild(createMetric('待抓新增', Number(item && item.pendingCount || 0)));
     metricGrid.appendChild(createMetric('每页抓取', Number(item && item.itemsPerPage || 30)));
     card.appendChild(metricGrid);
+
+    const timeGrid = document.createElement('div');
+    timeGrid.className = 'subscription-time-grid';
+    timeGrid.appendChild(buildTimeInfo('发现更新', item && item.lastUpdateDetectedAt, '尚未发现'));
+    timeGrid.appendChild(buildTimeInfo('上次检查', item && item.lastCheckedAt, '尚未检查'));
+    timeGrid.appendChild(buildTimeInfo('上次抓取', item && item.lastCrawlAt, '尚未抓取'));
+    card.appendChild(timeGrid);
+    card.appendChild(buildActressFilter(item, callbacks));
 
     const urlBlock = document.createElement('div');
     urlBlock.className = 'subscription-url-block';

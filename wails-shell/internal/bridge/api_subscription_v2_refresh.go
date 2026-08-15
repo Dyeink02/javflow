@@ -9,7 +9,6 @@
 package bridge
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -112,7 +111,7 @@ func (a *API) refreshSubscriptionsV2Result(payload map[string]any) (string, erro
 	runtimeOptions := a.buildSubscriptionV2RuntimeOptions(payload)
 	a.emitSubscriptionV2Log("info", "[diagnostic] AV订阅检测桥接主爬虫请求配置 "+describeSubscriptionV2RuntimeOptions(runtimeOptions))
 	summary, err := a.lookup.avSubscriptionsV2.RefreshAll(
-		context.Background(),
+		a.applicationContext(),
 		runtimeOptions,
 		a.subscriptionV2RefreshLogger(),
 	)
@@ -150,7 +149,9 @@ func (a *API) subscriptionV2SidecarPageFetcher() avsubscriptionv2.ScanPageFetche
 			"delay":            2,
 		}
 
-		raw, err := a.runtime.manager.Call(context.Background(), "crawl", "fetch-index-page", payload)
+		// The compatibility fetcher remains the existing JAV crawler route. Its
+		// only lifecycle policy here is cancellation when the desktop closes.
+		raw, err := a.runtime.manager.Call(a.applicationContext(), "crawl", "fetch-index-page", payload)
 		if err != nil {
 			return avsubscriptionv2.ScanPageFetchResult{}, err
 		}
@@ -185,7 +186,7 @@ func (a *API) refreshSubscriptionV2Result(payload map[string]any) (string, error
 	runtimeOptions := a.buildSubscriptionV2RuntimeOptions(payload)
 	a.emitSubscriptionV2Log("info", "[diagnostic] AV订阅检测桥接主爬虫请求配置 "+describeSubscriptionV2RuntimeOptions(runtimeOptions))
 	result, err := a.lookup.avSubscriptionsV2.RefreshOne(
-		context.Background(),
+		a.applicationContext(),
 		id,
 		runtimeOptions,
 		a.subscriptionV2RefreshLogger(),

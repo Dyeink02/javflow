@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"javflow/internal/common"
 	"javflow/internal/crawlfetch"
 	runtimepaths "javflow/internal/runtime"
 )
@@ -60,7 +62,11 @@ func (s *Service) load() ([]Subscription, error) {
 
 	items := []Subscription{}
 	if err := json.Unmarshal(payload, &items); err != nil {
-		return []Subscription{}, nil
+		backupPath, backupErr := common.PreserveCorruptFile(s.storagePath())
+		if backupErr != nil {
+			return nil, fmt.Errorf("subscription state is unreadable and could not be preserved: %w", backupErr)
+		}
+		return nil, fmt.Errorf("subscription state is unreadable; preserved original file at %s", backupPath)
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -74,17 +80,44 @@ func (s *Service) load() ([]Subscription, error) {
 }
 
 func (s *Service) save(items []Subscription) error {
-	if err := os.MkdirAll(filepath.Dir(s.storagePath()), 0o755); err != nil {
-		return err
-	}
-
 	ensureSortOrders(items)
 	sortSubscriptions(items)
 	payload, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.storagePath(), payload, 0o644)
+	return common.WriteFileAtomic(s.storagePath(), payload, 0o644)
+}
+
+// ApplyRefreshResults merges a completed refresh into the latest persisted
+// list. Network scans intentionally happen without storageMu; reading the
+// current list again here prevents their stale pre-scan snapshot from erasing
+// a user's concurrent add, remove, reorder, media update, or crawl handoff.
+func (s *Service) ApplyRefreshResults(results []Subscription) ([]Subscription, error) {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+
+	items, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Format(time.RFC3339)
+	for _, refreshed := range results {
+		index := findSubscriptionIndex(items, refreshed)
+		if index < 0 {
+			// The user may have removed this subscription while it was being
+			// refreshed. Do not resurrect it from a stale network result.
+			continue
+		}
+		current := items[index]
+		merged := mergeRefreshResult(current, refreshed, now)
+		items[index] = normalizeSubscription(merged, now)
+	}
+	ensureSortOrders(items)
+	if err := s.save(items); err != nil {
+		return nil, err
+	}
+	return append([]Subscription(nil), items...), nil
 }
 
 func (s *Service) List() ([]Subscription, error) {
@@ -234,6 +267,9 @@ func (s *Service) Patch(id string, patch map[string]any) (Subscription, error) {
 			if n := toInt(v); n > 0 {
 				item.ItemsPerPage = n
 			}
+		}
+		if v, ok := patch["actressCountFilterThreshold"]; ok {
+			item.ActressCountFilterThreshold = maxInt(0, toInt(v))
 		}
 		if v, ok := patch["totalPages"]; ok {
 			if n := toInt(v); n > 0 {
@@ -433,6 +469,7 @@ func normalizeSubscription(item Subscription, now string) Subscription {
 	item.BaselineCount = len(item.BaselineCodes)
 	item.PendingCodes = diffCodes(item.PendingCodes, item.BaselineCodes)
 	item.PendingCount = len(item.PendingCodes)
+	item.ActressCountFilterThreshold = maxInt(0, item.ActressCountFilterThreshold)
 	item.ItemsPerPage = maxInt(defaultItemsPerPage, item.ItemsPerPage)
 	if item.SourceType == sourceTypeCrawlImport {
 		if item.CurrentObservedCount < item.BaselineCount {
@@ -466,6 +503,7 @@ func normalizeSubscription(item Subscription, now string) Subscription {
 	item.BaselineSnapshotAt = ensureTimestamp(item.BaselineSnapshotAt, now)
 	item.LastUpdatedAt = ensureTimestamp(item.LastUpdatedAt, now)
 	item.LastCheckedAt = strings.TrimSpace(item.LastCheckedAt)
+	item.LastUpdateDetectedAt = strings.TrimSpace(item.LastUpdateDetectedAt)
 	item.LastCrawlAt = strings.TrimSpace(item.LastCrawlAt)
 	item.LastError = strings.TrimSpace(item.LastError)
 	if item.ID == "" {
@@ -548,6 +586,9 @@ func mergeSubscriptionState(current Subscription, next Subscription, now string)
 	if next.ManualDeclaredPerPage == 0 {
 		next.ManualDeclaredPerPage = current.ManualDeclaredPerPage
 	}
+	if next.ActressCountFilterThreshold == 0 {
+		next.ActressCountFilterThreshold = current.ActressCountFilterThreshold
+	}
 	if len(next.BaselineCodes) == 0 {
 		next.BaselineCodes = current.BaselineCodes
 	} else {
@@ -565,11 +606,40 @@ func mergeSubscriptionState(current Subscription, next Subscription, now string)
 	if next.LastCheckedAt == "" {
 		next.LastCheckedAt = current.LastCheckedAt
 	}
+	if next.LastUpdateDetectedAt == "" {
+		next.LastUpdateDetectedAt = current.LastUpdateDetectedAt
+	}
 	if next.LastError == "" {
 		next.LastError = current.LastError
 	}
 	next.LastUpdatedAt = now
 	return next
+}
+
+// mergeRefreshResult owns the narrow refresh-write contract. User-owned
+// fields (target, order, local media, output preference, and crawl baseline)
+// come from the latest storage record; remote-observed counts and refresh
+// diagnostics come from the completed scan.
+func mergeRefreshResult(current Subscription, refreshed Subscription, now string) Subscription {
+	merged := current
+	merged.CurrentObservedCount = refreshed.CurrentObservedCount
+	merged.CurrentTotal = refreshed.CurrentTotal
+	merged.PendingCodes = normalizeCodes(refreshed.PendingCodes)
+	merged.PendingCount = len(merged.PendingCodes)
+	merged.ItemsPerPage = refreshed.ItemsPerPage
+	merged.TotalPages = refreshed.TotalPages
+	merged.LastScanPages = refreshed.LastScanPages
+	merged.LastStoppedOnPage = refreshed.LastStoppedOnPage
+	merged.LatestItemURL = refreshed.LatestItemURL
+	merged.LastCheckedAt = refreshed.LastCheckedAt
+	merged.LastUpdateDetectedAt = refreshed.LastUpdateDetectedAt
+	if merged.LastUpdateDetectedAt == "" {
+		merged.LastUpdateDetectedAt = current.LastUpdateDetectedAt
+	}
+	merged.LastError = refreshed.LastError
+	merged.Status = refreshed.Status
+	merged.LastUpdatedAt = now
+	return merged
 }
 
 func nextSortOrder(items []Subscription) int {

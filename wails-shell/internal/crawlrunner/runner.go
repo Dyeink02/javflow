@@ -1816,7 +1816,7 @@ func (r *Runner) buildSnapshot(status RunnerStatus, message string, mode crawlex
 	// 快照是恢复闭环的核心：保存当前进度、队列、校验结果和输出状态。
 	recon := r.tracker.BuildReconciliation()
 	return crawltaskstate.BuildSnapshot(crawltaskstate.BuilderParams{
-		AppVersion: "0.4.3",
+		AppVersion: "0.4.31",
 		Status:     string(status),
 		Message:    strings.TrimSpace(message),
 		StartedAt:  strings.TrimSpace(r.startedAt),

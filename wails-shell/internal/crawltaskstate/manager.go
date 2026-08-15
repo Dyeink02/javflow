@@ -23,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"javflow/internal/common"
 )
 
 // Practical split:
@@ -33,7 +35,6 @@ import (
 //
 // This package is runtime-state persistence only. User-facing crawl artifacts
 // remain in crawloutput/contracts packages.
-//
 const StateRootEnvName = "JAV_SCRAPY_STATE_DIR"
 
 type Paths struct {
@@ -214,7 +215,9 @@ func (m *Manager) writeJSON(filePath string, data any, withBackup bool) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, payload, 0o644)
+	// A snapshot is recoverable state, not an append-only log. Commit it in one
+	// replace step so resume never consumes an interrupted half-written JSON.
+	return common.WriteFileAtomic(filePath, payload, 0o644)
 }
 
 // createLatestBackup keeps one previous copy for rollback review.

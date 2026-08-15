@@ -21,17 +21,18 @@ import (
 )
 
 type CrawlRequest struct {
-	SubscriptionID string        `json:"subscriptionId"`
-	ActressName    string        `json:"actressName"`
-	CrawlURL       string        `json:"crawlUrl"`
-	PreferredBase  string        `json:"preferredBase"`
-	OutputDir      string        `json:"outputDir"`
-	TargetCount    int           `json:"targetCount"`
-	TargetCodes    []string      `json:"targetCodes,omitempty"`
-	UserDataDir    string        `json:"userDataDir,omitempty"`
-	Proxy          string        `json:"proxy"`
-	ConfigCookie   string        `json:"configCookie"`
-	Timeout        time.Duration `json:"timeout"`
+	SubscriptionID              string        `json:"subscriptionId"`
+	ActressName                 string        `json:"actressName"`
+	CrawlURL                    string        `json:"crawlUrl"`
+	PreferredBase               string        `json:"preferredBase"`
+	OutputDir                   string        `json:"outputDir"`
+	TargetCount                 int           `json:"targetCount"`
+	TargetCodes                 []string      `json:"targetCodes,omitempty"`
+	ActressCountFilterThreshold int           `json:"actressCountFilterThreshold"`
+	UserDataDir                 string        `json:"userDataDir,omitempty"`
+	Proxy                       string        `json:"proxy"`
+	ConfigCookie                string        `json:"configCookie"`
+	Timeout                     time.Duration `json:"timeout"`
 }
 
 type Service struct {

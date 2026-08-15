@@ -100,7 +100,8 @@
     // controller should stay on page-level coordination and projection.
 
     const STORAGE_KEYS = {
-      organizerGuideShown: 'jav.organizer.guide.v1.shown'
+      organizerGuideShown: 'jav.organizer.guide.v1.shown',
+      autoSubscribeFromOutput: 'jav.organizer.autoSubscribeFromOutput'
     };
     const ORGANIZER_TOTAL_STAGES = 7;
     const messages = {
@@ -558,6 +559,9 @@
         ),
         strictExpectedCodes: Boolean(elements.organizerStrictCodeMatch && elements.organizerStrictCodeMatch.checked),
         retryMissingMagnets: Boolean(elements.organizerRetryMissingMagnets && elements.organizerRetryMissingMagnets.checked),
+        autoSubscribeFromOutput: Boolean(
+          elements.organizerAutoSubscribeFromOutput && elements.organizerAutoSubscribeFromOutput.checked
+        ),
         preloadedExpected: inputState.preloadedExpected,
         crawlOutputDir: inputState.crawlOutputDir,
         adDetectionEnabled: learningConfig.adDetectionEnabled,
@@ -591,6 +595,38 @@
         (!settings.rootPath || !String(settings.rootPath).trim())
       ) {
         throw new Error(messages.codeRequired);
+      }
+    }
+
+    async function autoSubscribeFromOrganizerOutput(settings) {
+      if (!settings.autoSubscribeFromOutput) {
+        return;
+      }
+      if (!desktopApi || typeof desktopApi.scanAvSubscriptionsFromOutput !== 'function') {
+        appendOrganizerLog('warn', '自动订阅不可用：订阅服务尚未就绪。');
+        return;
+      }
+
+      const snapshotOutputDir = String(
+        settings.preloadedExpected && settings.preloadedExpected.outputDir ? settings.preloadedExpected.outputDir : ''
+      ).trim();
+      const artifactInput = snapshotOutputDir || String(settings.crawlOutputDir || '').trim();
+      if (!artifactInput) {
+        appendOrganizerLog('warn', '自动订阅已跳过：未选择包含 crawl-profile.json 或 filmData.json 的整理输入。');
+        return;
+      }
+
+      appendOrganizerLog('info', '整理完成，正在从 JSON 导入 AV 订阅基线...');
+      try {
+        const result = await desktopApi.scanAvSubscriptionsFromOutput({ artifactInput });
+        const actresses = Array.isArray(result && result.scannedActressList)
+          ? result.scannedActressList.map((item) => String(item || '').trim()).filter(Boolean)
+          : [];
+        const actressLabel = actresses.join('、') || '目标女优';
+        const addedCount = Number(result && result.addedCount) || 0;
+        appendOrganizerLog('info', addedCount > 0 ? `已自动订阅：${actressLabel}` : `已更新订阅基线：${actressLabel}`);
+      } catch (error) {
+        appendOrganizerLog('warn', `自动订阅失败：${getErrorMessage(error)}`);
       }
     }
 
@@ -656,6 +692,10 @@
           onBindOpenReport: bindOpenReport
         });
         renderReviewPanel(result);
+
+        if (!dryRun) {
+          await autoSubscribeFromOrganizerOutput(settings);
+        }
 
         const finishMessage = dryRun ? messages.previewComplete : messages.complete;
         setSummaryMessage(buildCompletedSummary(summary, dryRun));
@@ -810,6 +850,22 @@
       if (elements.organizerAlistUrl) {
         elements.organizerAlistUrl.addEventListener('change', () => {
           safeLocalStorageSet('jav.organizer.alist.url', elements.organizerAlistUrl.value);
+        });
+      }
+
+      if (elements.organizerAutoSubscribeFromOutput) {
+        elements.organizerAutoSubscribeFromOutput.addEventListener('change', () => {
+          safeLocalStorageSet(
+            STORAGE_KEYS.autoSubscribeFromOutput,
+            elements.organizerAutoSubscribeFromOutput.checked ? '1' : '0'
+          );
+          if (desktopApi && typeof desktopApi.saveWorkspacePreferences === 'function') {
+            void desktopApi
+              .saveWorkspacePreferences({
+                organizerAutoSubscribeFromOutput: elements.organizerAutoSubscribeFromOutput.checked
+              })
+              .catch(() => {});
+          }
         });
       }
 
@@ -1008,6 +1064,19 @@
           }
           if (elements.organizerRetryMissingMagnets) {
             elements.organizerRetryMissingMagnets.checked = Boolean(settings.organizerRetryMissingMagnets);
+          }
+          if (elements.organizerAutoSubscribeFromOutput) {
+            const useSavedWorkspacePreferences = Number(settings.organizerWorkspacePreferencesVersion) >= 1;
+            elements.organizerAutoSubscribeFromOutput.checked = useSavedWorkspacePreferences
+              ? Boolean(settings.organizerAutoSubscribeFromOutput)
+              : safeLocalStorageGet(STORAGE_KEYS.autoSubscribeFromOutput, '') === '1';
+            if (!useSavedWorkspacePreferences && desktopApi && typeof desktopApi.saveWorkspacePreferences === 'function') {
+              void desktopApi
+                .saveWorkspacePreferences({
+                  organizerAutoSubscribeFromOutput: elements.organizerAutoSubscribeFromOutput.checked
+                })
+                .catch(() => {});
+            }
           }
           if (elements.organizerCrawlOutput) {
             elements.organizerCrawlOutput.value =

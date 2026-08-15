@@ -41,6 +41,9 @@ func (a *API) handleRuntimeBootstrapCommand(command string, payload map[string]a
 	case "app:save-actress-atlas-proxy":
 		return a.handleSaveActressAtlasProxyCommand(payload)
 
+	case "app:save-workspace-preferences":
+		return a.handleSaveWorkspacePreferencesCommand(payload)
+
 	case "app:list-crawl-cache-snapshots":
 		result, err := a.listCrawlCacheSnapshotsResult()
 		return result, true, err
@@ -106,5 +109,60 @@ func (a *API) handleSaveActressAtlasProxyCommand(payload map[string]any) (string
 		return "", true, err
 	}
 	result, err := marshalResult(map[string]any{"proxy": nonEmptyString(settings["proxy"])})
+	return result, true, err
+}
+
+// handleSaveWorkspacePreferences persists renderer-only choices that need to
+// survive WebView storage resets as well as normal application restarts.
+// Keep the accepted fields explicit: this command is not a generic settings
+// writer and must not let arbitrary renderer payloads change crawler options.
+func (a *API) handleSaveWorkspacePreferencesCommand(payload map[string]any) (string, bool, error) {
+	settings, err := a.mutateBridgeSettings(func(current map[string]any) {
+		libraryPreferencesSaved := false
+		organizerPreferencesSaved := false
+		if value, exists := payload["libraryCompactLayout"]; exists {
+			current["libraryCompactLayout"] = boolValue(value, false)
+			libraryPreferencesSaved = true
+		}
+		if value, exists := payload["libraryShowHiddenFiles"]; exists {
+			current["libraryShowHiddenFiles"] = boolValue(value, true)
+			libraryPreferencesSaved = true
+		}
+		if value, exists := payload["libraryScrapeConcurrency"]; exists {
+			concurrency := intValue(value, 3)
+			if concurrency < 1 {
+				concurrency = 1
+			}
+			if concurrency > 5 {
+				concurrency = 5
+			}
+			current["libraryScrapeConcurrency"] = concurrency
+			libraryPreferencesSaved = true
+		}
+		if value, exists := payload["libraryAutoSubscribeFromOutput"]; exists {
+			current["libraryAutoSubscribeFromOutput"] = boolValue(value, false)
+			libraryPreferencesSaved = true
+		}
+		if value, exists := payload["organizerAutoSubscribeFromOutput"]; exists {
+			current["organizerAutoSubscribeFromOutput"] = boolValue(value, false)
+			organizerPreferencesSaved = true
+		}
+		if libraryPreferencesSaved {
+			current["libraryWorkspacePreferencesVersion"] = 1
+		}
+		if organizerPreferencesSaved {
+			current["organizerWorkspacePreferencesVersion"] = 1
+		}
+	})
+	if err != nil {
+		return "", true, err
+	}
+	result, err := marshalResult(map[string]any{
+		"libraryCompactLayout":             boolValue(settings["libraryCompactLayout"], false),
+		"libraryShowHiddenFiles":           boolValue(settings["libraryShowHiddenFiles"], true),
+		"libraryScrapeConcurrency":         intValue(settings["libraryScrapeConcurrency"], 3),
+		"libraryAutoSubscribeFromOutput":   boolValue(settings["libraryAutoSubscribeFromOutput"], false),
+		"organizerAutoSubscribeFromOutput": boolValue(settings["organizerAutoSubscribeFromOutput"], false),
+	})
 	return result, true, err
 }

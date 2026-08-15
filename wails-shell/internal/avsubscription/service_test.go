@@ -531,6 +531,32 @@ func TestListOrdersByPendingFirst(t *testing.T) {
 	}
 }
 
+func TestListPreservesUnreadableStateInsteadOfTreatingItAsEmpty(t *testing.T) {
+	userData := filepath.Join(t.TempDir(), "user-data")
+	service := NewService(runtimepaths.Paths{UserData: userData, Documents: t.TempDir()})
+	storagePath := filepath.Join(userData, storageDirName, storageFileName)
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(storagePath, []byte("{not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.List(); err == nil {
+		t.Fatal("expected unreadable subscription state to be reported")
+	}
+	backups, err := filepath.Glob(storagePath + ".corrupt-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("expected one preserved corrupt state file, got %v", backups)
+	}
+	if _, err := os.Stat(storagePath); !os.IsNotExist(err) {
+		t.Fatalf("unreadable state should not remain active, stat err=%v", err)
+	}
+}
+
 func writeFilmData(t *testing.T, outputDir string, records []map[string]any) {
 	t.Helper()
 

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"javflow/internal/crawloutput"
 )
 
 func TestClampConcurrency(t *testing.T) {
@@ -13,6 +15,20 @@ func TestClampConcurrency(t *testing.T) {
 		if actual := clampConcurrency(input); actual != expected {
 			t.Fatalf("clampConcurrency(%d) = %d, expected %d", input, actual, expected)
 		}
+	}
+}
+
+func TestApplyActressCountFilter(t *testing.T) {
+	film := crawloutput.FilmData{Title: "ABC-001", ActressCount: 12}
+	if got := applyActressCountFilter(film, 0); got.FilteredByActressCount {
+		t.Fatal("threshold 0 must leave filtering disabled")
+	}
+	got := applyActressCountFilter(film, 12)
+	if !got.FilteredByActressCount || got.FilterRemark == "" {
+		t.Fatalf("expected threshold match to mark collection film: %+v", got)
+	}
+	if below := applyActressCountFilter(film, 13); below.FilteredByActressCount {
+		t.Fatal("film below threshold must remain visible")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Package common contains narrow cross-domain helpers that are shared by
@@ -220,4 +221,66 @@ func AppendUTF8TextFile(path string, content string) error {
 
 	_, err = file.Write([]byte(content))
 	return err
+}
+
+// WriteFileAtomic replaces a complete file in one commit step. Callers should
+// use it for recoverable local state (caches, settings, indexes), never for
+// append-only logs. A process interruption can therefore leave either the old
+// complete file or the new complete file, but not a truncated JSON document.
+func WriteFileAtomic(path string, payload []byte, permissions os.FileMode) error {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return fmt.Errorf("atomic write path is empty")
+	}
+	directory := filepath.Dir(target)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return err
+	}
+
+	temporary, err := os.CreateTemp(directory, "."+filepath.Base(target)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	completed := false
+	defer func() {
+		if !completed {
+			_ = temporary.Close()
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	if err := temporary.Chmod(permissions); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, target); err != nil {
+		return err
+	}
+	completed = true
+	return nil
+}
+
+// PreserveCorruptFile moves an unreadable recoverable-state file aside before
+// its owner reports an error or writes a replacement. The timestamped copy is
+// intentionally retained for support and manual recovery instead of silently
+// discarding user state after an interrupted write or manual edit.
+func PreserveCorruptFile(path string) (string, error) {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return "", fmt.Errorf("corrupt file path is empty")
+	}
+	backupPath := target + ".corrupt-" + time.Now().Format("20060102-150405")
+	if err := os.Rename(target, backupPath); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }

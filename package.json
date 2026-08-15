@@ -1,7 +1,7 @@
 {
   "//": "Compatibility note: this package.json remains for Node-side build helpers and sidecar compatibility only. The main desktop app now lives in wails-shell/ (Wails + Go). Node dependencies are retained for compatibility and fallback paths, not as the primary application runtime.",
   "name": "javflow",
-  "version": "0.4.3",
+  "version": "0.4.31",
   "type": "commonjs",
   "description": "JavFlow - JAV media library automation workflow (Wails + Go desktop app)",
   "dependencies": {
@@ -59,7 +59,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/javflow-team/javflow.git"
+    "url": "https://github.com/Dyeink02/javflow.git"
   },
   "keywords": [
     "crawler",
@@ -70,9 +70,9 @@
     "wails",
     "go"
   ],
-  "homepage": "https://github.com/javflow-team/javflow#readme",
-  "author": "javflow-team",
+  "homepage": "https://github.com/Dyeink02/javflow#readme",
+  "author": "Dyeink02",
   "bugs": {
-    "url": "https://github.com/javflow-team/javflow/issues"
+    "url": "https://github.com/Dyeink02/javflow/issues"
   }
 }

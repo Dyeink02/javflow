@@ -7,7 +7,8 @@
 #   3) Window list output and cleanup.
 #
 $ErrorActionPreference = 'Stop'
-$exe = Resolve-Path 'wails-shell/release/javflow.exe'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$exe = Join-Path $repoRoot 'wails-shell\release\javflow.exe'
 $p = Start-Process -FilePath $exe -PassThru -WindowStyle Normal
 Write-Host "Started PID $($p.Id)"
 $maxWait = 30
@@ -33,7 +34,8 @@ public class WinEnum {
 }
 "@ -Language CSharp
 
-$outPath = 'e:\JAVAV\源码\JAV-auto-integrated-source-github\diag-windows2.txt'
+$outPath = Join-Path $repoRoot 'log\diag-windows2.txt'
+New-Item -ItemType Directory -Path (Split-Path -Parent $outPath) -Force | Out-Null
 $sb = New-Object System.Text.StringBuilder 512
 $windows = @()
 $cb = {

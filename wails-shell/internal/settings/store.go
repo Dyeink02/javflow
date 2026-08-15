@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 
+	"javflow/internal/common"
 	runtimepaths "javflow/internal/runtime"
 )
 
@@ -62,38 +63,45 @@ func (s *Store) settingsPath() string {
 // logic. New desktop settings should land here first.
 func (s *Store) defaultSettings() map[string]any {
 	return map[string]any{
-		"base":                           "https://www.javbus.com",
-		"output":                         filepath.Join(s.paths.Documents, defaultCrawlerOutputDirName),
-		"limit":                          10,
-		"totalPages":                     0,
-		"itemsPerPage":                   30,
-		"parallel":                       2,
-		"delay":                          2,
-		"timeout":                        30000,
-		"proxy":                          "",
-		"magnetExcludeKeywords":          "",
-		"actressCountFilterThreshold":    0,
-		"magnetContentValidation":        false,
-		"cloudflare":                     false,
-		"nomag":                          false,
-		"allmag":                         false,
-		"nopic":                          false,
-		"secondValidation":               true,
-		"taskTemplate":                   "balanced",
-		"backgroundImage":                "",
-		"organizerRoot":                  "",
-		"organizerMinSizeMB":             100,
-		"organizerSuffix":                "-A",
-		"organizerVideoExtensions":       "mp4, mkv, avi, mov, flv, wmv, ts, m4v, iso",
-		"organizerAdFileAction":          "move-to-delete",
-		"organizerDryRun":                false,
-		"organizerIncludeSubdirectories": true,
-		"organizerCrawlOutput":           "",
-		"organizerStrictCodeMatch":       true,
-		"organizerAdDetectionEnabled":    false,
-		"organizerAdThreshold":           60,
-		"organizerAdKeywords":            "",
-		"organizerAdModelType":           "mobile-net-v3-lite",
+		"base":                                 "https://www.javbus.com",
+		"output":                               filepath.Join(s.paths.Documents, defaultCrawlerOutputDirName),
+		"limit":                                10,
+		"totalPages":                           0,
+		"itemsPerPage":                         30,
+		"parallel":                             2,
+		"delay":                                2,
+		"timeout":                              30000,
+		"proxy":                                "",
+		"magnetExcludeKeywords":                "",
+		"actressCountFilterThreshold":          0,
+		"magnetContentValidation":              false,
+		"cloudflare":                           false,
+		"nomag":                                false,
+		"allmag":                               false,
+		"nopic":                                false,
+		"secondValidation":                     true,
+		"taskTemplate":                         "balanced",
+		"backgroundImage":                      "",
+		"organizerRoot":                        "",
+		"organizerMinSizeMB":                   100,
+		"organizerSuffix":                      "-A",
+		"organizerVideoExtensions":             "mp4, mkv, avi, mov, flv, wmv, ts, m4v, iso",
+		"organizerAdFileAction":                "move-to-delete",
+		"organizerDryRun":                      false,
+		"organizerIncludeSubdirectories":       true,
+		"organizerCrawlOutput":                 "",
+		"organizerStrictCodeMatch":             true,
+		"organizerAdDetectionEnabled":          false,
+		"organizerAdThreshold":                 60,
+		"organizerAdKeywords":                  "",
+		"organizerAdModelType":                 "mobile-net-v3-lite",
+		"libraryWorkspacePreferencesVersion":   0,
+		"organizerWorkspacePreferencesVersion": 0,
+		"libraryCompactLayout":                 false,
+		"libraryShowHiddenFiles":               true,
+		"libraryScrapeConcurrency":             3,
+		"libraryAutoSubscribeFromOutput":       false,
+		"organizerAutoSubscribeFromOutput":     false,
 	}
 }
 
@@ -161,16 +169,14 @@ func (s *Store) Save(next map[string]any) error {
 	delete(current, "resumeExisting")
 	delete(current, "exportCoverImages")
 
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return err
-	}
-
 	payload, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(filePath, payload, 0o644)
+	// Settings are read-modify-written under one mutex. The final replacement is
+	// atomic as well, so a power loss cannot turn a valid settings file into a
+	// truncated JSON document that later looks like an empty configuration.
+	return common.WriteFileAtomic(filePath, payload, 0o644)
 }
 
 // imagePathToDataURL reads an image file and returns a base64 data URL that

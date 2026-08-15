@@ -141,61 +141,6 @@ func NewServiceWithAliasCache(userDataDir string, fetchers ...verifiedPageFetche
 	return service
 }
 
-// resolveAliasQuery applies only a unique, verified alias automatically.
-// Fuzzy or colliding records remain visible errors rather than silently
-// opening a similarly named performer's directory.
-func (s *Service) resolveAliasQuery(value string) (string, actressalias.Resolution, error) {
-	query := strings.TrimSpace(value)
-	resolution := actressalias.Resolution{Query: query, MatchKind: "missing"}
-	if s != nil && s.aliases != nil {
-		resolution = s.aliases.Resolve(query)
-	}
-	if resolution.Unique && strings.TrimSpace(resolution.Canonical) != "" {
-		return resolution.Canonical, resolution, nil
-	}
-	if len(resolution.Candidates) > 0 {
-		names := make([]string, 0, len(resolution.Candidates))
-		for _, candidate := range resolution.Candidates {
-			names = append(names, candidate.Canonical)
-		}
-		return "", resolution, fmt.Errorf("actor alias is ambiguous: %s", strings.Join(uniqStrings(names...), ", "))
-	}
-	return query, resolution, nil
-}
-
-// RememberAlias is called by the bridge only after an external metadata result
-// has also been verified against a canonical JAV directory.
-func (s *Service) RememberAlias(canonical string, aliases []string, source string) error {
-	if s == nil || s.aliases == nil {
-		return fmt.Errorf("actress alias index is not initialized")
-	}
-	return s.aliases.Remember(actressalias.Record{Canonical: canonical, Aliases: aliases, Source: source, Confidence: "provider-and-jav-verified", UpdatedAt: time.Now().Format(time.RFC3339)})
-}
-
-// rememberProviderAliases persists only provider-supplied aliases after a
-// canonical JAV directory has already been resolved.
-func (s *Service) rememberProviderAliases(canonical string, fields map[string]string) {
-	if s == nil || s.aliases == nil || strings.TrimSpace(canonical) == "" {
-		return
-	}
-	aliases := make([]string, 0)
-	for _, key := range []string{"别名", "alternateName", "additionalName"} {
-		for _, value := range strings.FieldsFunc(fields[key], func(r rune) bool {
-			return r == '/' || r == '、' || r == ',' || r == '，' || r == '\n'
-		}) {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				aliases = append(aliases, trimmed)
-			}
-		}
-	}
-	if len(aliases) == 0 {
-		return
-	}
-	_ = s.aliases.Remember(actressalias.Record{
-		Canonical: canonical, Aliases: aliases, Source: "minnano-av", Confidence: "provider-verified", UpdatedAt: time.Now().Format(time.RFC3339),
-	})
-}
-
 func normalizeName(value string) string {
 	// Searches are frequently entered using Chinese variants while JAV sources
 	// publish Japanese glyphs. Normalize the common variants before comparing so
@@ -213,14 +158,6 @@ func normalizeName(value string) string {
 	)
 }
 
-// siteSearchName converts the common Chinese character variants before a
-// request is sent. normalizeName already does this for comparisons, but a
-// directory search must also use the spelling actually indexed by the source
-// site, for example "三上悠亚" -> "三上悠亜".
-func siteSearchName(value string) string {
-	return actressalias.DirectoryName(value)
-}
-
 func isVerificationPage(htmlText string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(htmlText))
 	return strings.Contains(normalized, "age verification javbus") ||
@@ -234,7 +171,7 @@ func isVerificationPage(htmlText string) bool {
 // verification document, it delegates to the crawler's existing recovery
 // service instead of duplicating or altering the Cloudflare/age-check code.
 func (s *Service) fetchLookupPage(ctx context.Context, targetURL string, proxyValue string) (string, string, error) {
-	body, resolvedURL, err := fetchHTML(targetURL, proxyValue)
+	body, resolvedURL, err := fetchHTMLContext(ctx, targetURL, proxyValue)
 	if err != nil || !isVerificationPage(body) || s == nil || s.pageFetcher == nil {
 		return body, resolvedURL, err
 	}
@@ -852,9 +789,16 @@ func canonicalProfileImageURL(rawURL string) string {
 	return strings.ToLower(parsed.String())
 }
 
-// ResolveTarget starts from actress name search, selects one candidate, and
-// returns a stable target profile for later crawl execution.
+// ResolveTarget keeps the existing synchronous public contract for callers
+// outside the desktop bridge. New UI paths should call ResolveTargetContext so
+// closing the desktop application cancels their provider requests promptly.
 func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.TargetProfile, error) {
+	return s.ResolveTargetContext(context.Background(), options)
+}
+
+// ResolveTargetContext starts from actress name search, selects one candidate,
+// and returns a stable target profile for later crawl execution.
+func (s *Service) ResolveTargetContext(parent context.Context, options ResolveOptions) (subscriptiontarget.TargetProfile, error) {
 	requestedName := strings.TrimSpace(options.ActressName)
 	actressName := requestedName
 	if actressName == "" {
@@ -870,7 +814,10 @@ func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.Targ
 
 	origins := buildBaseOrigins(options)
 	lookupErrors := make([]string, 0, len(origins))
-	lookupContext, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if parent == nil {
+		parent = context.Background()
+	}
+	lookupContext, cancel := context.WithTimeout(parent, 45*time.Second)
 	defer cancel()
 
 	for _, origin := range origins {
@@ -938,16 +885,25 @@ func (s *Service) ResolveTarget(options ResolveOptions) (subscriptiontarget.Targ
 	return subscriptiontarget.TargetProfile{}, fmt.Errorf("未能定位女优目录。%s", strings.Join(lookupErrors, "；"))
 }
 
-// InspectTarget prefers an already known target URL and falls back to name
-// resolution only when direct inspection cannot produce a usable profile.
+// InspectTarget keeps the existing synchronous public contract. New UI paths
+// should call InspectTargetContext to inherit desktop cancellation.
 func (s *Service) InspectTarget(options ResolveOptions) (subscriptiontarget.TargetProfile, error) {
+	return s.InspectTargetContext(context.Background(), options)
+}
+
+// InspectTargetContext prefers an already known target URL and falls back to
+// name resolution only when direct inspection cannot produce a usable profile.
+func (s *Service) InspectTargetContext(parent context.Context, options ResolveOptions) (subscriptiontarget.TargetProfile, error) {
 	targetURL := strings.TrimSpace(options.TargetURL)
 	actressName := strings.TrimSpace(options.ActressName)
 	if targetURL == "" {
-		return s.ResolveTarget(options)
+		return s.ResolveTargetContext(parent, options)
 	}
 
-	inspectContext, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if parent == nil {
+		parent = context.Background()
+	}
+	inspectContext, cancel := context.WithTimeout(parent, 45*time.Second)
 	defer cancel()
 	fetched, err := s.fetchStarPage(inspectContext, targetURL, options)
 	if err == nil {
@@ -962,7 +918,7 @@ func (s *Service) InspectTarget(options ResolveOptions) (subscriptiontarget.Targ
 		return subscriptiontarget.TargetProfile{}, err
 	}
 
-	profile, resolveErr := s.ResolveTarget(options)
+	profile, resolveErr := s.ResolveTargetContext(inspectContext, options)
 	if resolveErr != nil {
 		return subscriptiontarget.TargetProfile{}, fmt.Errorf("%s；%s", err.Error(), resolveErr.Error())
 	}
