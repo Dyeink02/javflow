@@ -7,26 +7,13 @@
 -->
 
 <main class="layout subscription-layout">
-  <section class="panel subscription-title-panel">
-    <div class="panel-head">
-      <div>
-          <p class="panel-kicker">AV 订阅</p>
-          <h2>女优订阅与更新追踪</h2>
-          <p class="subscription-sort-tip">先建立基线，再检测更新，最后只抓新增番号。</p>
-        </div>
-      </div>
-    <div class="message-box subscription-message-box subscription-title-box">
-      <p id="subscription-summary-message">等待检测订阅更新。</p>
-    </div>
-  </section>
-
   <section class="subscription-main-stack">
     <section class="panel subscription-master-panel">
       <div class="panel-head">
         <div>
           <p class="panel-kicker">我的订阅</p>
           <h2>AV 女优订阅列表</h2>
-          <p class="subscription-sort-tip">拖拽卡片或使用上下按钮调整顺序；排序会自动保存。</p>
+          <p class="subscription-sort-tip">优先查看有更新的演员；切换到“手动顺序”后可拖拽或使用上下按钮调整顺序。</p>
         </div>
         <div class="subscription-master-head-side">
           <div class="subscription-mini-stats">
@@ -49,6 +36,42 @@
             <button id="subscription-refresh" class="secondary-button subscription-top-refresh-button" type="button">检测更新</button>
           </div>
         </div>
+      </div>
+
+      <div class="subscription-list-toolbar" role="region" aria-label="订阅列表筛选与排序">
+        <label class="subscription-search-field">
+          <span>查找订阅演员</span>
+          <input id="subscription-list-search" type="search" placeholder="输入中文名、日文名或别名" autocomplete="off" />
+        </label>
+        <label class="subscription-filter-field">
+          <span>状态</span>
+          <span class="subscription-select-control">
+            <select id="subscription-list-filter">
+            <option value="all">全部</option>
+            <option value="updated">有更新</option>
+            <option value="pending">待抓取</option>
+            <option value="error">检查失败</option>
+            <option value="unchecked">未检查</option>
+            </select>
+          </span>
+        </label>
+        <label class="subscription-filter-field">
+          <span>排序方式</span>
+          <span class="subscription-select-control">
+            <select id="subscription-list-sort">
+            <option value="updated">有更新优先</option>
+            <option value="manual">手动顺序</option>
+            <option value="detected">最近发现</option>
+            <option value="checked">最近检查</option>
+            <option value="pending">待抓数量</option>
+            <option value="name">名称</option>
+            </select>
+          </span>
+        </label>
+        <span id="subscription-list-result-count" class="subscription-list-result-count">显示 0 / 0 位</span>
+      </div>
+      <div id="subscription-refresh-summary" class="subscription-refresh-summary" aria-live="polite">
+        尚未执行批量检测。
       </div>
 
       <div id="subscription-list" class="subscription-list subscription-master-list"></div>

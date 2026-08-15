@@ -48,3 +48,27 @@ func TestAppendUTF8TextFileAddsBOMOnlyOnce(t *testing.T) {
 		t.Fatalf("unexpected appended content: %q", string(data[len(utf8BOM):]))
 	}
 }
+
+func TestWriteFileAtomicReplacesCompleteFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.json")
+	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(path, []byte(`{"version":2}`), 0o600); err != nil {
+		t.Fatalf("WriteFileAtomic failed: %v", err)
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"version":2}` {
+		t.Fatalf("unexpected atomic payload: %q", payload)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".cache.json-*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("atomic write left temporary files: %v", leftovers)
+	}
+}

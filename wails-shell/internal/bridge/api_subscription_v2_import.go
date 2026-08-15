@@ -9,7 +9,6 @@
 package bridge
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -58,7 +57,7 @@ func (a *API) addSubscriptionV2ManualResult(payload map[string]any) (string, err
 		Proxy:           nonEmptyString(payload["proxy"]),
 		RuntimeOptions:  a.buildSubscriptionV2RuntimeOptions(payload),
 	}
-	saved, err := a.lookup.avSubscriptionsV2.CreateManual(context.Background(), req)
+	saved, err := a.lookup.avSubscriptionsV2.CreateManual(a.applicationContext(), req)
 	if err != nil {
 		return "", err
 	}
@@ -78,10 +77,7 @@ func (a *API) triggerAutoDetectAfterImport(sub avsubscriptionv2.Subscription, ru
 		return
 	}
 
-	ctx := a.wailsCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := a.applicationContext()
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {

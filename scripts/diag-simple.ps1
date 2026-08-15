@@ -7,7 +7,10 @@
 #   3) Cleanup via process termination.
 #
 $ErrorActionPreference = 'Stop'
-$exe = 'e:\JAVAV\源码\javflow-source-20260725-182718\javflow\wails-shell\release\javflow.exe'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$exe = Join-Path $repoRoot 'wails-shell\release\javflow.exe'
+$reportPath = Join-Path $repoRoot 'log\diag-simple.txt'
+New-Item -ItemType Directory -Path (Split-Path -Parent $reportPath) -Force | Out-Null
 $proc = Start-Process -FilePath $exe -PassThru
 Write-Host "Started PID: $($proc.Id)"
 Start-Sleep -Seconds 5
@@ -24,5 +27,5 @@ public class RectHelper {
 }
 "@ -Language CSharp -ErrorAction SilentlyContinue
   [RectHelper]::Get($_.MainWindowHandle)
-}} | Format-Table -AutoSize | Out-String | Tee-Object -FilePath 'e:\JAVAV\源码\JAV-auto-integrated-source-github\diag-simple.txt'
+}} | Format-Table -AutoSize | Out-String | Tee-Object -FilePath $reportPath
 Stop-Process -Id $proc.Id -Force

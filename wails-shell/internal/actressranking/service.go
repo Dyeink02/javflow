@@ -26,6 +26,8 @@ import (
 	"time"
 	"unicode"
 
+	"javflow/internal/common"
+
 	"golang.org/x/net/html"
 )
 
@@ -58,122 +60,6 @@ var (
 	worksCountPattern     = regexp.MustCompile(`商品数\s*[:：]\s*(\d+)`)
 	digitsPattern         = regexp.MustCompile(`\d+`)
 )
-
-type rankingError struct {
-	message string
-	code    string
-}
-
-func (e *rankingError) Error() string {
-	return e.message
-}
-
-func createRankingError(message string, code string) error {
-	return &rankingError{
-		message: strings.TrimSpace(message),
-		code:    strings.TrimSpace(code),
-	}
-}
-
-type Options struct {
-	Mode               string
-	Year               int
-	Month              int
-	Source             string
-	Proxy              string
-	ForceRefresh       bool
-	CacheFilePath      string
-	HistoryDirectories []string
-}
-
-type RankingItem struct {
-	Rank        int    `json:"rank"`
-	ActressName string `json:"actressName"`
-	ProfileURL  string `json:"profileUrl,omitempty"`
-	ImageURL    string `json:"imageUrl,omitempty"`
-	LatestTitle string `json:"latestTitle,omitempty"`
-	LatestURL   string `json:"latestUrl,omitempty"`
-	WorksCount  *int   `json:"worksCount,omitempty"`
-}
-
-type Result struct {
-	Title                string        `json:"title"`
-	SourceName           string        `json:"sourceName"`
-	OriginSourceName     string        `json:"originSourceName,omitempty"`
-	SourceURL            string        `json:"sourceUrl,omitempty"`
-	Mode                 string        `json:"mode"`
-	RequestedSource      string        `json:"requestedSource,omitempty"`
-	RequestedSourceLabel string        `json:"requestedSourceLabel,omitempty"`
-	ResolvedSource       string        `json:"resolvedSource,omitempty"`
-	ResolvedSourceLabel  string        `json:"resolvedSourceLabel,omitempty"`
-	PeriodLabel          string        `json:"periodLabel"`
-	PeriodYear           int           `json:"periodYear"`
-	PeriodMonth          int           `json:"periodMonth"`
-	Total                int           `json:"total"`
-	AvailableYears       []int         `json:"availableYears"`
-	AvailableMonths      []int         `json:"availableMonths"`
-	FetchedAt            string        `json:"fetchedAt"`
-	Items                []RankingItem `json:"items"`
-	FromCache            bool          `json:"fromCache"`
-	Stale                bool          `json:"stale"`
-	Notice               string        `json:"notice,omitempty"`
-	ErrorMessage         string        `json:"errorMessage,omitempty"`
-	FallbackUsed         bool          `json:"fallbackUsed"`
-}
-
-type cacheEntry struct {
-	CachedAt string `json:"cachedAt"`
-	Data     Result `json:"data"`
-}
-
-type sourceCache struct {
-	MonthlyLatestKey string                `json:"monthlyLatestKey"`
-	MonthlyByPeriod  map[string]cacheEntry `json:"monthlyByPeriod"`
-	AnnualByYear     map[string]cacheEntry `json:"annualByYear"`
-	AvailableYears   []int                 `json:"availableYears"`
-}
-
-type cacheFile struct {
-	Version int                    `json:"version"`
-	Sources map[string]sourceCache `json:"sources"`
-}
-
-type cachedMonthly struct {
-	BucketID string
-	Key      string
-	Year     int
-	Month    int
-	CachedAt string
-	Entry    cacheEntry
-}
-
-type cachedAnnual struct {
-	BucketID string
-	Year     int
-	CachedAt string
-	Entry    cacheEntry
-}
-
-type rankingContext struct {
-	RequestedChannel string
-	Mode             string
-	Year             int
-	Month            int
-	ForceRefresh     bool
-	Proxy            string
-	Cache            cacheFile
-	CacheFilePath    string
-}
-
-type Service struct {
-	browser *browserService
-}
-
-func NewService() *Service {
-	return &Service{
-		browser: newBrowserService(),
-	}
-}
 
 // sourceChannel keeps UI-facing source identity separate from cache-bucket
 // identity so fallback policy can change without rewriting cache layout.
@@ -351,7 +237,13 @@ func loadCache(filePath string) cacheFile {
 	var legacy sourceCache
 	if err := json.Unmarshal(payload, &legacy); err == nil {
 		skeleton.Sources["avfan"] = normalizeSourceCache(legacy)
+		return skeleton
 	}
+	// Preserve the unreadable payload for support instead of silently deleting
+	// evidence of an interrupted or manually edited cache file.
+	corruptPath := trimmedPath + ".corrupt-" + time.Now().Format("20060102-150405")
+	_ = os.Rename(trimmedPath, corruptPath)
+	_ = writeCache(trimmedPath, skeleton)
 	return skeleton
 }
 
@@ -360,14 +252,11 @@ func writeCache(filePath string, cache cacheFile) error {
 	if trimmedPath == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o755); err != nil {
-		return err
-	}
 	payload, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(trimmedPath, payload, 0o644)
+	return common.WriteFileAtomic(trimmedPath, payload, 0o644)
 }
 
 func normalizeRankingChannel(channel string) string {
@@ -742,245 +631,36 @@ func persistAnnual(cache *cacheFile, bucketID string, data Result) {
 	cache.Sources[bucketID] = bucket
 }
 
-func listJSONFiles(directoryPath string) []string {
-	normalized := strings.TrimSpace(directoryPath)
-	if normalized == "" {
-		return nil
-	}
-	info, err := os.Stat(normalized)
-	if err != nil || !info.IsDir() {
-		return nil
-	}
-
-	queue := []string{normalized}
-	results := make([]string, 0)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		entries, err := os.ReadDir(current)
-		if err != nil {
-			continue
+// commitRankingCache serializes only the final read-merge-write operation.
+// Source requests remain concurrent, while a late-finishing request cannot
+// overwrite a period another request committed in the meantime.
+func (s *Service) commitRankingCache(observed cacheFile, filePath, bucketID string, data Result) cacheFile {
+	if strings.TrimSpace(filePath) == "" {
+		if data.Mode == "annual" {
+			persistAnnual(&observed, bucketID, data)
+		} else {
+			persistMonthly(&observed, bucketID, data)
 		}
-		for _, entry := range entries {
-			entryPath := filepath.Join(current, entry.Name())
-			if entry.IsDir() {
-				queue = append(queue, entryPath)
-				continue
-			}
-			if strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
-				results = append(results, entryPath)
-			}
-		}
-	}
-	return results
-}
-
-func toIntValue(value any) int {
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int64:
-		return int(typed)
-	case float64:
-		return int(typed)
-	case json.Number:
-		parsed, _ := typed.Int64()
-		return int(parsed)
-	case string:
-		parsed, _ := strconv.Atoi(strings.TrimSpace(typed))
-		return parsed
-	default:
-		return 0
-	}
-}
-
-func toStringValue(value any) string {
-	return strings.TrimSpace(fmt.Sprint(value))
-}
-
-func normalizeRankingItems(items any) []RankingItem {
-	rawItems, ok := items.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]RankingItem, 0, len(rawItems))
-	for index, rawItem := range rawItems {
-		itemMap, ok := rawItem.(map[string]any)
-		if !ok {
-			continue
-		}
-		actressName := strings.TrimSpace(toStringValue(itemMap["actressName"]))
-		if actressName == "" {
-			continue
-		}
-		rank := toIntValue(itemMap["rank"])
-		if rank <= 0 {
-			rank = index + 1
-		}
-		result = append(result, RankingItem{
-			Rank:        rank,
-			ActressName: actressName,
-			ProfileURL:  strings.TrimSpace(toStringValue(itemMap["profileUrl"])),
-			ImageURL:    strings.TrimSpace(toStringValue(itemMap["imageUrl"])),
-		})
-	}
-	return result
-}
-
-func buildPeriodLabel(mode string, year int, month int) string {
-	if mode == "annual" {
-		return fmt.Sprintf("%d年", year)
-	}
-	return fmt.Sprintf("%d年%02d月", year, month)
-}
-
-func normalizeHistoryRecord(record map[string]any, filePath string) *Result {
-	mode := "monthly"
-	if strings.TrimSpace(toStringValue(record["mode"])) == "annual" {
-		mode = "annual"
-	}
-	periodYear := toIntValue(record["periodYear"])
-	periodMonth := toIntValue(record["periodMonth"])
-	if mode == "monthly" && (periodMonth < 1 || periodMonth > 12) {
-		return nil
-	}
-	items := normalizeRankingItems(record["items"])
-	if periodYear <= 0 || len(items) == 0 {
-		return nil
+		return observed
 	}
 
-	fetchedAt := strings.TrimSpace(toStringValue(record["fetchedAt"]))
-	if fetchedAt == "" {
-		if info, err := os.Stat(filePath); err == nil {
-			fetchedAt = info.ModTime().Format(time.RFC3339)
-		}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	committed := loadCache(filePath)
+	// Imported history can be present only in the request-local cache. Merge
+	// that lane without allowing an older request snapshot to replace newer
+	// official/AVfan entries that another refresh already committed.
+	committed.Sources["localHistory"] = mergeSourceCache(
+		committed.Sources["localHistory"],
+		observed.Sources["localHistory"],
+	)
+	if data.Mode == "annual" {
+		persistAnnual(&committed, bucketID, data)
+	} else {
+		persistMonthly(&committed, bucketID, data)
 	}
-
-	sourceName := strings.TrimSpace(toStringValue(record["sourceName"]))
-	if sourceName == "" {
-		sourceName = "本地历史导入"
-	}
-	title := strings.TrimSpace(toStringValue(record["title"]))
-	if title == "" {
-		title = fmt.Sprintf("本地历史榜单 %s", buildPeriodLabel(mode, periodYear, periodMonth))
-	}
-	periodLabel := strings.TrimSpace(toStringValue(record["periodLabel"]))
-	if periodLabel == "" {
-		periodLabel = buildPeriodLabel(mode, periodYear, periodMonth)
-	}
-
-	availableYears := []int{periodYear}
-	if rawYears, ok := record["availableYears"].([]any); ok {
-		for _, item := range rawYears {
-			availableYears = append(availableYears, toIntValue(item))
-		}
-	}
-
-	return &Result{
-		Mode:           mode,
-		SourceName:     sourceName,
-		SourceURL:      strings.TrimSpace(toStringValue(record["sourceUrl"])),
-		Title:          title,
-		PeriodLabel:    periodLabel,
-		PeriodYear:     periodYear,
-		PeriodMonth:    periodMonth,
-		Total:          maxInt(toIntValue(record["total"]), len(items)),
-		AvailableYears: normalizeYearList(availableYears),
-		AvailableMonths: func() []int {
-			if mode == "monthly" {
-				return []int{periodMonth}
-			}
-			return []int{}
-		}(),
-		FetchedAt: fetchedAt,
-		Items:     items,
-	}
-}
-
-func toHistoryRecords(payload any) []map[string]any {
-	switch typed := payload.(type) {
-	case []any:
-		result := make([]map[string]any, 0, len(typed))
-		for _, item := range typed {
-			if record, ok := item.(map[string]any); ok {
-				result = append(result, record)
-			}
-		}
-		return result
-	case map[string]any:
-		if records, ok := typed["records"].([]any); ok {
-			result := make([]map[string]any, 0, len(records))
-			for _, item := range records {
-				if record, ok := item.(map[string]any); ok {
-					result = append(result, record)
-				}
-			}
-			return result
-		}
-		return []map[string]any{typed}
-	default:
-		return nil
-	}
-}
-
-func mergeHistoryDirectoriesIntoCache(cache *cacheFile, directories []string) {
-	if cache == nil {
-		return
-	}
-
-	bucket := getSourceBucket(*cache, "localHistory")
-	visited := map[string]struct{}{}
-	files := make([]string, 0)
-	for _, directoryPath := range directories {
-		for _, filePath := range listJSONFiles(directoryPath) {
-			if _, ok := visited[filePath]; ok {
-				continue
-			}
-			visited[filePath] = struct{}{}
-			files = append(files, filePath)
-		}
-	}
-
-	for _, filePath := range files {
-		payloadBytes, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-		var payload any
-		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-			continue
-		}
-		for _, record := range toHistoryRecords(payload) {
-			normalized := normalizeHistoryRecord(record, filePath)
-			if normalized == nil {
-				continue
-			}
-			if normalized.Mode == "annual" {
-				bucket.AnnualByYear[strconv.Itoa(normalized.PeriodYear)] = buildCachePayload(*normalized)
-				bucket.AvailableYears = normalizeYearList(append(bucket.AvailableYears, append(normalized.AvailableYears, normalized.PeriodYear)...))
-				continue
-			}
-
-			monthKey := getMonthKey(normalized.PeriodYear, normalized.PeriodMonth)
-			if monthKey == "" {
-				continue
-			}
-			bucket.MonthlyByPeriod[monthKey] = buildCachePayload(*normalized)
-			if bucket.MonthlyLatestKey == "" || monthKey > bucket.MonthlyLatestKey {
-				bucket.MonthlyLatestKey = monthKey
-			}
-			bucket.AvailableYears = normalizeYearList(append(bucket.AvailableYears, append(normalized.AvailableYears, normalized.PeriodYear)...))
-		}
-	}
-
-	cache.Sources["localHistory"] = bucket
-}
-
-func maxInt(left int, right int) int {
-	if left > right {
-		return left
-	}
-	return right
+	_ = writeCache(filePath, committed)
+	return committed
 }
 
 func stripControlChars(value string) string {
@@ -1582,8 +1262,7 @@ func (s *Service) getAVFanResult(context rankingContext) (Result, error) {
 
 		data, notice, err := s.fetchLatestAVFanMonthlyRanking(context.Proxy)
 		if err == nil {
-			persistMonthly(&context.Cache, bucketID, data)
-			_ = writeCache(context.CacheFilePath, context.Cache)
+			context.Cache = s.commitRankingCache(context.Cache, context.CacheFilePath, bucketID, data)
 
 			requestedKey := getMonthKey(context.Year, context.Month)
 			latestKey := getMonthKey(data.PeriodYear, data.PeriodMonth)
@@ -1616,8 +1295,7 @@ func (s *Service) getAVFanResult(context rankingContext) (Result, error) {
 
 	data, notice, err := s.fetchAVFanAnnualRanking(context.Year, context.Proxy)
 	if err == nil {
-		persistAnnual(&context.Cache, bucketID, data)
-		_ = writeCache(context.CacheFilePath, context.Cache)
+		context.Cache = s.commitRankingCache(context.Cache, context.CacheFilePath, bucketID, data)
 		return decorateAnnualResult(context.Cache, []string{bucketID}, data, context.RequestedChannel, "avfan", false, false, notice, "", false), nil
 	}
 
@@ -1649,8 +1327,7 @@ func (s *Service) getOfficialResult(context rankingContext) (Result, error) {
 
 		data, err := s.fetchOfficialRentalAnnualRanking(context.Year, context.Proxy, effectiveRequestedChannel)
 		if err == nil {
-			persistAnnual(&context.Cache, bucketID, data)
-			_ = writeCache(context.CacheFilePath, context.Cache)
+			context.Cache = s.commitRankingCache(context.Cache, context.CacheFilePath, bucketID, data)
 			return decorateAnnualResult(context.Cache, []string{bucketID}, data, context.RequestedChannel, effectiveRequestedChannel, false, false, "", "", false), nil
 		}
 		if cachedAnnual != nil {
@@ -1673,8 +1350,7 @@ func (s *Service) getOfficialResult(context rankingContext) (Result, error) {
 
 	data, err := s.fetchOfficialMonthlyRanking(context.Proxy, effectiveRequestedChannel)
 	if err == nil {
-		persistMonthly(&context.Cache, bucketID, data)
-		_ = writeCache(context.CacheFilePath, context.Cache)
+		context.Cache = s.commitRankingCache(context.Cache, context.CacheFilePath, bucketID, data)
 		latestKey := getMonthKey(data.PeriodYear, data.PeriodMonth)
 		if requestedKey != "" && requestedKey != latestKey {
 			// The official endpoint exposes the current month only. Returning it

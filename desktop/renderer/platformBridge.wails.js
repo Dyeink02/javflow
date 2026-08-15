@@ -254,6 +254,7 @@
       showAlert: optionsCommand('app:show-alert'),
       validateProxy: twoValueCommand('app:validate-proxy', 'proxyValue', 'options'),
 	      saveActressAtlasProxy: optionsCommand('app:save-actress-atlas-proxy'),
+	      saveWorkspacePreferences: optionsCommand('app:save-workspace-preferences'),
       listCrawlCacheSnapshots: noPayloadCommand('app:list-crawl-cache-snapshots'),
       removeCrawlCacheSnapshot: singleValueCommand('app:remove-crawl-cache-snapshot', 'cacheKey'),
       clearCrawlCacheSnapshots: noPayloadCommand('app:clear-crawl-cache-snapshots'),

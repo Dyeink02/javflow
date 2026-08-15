@@ -23,6 +23,20 @@ func TestResolveTargetPath(t *testing.T) {
 	}
 }
 
+func TestRunOrganizerRejectsFilesystemRoot(t *testing.T) {
+	service := NewService()
+	rootPath := filepath.VolumeName(t.TempDir()) + string(os.PathSeparator)
+	if rootPath == string(os.PathSeparator) {
+		// The POSIX root is always present; on Windows the temp directory volume
+		// gives the active drive root such as C:\\.
+		rootPath = string(os.PathSeparator)
+	}
+	_, err := service.RunOrganizer(RunOptions{RootPath: rootPath})
+	if err == nil || !strings.Contains(err.Error(), "\u4e0d\u80fd\u76f4\u63a5\u9009\u62e9") {
+		t.Fatalf("expected filesystem root rejection, got %v", err)
+	}
+}
+
 func TestParseConflictSuffixStrategyUsesOnlyFixedOptions(t *testing.T) {
 	cases := []struct {
 		input string

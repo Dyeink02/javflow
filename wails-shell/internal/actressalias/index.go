@@ -19,6 +19,8 @@ import (
 	"sync"
 	"unicode"
 
+	"javflow/internal/common"
+
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -66,6 +68,7 @@ type Resolution struct {
 // complete at the same time.
 type Index struct {
 	mu        sync.RWMutex
+	writeMu   sync.Mutex
 	cachePath string
 	records   map[string]Record
 	byAlias   map[string][]Candidate
@@ -138,12 +141,17 @@ func DirectoryName(value string) string {
 func directoryName(value string) string {
 	value = norm.NFKC.String(strings.TrimSpace(value))
 	return strings.NewReplacer(
-		"亚", "亜", "愛", "愛", "爱", "愛", "泽", "沢", "澤", "沢",
+		"亚", "亜", "亞", "亜", "愛", "愛", "爱", "愛", "泽", "沢", "澤", "沢",
 		"桥", "橋", "樱", "桜", "櫻", "桜", "岛", "島", "户", "戸",
 		"濑", "瀬", "瀨", "瀬", "环", "環", "边", "辺", "邊", "辺",
 		"叶", "葉", "织", "織", "风", "風", "齐", "斉", "齊", "斉",
 		"园", "園", "宫", "宮", "冈", "岡", "华", "華", "优", "優",
-		"里", "里", "黒", "黒", "黑", "黒", "咲", "咲", "咲", "咲",
+		"宁", "寧",
+		"结", "結", "乡", "郷", "挂", "掛", "丽", "麗", "绫", "綾",
+		"绪", "緒", "绮", "綺", "凉", "涼", "穗", "穂", "铃", "鈴",
+		"滨", "浜", "泷", "滝", "龙", "龍", "仓", "倉", "纱", "紗",
+		"凤", "鳳", "鹰", "鷹", "里", "里", "黒", "黒", "黑", "黒",
+		"咲", "咲", "咲", "咲",
 	).Replace(value)
 }
 
@@ -280,6 +288,11 @@ func (i *Index) Remember(record Record) error {
 	if i == nil || strings.TrimSpace(record.Canonical) == "" {
 		return errors.New("actress alias record is missing a canonical name")
 	}
+	// Multiple profile enrichments may finish together. Serialize the complete
+	// merge-plus-persist sequence so a slower file write cannot erase a newer
+	// verified alias discovered by another request.
+	i.writeMu.Lock()
+	defer i.writeMu.Unlock()
 	i.merge([]Record{record})
 	return i.saveUserRecords()
 }
@@ -301,10 +314,7 @@ func (i *Index) saveUserRecords() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(i.cachePath), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(i.cachePath, append(payload, '\n'), 0o600)
+	return common.WriteFileAtomic(i.cachePath, append(payload, '\n'), 0o600)
 }
 
 // Snapshot returns a stable copy for maintenance commands and tests.

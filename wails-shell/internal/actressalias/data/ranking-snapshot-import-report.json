@@ -1,0 +1,14 @@
+{
+  "source": "javflow-avfan-ranking-snapshot:2026-03..2026-07",
+  "snapshotPeriods": [
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07"
+  ],
+  "nameListSHA256": "aafa7f7eaec1eb374d07e36298a149d8b875bda52c1dd0d9eb19f63d92dd7501",
+  "addedRecords": 91,
+  "existingRecords": 0,
+  "generatedAt": "2026-08-13T04:41:01Z"
+}

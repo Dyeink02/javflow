@@ -39,7 +39,7 @@
       missingScanResults: [],
       resultScope: 'local',
       selectedIds: new Set(),
-      autoSubscriptionActors: new Set(),
+      autoSubscriptionSources: new Set(),
       busy: false,
       cancelRequested: false,
       activeJobId: '',
@@ -259,6 +259,17 @@
       }
     }
 
+    function hasSavedWorkspacePreferences(settings) {
+      return Number(settings && settings.libraryWorkspacePreferencesVersion) >= 1;
+    }
+
+    function persistWorkspacePreferences(preferences) {
+      if (!desktopApi || typeof desktopApi.saveWorkspacePreferences !== 'function') {
+        return;
+      }
+      void desktopApi.saveWorkspacePreferences(preferences).catch(() => {});
+    }
+
     function toggleLayoutMode() {
       state.compactLayout = !state.compactLayout;
       try {
@@ -268,11 +279,12 @@
       } catch (storageError) {
         // 写入失败不影响界面切换
       }
+      persistWorkspacePreferences({ libraryCompactLayout: state.compactLayout });
       applyLayoutMode();
       appendLog('info', state.compactLayout ? '已切换为紧凑并排布局' : '已切换为全宽布局');
     }
 
-    function restoreLayoutMode() {
+    function restoreLayoutMode(settings) {
       let saved = '';
       try {
         if (globalScope.localStorage && typeof globalScope.localStorage.getItem === 'function') {
@@ -281,7 +293,9 @@
       } catch (storageError) {
         // 读取失败时使用默认全宽布局
       }
-      state.compactLayout = saved === '1';
+      state.compactLayout = hasSavedWorkspacePreferences(settings)
+        ? Boolean(settings.libraryCompactLayout)
+        : saved === '1';
       applyLayoutMode();
     }
 
@@ -294,7 +308,7 @@
       return normalizeScrapeConcurrency(elements.libraryScrapeConcurrency && elements.libraryScrapeConcurrency.value);
     }
 
-    function restoreScrapePreferences() {
+    function restoreScrapePreferences(settings) {
       let savedConcurrency = '';
       let savedAutoSubscribe = '';
       try {
@@ -306,10 +320,15 @@
         // 浏览器存储不可用时保留界面默认值。
       }
       if (elements.libraryScrapeConcurrency) {
-        elements.libraryScrapeConcurrency.value = String(normalizeScrapeConcurrency(savedConcurrency || 3));
+        const concurrency = hasSavedWorkspacePreferences(settings)
+          ? settings.libraryScrapeConcurrency
+          : savedConcurrency || 3;
+        elements.libraryScrapeConcurrency.value = String(normalizeScrapeConcurrency(concurrency));
       }
       if (elements.libraryAutoSubscribeLeadActor) {
-        elements.libraryAutoSubscribeLeadActor.checked = savedAutoSubscribe !== '0';
+        elements.libraryAutoSubscribeLeadActor.checked = hasSavedWorkspacePreferences(settings)
+          ? Boolean(settings.libraryAutoSubscribeFromOutput)
+          : savedAutoSubscribe === '1';
       }
     }
 
@@ -325,9 +344,10 @@
       } catch (storageError) {
         // 写入失败不影响主流程
       }
+      persistWorkspacePreferences({ libraryShowHiddenFiles: enabled });
     }
 
-    function restoreShowHiddenFilesPreference() {
+    function restoreShowHiddenFilesPreference(settings) {
       let saved = '';
       try {
         if (globalScope.localStorage && typeof globalScope.localStorage.getItem === 'function') {
@@ -338,7 +358,9 @@
       }
       if (elements.showHiddenFilesCheckbox) {
         // 默认启用“显示隐藏路径文件”，这样爬虫/整理后的产物能直接显示出来。
-        elements.showHiddenFilesCheckbox.checked = saved === '' || saved === '1';
+        elements.showHiddenFilesCheckbox.checked = hasSavedWorkspacePreferences(settings)
+          ? Boolean(settings.libraryShowHiddenFiles)
+          : saved === '' || saved === '1';
       }
     }
 
@@ -729,6 +751,26 @@
     }
 
     async function hydrateLibraryMetadataData() {
+      if (desktopApi && typeof desktopApi.getSettings === 'function') {
+        try {
+          const settings = await desktopApi.getSettings();
+          restoreLayoutMode(settings);
+          restoreScrapePreferences(settings);
+          restoreShowHiddenFilesPreference(settings);
+          if (!hasSavedWorkspacePreferences(settings)) {
+            persistWorkspacePreferences({
+              libraryCompactLayout: state.compactLayout,
+              libraryShowHiddenFiles: isShowHiddenFilesEnabled(),
+              libraryScrapeConcurrency: getScrapeConcurrency(),
+              libraryAutoSubscribeFromOutput: Boolean(
+                elements.libraryAutoSubscribeLeadActor && elements.libraryAutoSubscribeLeadActor.checked
+              )
+            });
+          }
+        } catch (error) {
+          appendLog('warn', `读取媒体库偏好失败，继续使用本地设置：${getErrorMessage(error)}`);
+        }
+      }
       if (desktopApi && typeof desktopApi.getLibraryMetadataBootstrap === 'function') {
         try {
           const response = await desktopApi.getLibraryMetadataBootstrap({ roots: collectKnownCrawlSourceRoots() });
@@ -897,50 +939,47 @@
     // This prevents one crawl from scheduling the same actress twice when two
     // providers format her name differently (for example, with a full-width
     // space or a middle dot).
-    function normalizeAutoSubscriptionActorKey(value) {
+    function normalizeAutoSubscriptionSourceKey(value) {
       return normalizeText(value)
         .toLocaleLowerCase()
         .replace(/[\s\u3000・·]/g, '');
     }
 
-    function queueLeadActorAutoSubscription(info, code, crawlOutputDir, proxy) {
+    function queueCrawlArtifactAutoSubscription(crawlOutputDir) {
       if (
         !elements.libraryAutoSubscribeLeadActor ||
         !elements.libraryAutoSubscribeLeadActor.checked ||
         !desktopApi ||
-        typeof desktopApi.autoSubscribeLibraryMetadataActor !== 'function'
+        typeof desktopApi.scanAvSubscriptionsFromOutput !== 'function'
       ) {
         return;
       }
-      const actors = Array.isArray(info && info.actors) ? info.actors : [];
-      const actressName = normalizeText(actors[0]);
-      if (!actressName) {
+      const artifactInput = normalizeText(crawlOutputDir);
+      if (!artifactInput) {
+        appendLog('warn', '自动订阅已跳过：请先选择包含 crawl-profile.json 或 filmData.json 的爬虫结果。');
         return;
       }
-      const actorKey = normalizeAutoSubscriptionActorKey(actressName);
-      if (!actorKey) {
+      const sourceKey = normalizeAutoSubscriptionSourceKey(artifactInput);
+      if (!sourceKey) {
         return;
       }
-      if (state.autoSubscriptionActors.has(actorKey)) {
+      if (state.autoSubscriptionSources.has(sourceKey)) {
         return;
       }
-      state.autoSubscriptionActors.add(actorKey);
-      appendLog('info', `后台自动订阅：正在解析 ${actressName} 的女优目录...`);
+      state.autoSubscriptionSources.add(sourceKey);
+      appendLog('info', '后台自动订阅：正在从爬虫 JSON 导入订阅基线...');
       void desktopApi
-        .autoSubscribeLibraryMetadataActor({
-          actressName,
-          number: code,
-          proxy,
-          crawlOutputDir,
-          preferredOutputDir: crawlOutputDir
-        })
+        .scanAvSubscriptionsFromOutput({ artifactInput })
         .then((result) => {
-          const subscription = result && result.subscription ? result.subscription : {};
-          const resolvedName = normalizeText(subscription.actressName) || actressName;
-          appendLog('info', result && result.added ? `已自动订阅：${resolvedName}` : `订阅已存在：${resolvedName}`);
+          const actresses = Array.isArray(result && result.scannedActressList)
+            ? result.scannedActressList.map((item) => normalizeText(item)).filter(Boolean)
+            : [];
+          const actressLabel = actresses.join('、') || '目标女优';
+          const addedCount = Number(result && result.addedCount) || 0;
+          appendLog('info', addedCount > 0 ? `已自动订阅：${actressLabel}` : `已更新订阅基线：${actressLabel}`);
         })
         .catch((error) => {
-          appendLog('warn', `自动订阅 ${actressName} 失败：${getErrorMessage(error)}`);
+          appendLog('warn', `自动订阅失败：${getErrorMessage(error)}`);
         });
     }
 
@@ -948,6 +987,7 @@
       const writeMode = typeof mode === 'string' ? mode : 'all';
       const isRetryMode = writeMode === 'retry-all';
       const effectiveWriteMode = isRetryMode ? 'all' : writeMode;
+      state.autoSubscriptionSources.clear();
       if (state.selectedIds.size === 0) {
         appendLog('warn', '请先选择要刮削的影片');
         return;
@@ -1180,7 +1220,7 @@
             syncLocalScanResult(state.results[index]);
             failureReasons.delete(index);
             updateResultRow(index, state.results[index]);
-            queueLeadActorAutoSubscription(resolveResult.info, code, crawlOutputDir, proxy);
+            queueCrawlArtifactAutoSubscription(crawlOutputDir);
             processedCount += 1;
             return;
           } catch (error) {
@@ -1806,6 +1846,7 @@
           try {
             globalScope.localStorage.setItem(SCRAPE_CONCURRENCY_STORAGE_KEY, String(concurrency));
           } catch (storageError) {}
+          persistWorkspacePreferences({ libraryScrapeConcurrency: concurrency });
         });
       }
 
@@ -1817,6 +1858,9 @@
               elements.libraryAutoSubscribeLeadActor.checked ? '1' : '0'
             );
           } catch (storageError) {}
+          persistWorkspacePreferences({
+            libraryAutoSubscribeFromOutput: elements.libraryAutoSubscribeLeadActor.checked
+          });
         });
       }
 

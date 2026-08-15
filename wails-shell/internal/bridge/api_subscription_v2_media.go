@@ -71,7 +71,7 @@ func (a *API) enrichSubscriptionV2MediaResult(payload map[string]any) (string, e
 		return marshalResult(target)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := a.requestContext(45 * time.Second)
 	defer cancel()
 	proxyValue := strings.TrimSpace(nonEmptyString(payload["proxy"]))
 	media, resolveErr := a.libraryMetadata.library.ResolveActorMedia(ctx, target.ActressName, proxyValue)

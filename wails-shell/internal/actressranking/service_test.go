@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -77,6 +78,54 @@ func TestLoadCachePersistsBundledSnapshotForFirstRun(t *testing.T) {
 	}
 	if _, err := os.Stat(cachePath); err != nil {
 		t.Fatalf("first-run cache should be persisted: %v", err)
+	}
+}
+
+func TestLoadCacheRecoversFromDamagedJSON(t *testing.T) {
+	directory := t.TempDir()
+	cachePath := filepath.Join(directory, "actress-ranking-cache.json")
+	if err := os.WriteFile(cachePath, []byte(`{not-json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := loadCache(cachePath)
+	if len(listMonthlyPeriods(cache, []string{"official"})) == 0 {
+		t.Fatal("recovered cache must keep the bundled first-run snapshot")
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Fatalf("recovered cache missing: %v", err)
+	}
+	backups, err := filepath.Glob(cachePath + ".corrupt-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("expected one corrupt-cache backup, got %v", backups)
+	}
+}
+
+func TestCommitRankingCacheKeepsConcurrentPeriods(t *testing.T) {
+	service := NewService()
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	initial := loadCache(cachePath)
+	monthly := Result{Mode: "monthly", PeriodYear: 2026, PeriodMonth: 8, Items: []RankingItem{{Rank: 1, ActressName: "actor-month"}}}
+	annual := Result{Mode: "annual", PeriodYear: 2025, Items: []RankingItem{{Rank: 1, ActressName: "actor-year"}}}
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		service.commitRankingCache(initial, cachePath, "official", monthly)
+	}()
+	go func() {
+		defer workers.Done()
+		service.commitRankingCache(initial, cachePath, "official", annual)
+	}()
+	workers.Wait()
+	final := loadCache(cachePath)
+	if _, ok := final.Sources["official"].MonthlyByPeriod["2026-08"]; !ok {
+		t.Fatal("concurrent monthly cache entry was lost")
+	}
+	if _, ok := final.Sources["official"].AnnualByYear["2025"]; !ok {
+		t.Fatal("concurrent annual cache entry was lost")
 	}
 }
 

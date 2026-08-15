@@ -239,6 +239,8 @@ func (t *CrawlTask) runSingle(bus *events.Bus, subscriptions *avsubscriptionv2.S
 			continue
 		}
 
+		filmData = applyActressCountFilter(filmData, req.ActressCountFilterThreshold)
+
 		if _, writeErr := writer.WriteFilmData(filmData); writeErr != nil {
 			t.emitLog(bus, "error", fmt.Sprintf("写入失败: %v", writeErr))
 			failed++
@@ -246,17 +248,21 @@ func (t *CrawlTask) runSingle(bus *events.Bus, subscriptions *avsubscriptionv2.S
 		}
 
 		completed++
-		for _, magnetLine := range strings.Split(filmData.Magnet, "\n") {
-			magnetLine = strings.TrimSpace(magnetLine)
-			key := strings.ToLower(magnetLine)
-			if magnetLine == "" {
-				continue
+		if filmData.FilteredByActressCount || filmData.FilteredByFilmCode {
+			t.emitLog(bus, "info", fmt.Sprintf("filtered collection film: %s", filmData.Title))
+		} else {
+			for _, magnetLine := range strings.Split(filmData.Magnet, "\n") {
+				magnetLine = strings.TrimSpace(magnetLine)
+				key := strings.ToLower(magnetLine)
+				if magnetLine == "" {
+					continue
+				}
+				if _, exists := magnetSeen[key]; exists {
+					continue
+				}
+				magnetSeen[key] = struct{}{}
+				magnetLines = append(magnetLines, magnetLine)
 			}
-			if _, exists := magnetSeen[key]; exists {
-				continue
-			}
-			magnetSeen[key] = struct{}{}
-			magnetLines = append(magnetLines, magnetLine)
 		}
 		t.mu.Lock()
 		t.status.Completed = completed
@@ -463,6 +469,19 @@ func (t *CrawlTask) fetchFilmWithMagnet(client *crawlrequest.Client, detailURL s
 
 	filmData.ActressCount = len(actresses)
 	return filmData, nil
+}
+
+func applyActressCountFilter(filmData crawloutput.FilmData, threshold int) crawloutput.FilmData {
+	if threshold <= 0 || filmData.ActressCount < threshold {
+		return filmData
+	}
+	filmData.FilteredByActressCount = true
+	remark := fmt.Sprintf("actress count %d >= threshold %d, skip magnet output only", filmData.ActressCount, threshold)
+	if filmData.FilterRemark != "" {
+		filmData.FilterRemark += "; "
+	}
+	filmData.FilterRemark += remark
+	return filmData
 }
 
 func (t *CrawlTask) setStatus(s CrawlStatus) {

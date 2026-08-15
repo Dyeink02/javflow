@@ -1,10 +1,79 @@
 package avsubscriptionv2
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	runtimepaths "javflow/internal/runtime"
 )
+
+func TestApplyRefreshResultsPreservesConcurrentUserFields(t *testing.T) {
+	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
+	created, err := service.Upsert(Subscription{
+		ActressName:        "テスト女優",
+		CrawlURL:           "https://www.javbus.com/star/test",
+		BaselineCodes:      []string{"AAA-001"},
+		PreferredOutputDir: "D:/original-output",
+		AvatarURL:          "/subscription-media/test/avatar.jpg",
+		PhotoURLs:          []string{"/subscription-media/test/photo.jpg"},
+	})
+	if err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+
+	if _, err := service.Patch(created.ID, map[string]any{"preferredOutputDir": "D:/user-changed-output"}); err != nil {
+		t.Fatalf("simulate concurrent user patch: %v", err)
+	}
+	refreshed := created
+	refreshed.CurrentObservedCount = 12
+	refreshed.PendingCodes = []string{"BBB-002"}
+	refreshed.PendingCount = 1
+	refreshed.Status = statusUpdated
+	refreshed.LastCheckedAt = "2026-08-12T00:00:00Z"
+
+	items, err := service.ApplyRefreshResults([]Subscription{refreshed})
+	if err != nil {
+		t.Fatalf("apply refresh results: %v", err)
+	}
+	index := findSubscriptionIndexByID(items, created.ID)
+	if index < 0 {
+		t.Fatal("subscription disappeared after refresh merge")
+	}
+	got := items[index]
+	if got.PreferredOutputDir != "D:/user-changed-output" {
+		t.Fatalf("refresh overwrote concurrent output change: %q", got.PreferredOutputDir)
+	}
+	if got.AvatarURL != created.AvatarURL || len(got.PhotoURLs) != 1 {
+		t.Fatalf("refresh overwrote cached media: %+v", got)
+	}
+	if got.CurrentObservedCount != 12 || len(got.PendingCodes) != 1 || got.PendingCodes[0] != "BBB-002" {
+		t.Fatalf("refresh observation was not retained: %+v", got)
+	}
+}
+
+func TestListPreservesUnreadableStateInsteadOfTreatingItAsEmpty(t *testing.T) {
+	userData := t.TempDir()
+	service := NewService(runtimepaths.Paths{UserData: userData}, nil)
+	storagePath := filepath.Join(userData, storageDirName, storageFileName)
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(storagePath, []byte("{not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.List(); err == nil {
+		t.Fatal("expected unreadable subscription state to be reported")
+	}
+	backups, err := filepath.Glob(storagePath + ".corrupt-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("expected one preserved corrupt state file, got %v", backups)
+	}
+}
 
 func TestReorderPersistsAcrossLaterSubscriptionUpdates(t *testing.T) {
 	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
@@ -56,5 +125,34 @@ func TestSetMediaKeepsSortOrder(t *testing.T) {
 	}
 	if updated.AvatarURL != "/subscription-media/actor/avatar.jpg" {
 		t.Fatalf("legacy file URL was not converted to an application URL: %q", updated.AvatarURL)
+	}
+}
+
+func TestPatchPersistsActressCountFilterThreshold(t *testing.T) {
+	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
+	item, err := service.Upsert(Subscription{ActressName: "Filter Actor", CrawlURL: "https://example.test/star/filter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.Patch(item.ID, map[string]any{"actressCountFilterThreshold": 18})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ActressCountFilterThreshold != 18 {
+		t.Fatalf("unexpected filter threshold: %d", updated.ActressCountFilterThreshold)
+	}
+	loaded, err := service.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded[0].ActressCountFilterThreshold != 18 {
+		t.Fatalf("filter threshold was not persisted: %+v", loaded[0])
+	}
+	cleared, err := service.Patch(item.ID, map[string]any{"actressCountFilterThreshold": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.ActressCountFilterThreshold != 0 {
+		t.Fatalf("threshold 0 must disable the filter: %d", cleared.ActressCountFilterThreshold)
 	}
 }

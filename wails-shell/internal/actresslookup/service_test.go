@@ -1,10 +1,13 @@
 package actresslookup
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -48,6 +51,54 @@ func TestFetchHTMLAddsAgeVerificationCookie(t *testing.T) {
 	}
 	if !strings.Contains(body, "已有磁力 28 部") {
 		t.Fatalf("expected body to contain count marker, got %q", body)
+	}
+}
+
+func TestFetchLookupPageHonorsCancelledContext(t *testing.T) {
+	var receivedRequest atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		receivedRequest.Store(true)
+		_, _ = writer.Write([]byte(buildStarPageHTML("测试女优", 28, 59, 28)))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := NewService().fetchLookupPage(ctx, server.URL+"/star/test", "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancelled lookup request, got %v", err)
+	}
+	if receivedRequest.Load() {
+		t.Fatal("cancelled lookup request must not reach the provider")
+	}
+}
+
+type verifiedLookupFetcherStub struct {
+	called atomic.Bool
+	body   string
+}
+
+func (s *verifiedLookupFetcherStub) FetchLookupHTML(ctx context.Context, targetURL string) (string, string, error) {
+	s.called.Store(true)
+	return s.body, targetURL, nil
+}
+
+func TestFetchLookupPageDelegatesVerificationDocumentToExistingFetcher(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("<html><title>Just a moment</title></html>"))
+	}))
+	defer server.Close()
+
+	stub := &verifiedLookupFetcherStub{body: buildStarPageHTML("测试女优", 28, 59, 28)}
+	body, resolvedURL, err := NewService(stub).fetchLookupPage(context.Background(), server.URL+"/star/test", "")
+	if err != nil {
+		t.Fatalf("fetch lookup page: %v", err)
+	}
+	if !stub.called.Load() {
+		t.Fatal("verification document must be delegated to the existing crawler fetcher")
+	}
+	if resolvedURL != server.URL+"/star/test" || !strings.Contains(body, "已有磁力 28 部") {
+		t.Fatalf("unexpected delegated lookup response: url=%q body=%q", resolvedURL, body)
 	}
 }
 
@@ -114,6 +165,36 @@ func TestResolveTargetMatchesChineseVariantAgainstJapaneseDirectoryName(t *testi
 	}
 	if profile.ResolvedActressName != "三上悠亜" || profile.ResolvedBase != server.URL+"/star/okq" {
 		t.Fatalf("unexpected variant resolution: %+v", profile)
+	}
+}
+
+func TestResolveTargetUsesBundledChineseAliasesBeforeDirectoryLookup(t *testing.T) {
+	for query, canonical := range map[string]string{
+		"相泽南":  "相沢みなみ",
+		"高桥圣子": "高橋しょう子",
+	} {
+		t.Run(query, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				expectedSearchPath := "/searchstar/" + canonical
+				switch request.URL.Path {
+				case expectedSearchPath:
+					_, _ = writer.Write([]byte(`<html><body><a class="avatar-box" href="/star/verified"><img title="` + canonical + `" /></a></body></html>`))
+				case "/star/verified":
+					_, _ = writer.Write([]byte(buildStarPageHTML(canonical, 28, 59, 30)))
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			profile, err := NewService().ResolveTarget(ResolveOptions{ActressName: query, PreferredBase: server.URL})
+			if err != nil {
+				t.Fatalf("resolve bundled alias: %v", err)
+			}
+			if profile.ResolvedActressName != canonical || profile.ResolvedBase != server.URL+"/star/verified" {
+				t.Fatalf("unexpected bundled alias resolution: %+v", profile)
+			}
+		})
 	}
 }
 

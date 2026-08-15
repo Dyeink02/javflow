@@ -8,13 +8,13 @@
 // It does not reuse the old "count-only" subscription semantics.
 //
 // Ownership summary:
-//   This file defines V2 subscription domain types and constants.
+//
+//	This file defines V2 subscription domain types and constants.
 //
 // File map for maintainers:
-//   1) Subscription source/status constants.
-//   2) Core Subscription, ScanRuntimeOptions, and refresh result types.
-//   3) Display and sorting helpers.
-//
+//  1. Subscription source/status constants.
+//  2. Core Subscription, ScanRuntimeOptions, and refresh result types.
+//  3. Display and sorting helpers.
 package avsubscriptionv2
 
 import "time"
@@ -38,38 +38,40 @@ const (
 // Keep this shape smaller than crawler runtime state. It is the durable,
 // cross-run subscription baseline and refresh result only.
 type Subscription struct {
-	ID                    string   `json:"id"`
-	ActressName           string   `json:"actressName"`
-	SortOrder             int      `json:"sortOrder"`
-	CrawlURL              string   `json:"crawlUrl"`
-	PreferredBase         string   `json:"preferredBase,omitempty"`
-	SourceType            string   `json:"sourceType"`
-	BaselineCodes         []string `json:"baselineCodes,omitempty"`
-	BaselineCount         int      `json:"baselineCount"`
-	CurrentObservedCount  int      `json:"currentObservedCount"`
-	CurrentTotal          int      `json:"currentTotal"`
-	PendingCodes          []string `json:"pendingCodes,omitempty"`
-	PendingCount          int      `json:"pendingCount"`
-	ItemsPerPage          int      `json:"itemsPerPage"`
-	TotalPages            int      `json:"totalPages"`
-	LastScanPages         int      `json:"lastScanPages,omitempty"`
-	LastStoppedOnPage     int      `json:"lastStoppedOnPage,omitempty"`
-	LatestItemURL         string   `json:"latestItemUrl,omitempty"`
-	PreferredOutputDir    string   `json:"preferredOutputDir,omitempty"`
-	LastCrawlOutputDir    string   `json:"lastCrawlOutputDir,omitempty"`
-	CreatedAt             string   `json:"createdAt"`
-	BaselineSnapshotAt    string   `json:"baselineSnapshotAt"`
-	LastCheckedAt         string   `json:"lastCheckedAt,omitempty"`
-	LastUpdatedAt         string   `json:"lastUpdatedAt,omitempty"`
-	LastCrawlAt           string   `json:"lastCrawlAt,omitempty"`
-	AvatarURL             string   `json:"avatarUrl,omitempty"`
-	PhotoURLs             []string `json:"photoUrls,omitempty"`
-	MediaUpdatedAt        string   `json:"mediaUpdatedAt,omitempty"`
-	LastError             string   `json:"lastError,omitempty"`
-	Status                string   `json:"status"`
-	ManualDeclaredTotal   int      `json:"manualDeclaredTotal,omitempty"`
-	ManualDeclaredPages   int      `json:"manualDeclaredPages,omitempty"`
-	ManualDeclaredPerPage int      `json:"manualDeclaredItemsPerPage,omitempty"`
+	ID                          string   `json:"id"`
+	ActressName                 string   `json:"actressName"`
+	SortOrder                   int      `json:"sortOrder"`
+	CrawlURL                    string   `json:"crawlUrl"`
+	PreferredBase               string   `json:"preferredBase,omitempty"`
+	SourceType                  string   `json:"sourceType"`
+	BaselineCodes               []string `json:"baselineCodes,omitempty"`
+	BaselineCount               int      `json:"baselineCount"`
+	CurrentObservedCount        int      `json:"currentObservedCount"`
+	CurrentTotal                int      `json:"currentTotal"`
+	PendingCodes                []string `json:"pendingCodes,omitempty"`
+	PendingCount                int      `json:"pendingCount"`
+	ActressCountFilterThreshold int      `json:"actressCountFilterThreshold,omitempty"`
+	ItemsPerPage                int      `json:"itemsPerPage"`
+	TotalPages                  int      `json:"totalPages"`
+	LastScanPages               int      `json:"lastScanPages,omitempty"`
+	LastStoppedOnPage           int      `json:"lastStoppedOnPage,omitempty"`
+	LatestItemURL               string   `json:"latestItemUrl,omitempty"`
+	PreferredOutputDir          string   `json:"preferredOutputDir,omitempty"`
+	LastCrawlOutputDir          string   `json:"lastCrawlOutputDir,omitempty"`
+	CreatedAt                   string   `json:"createdAt"`
+	BaselineSnapshotAt          string   `json:"baselineSnapshotAt"`
+	LastCheckedAt               string   `json:"lastCheckedAt,omitempty"`
+	LastUpdatedAt               string   `json:"lastUpdatedAt,omitempty"`
+	LastUpdateDetectedAt        string   `json:"lastUpdateDetectedAt,omitempty"`
+	LastCrawlAt                 string   `json:"lastCrawlAt,omitempty"`
+	AvatarURL                   string   `json:"avatarUrl,omitempty"`
+	PhotoURLs                   []string `json:"photoUrls,omitempty"`
+	MediaUpdatedAt              string   `json:"mediaUpdatedAt,omitempty"`
+	LastError                   string   `json:"lastError,omitempty"`
+	Status                      string   `json:"status"`
+	ManualDeclaredTotal         int      `json:"manualDeclaredTotal,omitempty"`
+	ManualDeclaredPages         int      `json:"manualDeclaredPages,omitempty"`
+	ManualDeclaredPerPage       int      `json:"manualDeclaredItemsPerPage,omitempty"`
 }
 
 // ImportResult is the source-import result surface used by the bridge/UI.
@@ -132,6 +134,7 @@ type RefreshSummary struct {
 	Subscriptions []Subscription `json:"subscriptions"`
 	CheckedCount  int            `json:"checkedCount"`
 	UpdatedCount  int            `json:"updatedCount"`
+	DetectedCount int            `json:"detectedCount"`
 	FailedCount   int            `json:"failedCount"`
 	TotalPending  int            `json:"totalPending"`
 }
@@ -157,11 +160,12 @@ type RefreshPageSnapshot struct {
 
 // RefreshResult is the per-subscription page-scan diff result.
 type RefreshResult struct {
-	Subscription  Subscription          `json:"subscription"`
-	HasUpdate     bool                  `json:"hasUpdate"`
-	ObservedCount int                   `json:"observedCount"`
-	PendingCodes  []string              `json:"pendingCodes,omitempty"`
-	ScannedPages  int                   `json:"scannedPages"`
-	StoppedOnPage int                   `json:"stoppedOnPage"`
-	PageSnapshots []RefreshPageSnapshot `json:"pageSnapshots,omitempty"`
+	Subscription      Subscription          `json:"subscription"`
+	HasUpdate         bool                  `json:"hasUpdate"`
+	NewUpdateDetected bool                  `json:"newUpdateDetected"`
+	ObservedCount     int                   `json:"observedCount"`
+	PendingCodes      []string              `json:"pendingCodes,omitempty"`
+	ScannedPages      int                   `json:"scannedPages"`
+	StoppedOnPage     int                   `json:"stoppedOnPage"`
+	PageSnapshots     []RefreshPageSnapshot `json:"pageSnapshots,omitempty"`
 }

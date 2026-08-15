@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file implements V2 subscription refresh and update detection.
+//
+//	This file implements V2 subscription refresh and update detection.
 //
 // File map for maintainers:
-//   1) RefreshAll batch orchestration.
-//   2) Per-subscription refresh and page scanning.
-//   3) Refresh summary aggregation.
-//
+//  1. RefreshAll batch orchestration.
+//  2. Per-subscription refresh and page scanning.
+//  3. Refresh summary aggregation.
 package avsubscriptionv2
 
 import (
@@ -42,14 +42,19 @@ func (s *Service) RefreshAll(ctx context.Context, runtimeOptions ScanRuntimeOpti
 		if result.HasUpdate {
 			summary.UpdatedCount++
 		}
+		if result.NewUpdateDetected {
+			summary.DetectedCount++
+		}
 		summary.CheckedCount++
 		summary.TotalPending += result.Subscription.PendingCount
 		summary.Subscriptions = append(summary.Subscriptions, result.Subscription)
 	}
 
-	if err := s.ReplaceAll(summary.Subscriptions); err != nil {
+	latest, err := s.ApplyRefreshResults(summary.Subscriptions)
+	if err != nil {
 		return RefreshSummary{}, err
 	}
+	summary.Subscriptions = latest
 	return summary, nil
 }
 
@@ -71,8 +76,12 @@ func (s *Service) RefreshOne(ctx context.Context, id string, runtimeOptions Scan
 	}
 	result, refreshErr := s.refreshOneInternal(ctx, items[index], runtimeOptions, now, itemLogger)
 	items[index] = result.Subscription
-	if err := s.ReplaceAll(items); err != nil {
+	latest, err := s.ApplyRefreshResults([]Subscription{result.Subscription})
+	if err != nil {
 		return RefreshResult{}, err
+	}
+	if latestIndex := findSubscriptionIndexByID(latest, id); latestIndex >= 0 {
+		result.Subscription = latest[latestIndex]
 	}
 	if refreshErr != nil && itemLogger != nil {
 		itemLogger("error", fmt.Sprintf("检测失败：%s", refreshErr.Error()))
@@ -118,8 +127,14 @@ func (s *Service) refreshOneInternal(ctx context.Context, item Subscription, run
 	}
 
 	scannedPages := len(pageSnapshots)
+	previousPendingCodes := normalizeCodes(item.PendingCodes)
 	item.PendingCodes = normalizeCodes(pendingCodes)
 	item.PendingCount = len(item.PendingCodes)
+	newUpdateDetected := hasNewPendingCodes(previousPendingCodes, item.PendingCodes) ||
+		(item.PendingCount > 0 && strings.TrimSpace(item.LastUpdateDetectedAt) == "")
+	if newUpdateDetected {
+		item.LastUpdateDetectedAt = now
+	}
 	// CurrentObservedCount is the operator-facing "remote page currently shows"
 	// number. Prefer the actual page scan footprint over stale saved counts so
 	// a one-page actress with baseline 7 and page scan 8 is displayed as 8.
@@ -157,14 +172,28 @@ func (s *Service) refreshOneInternal(ctx context.Context, item Subscription, run
 	}
 
 	return RefreshResult{
-		Subscription:  item,
-		HasUpdate:     item.PendingCount > 0,
-		ObservedCount: item.CurrentObservedCount,
-		PendingCodes:  append([]string{}, item.PendingCodes...),
-		ScannedPages:  scannedPages,
-		StoppedOnPage: stoppedOnPage,
-		PageSnapshots: pageSnapshots,
+		Subscription:      item,
+		HasUpdate:         item.PendingCount > 0,
+		NewUpdateDetected: newUpdateDetected,
+		ObservedCount:     item.CurrentObservedCount,
+		PendingCodes:      append([]string{}, item.PendingCodes...),
+		ScannedPages:      scannedPages,
+		StoppedOnPage:     stoppedOnPage,
+		PageSnapshots:     pageSnapshots,
 	}, nil
+}
+
+func hasNewPendingCodes(previous []string, current []string) bool {
+	previousSet := make(map[string]struct{}, len(previous))
+	for _, code := range normalizeCodes(previous) {
+		previousSet[code] = struct{}{}
+	}
+	for _, code := range normalizeCodes(current) {
+		if _, exists := previousSet[code]; !exists {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveObservedCountFromSnapshots(item Subscription, snapshots []RefreshPageSnapshot) int {

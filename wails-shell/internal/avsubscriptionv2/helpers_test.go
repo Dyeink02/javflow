@@ -44,3 +44,15 @@ func TestResolveObservedCountFromSnapshotsUsesActualPageScan(t *testing.T) {
 		t.Fatalf("expected current observed count 8, got %d", got)
 	}
 }
+
+func TestHasNewPendingCodesOnlyReportsNewCodes(t *testing.T) {
+	if !hasNewPendingCodes([]string{"ABP-001"}, []string{"ABP-001", "ABP-002"}) {
+		t.Fatalf("expected a newly detected pending code")
+	}
+	if hasNewPendingCodes([]string{"ABP-001", "ABP-002"}, []string{"ABP-002", "ABP-001"}) {
+		t.Fatalf("reordering existing pending codes must not count as a new update")
+	}
+	if hasNewPendingCodes([]string{"ABP-001"}, []string{}) {
+		t.Fatalf("clearing pending codes must not count as a new update")
+	}
+}

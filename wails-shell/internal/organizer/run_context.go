@@ -3,6 +3,7 @@ package organizer
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -96,6 +97,14 @@ func newOrganizerRunContext(service *Service, options RunOptions) (*organizerRun
 	if err := common.ValidateWritableDirectoryPath(normalizedRootPath); err != nil {
 		return nil, fmt.Errorf("\u6839\u76ee\u5f55\u8def\u5f84\u65e0\u6548\uff1a%w", err)
 	}
+	// An organizer root must be a user-owned folder, never a volume/share root.
+	// Even though every delete branch is scoped and revalidated, accepting C:\\,
+	// Z:\\, or a UNC share root unnecessarily widens the blast radius of a bad
+	// configuration. Keep this rule at context construction so preview and real
+	// runs have exactly the same safety boundary.
+	if isFilesystemRoot(normalizedRootPath) {
+		return nil, fmt.Errorf("\u4e3a\u9632\u6b62\u8bef\u5220\uff0c\u6574\u7406\u6839\u76ee\u5f55\u4e0d\u80fd\u76f4\u63a5\u9009\u62e9\u78c1\u76d8\u6216\u7f51\u7edc\u5171\u4eab\u6839\u76ee\u5f55\uff0c\u8bf7\u9009\u62e9\u5176\u4e2d\u7684\u4e13\u7528\u6587\u4ef6\u5939\u3002")
+	}
 
 	rootStat, err := os.Stat(normalizedRootPath)
 	if err != nil || !rootStat.IsDir() {
@@ -162,6 +171,14 @@ func newOrganizerRunContext(service *Service, options RunOptions) (*organizerRun
 	ctx.summary.ExpectedCodeTotal = len(ctx.codeSet)
 
 	return ctx, nil
+}
+
+// isFilesystemRoot is intentionally based on filepath.Dir instead of a
+// drive-letter pattern so it protects Windows drive roots, UNC share roots,
+// and POSIX roots without relying on the UI platform.
+func isFilesystemRoot(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	return cleaned != "" && filepath.Dir(cleaned) == cleaned
 }
 
 // prepareFilesystem owns only the organizer-managed directories and legacy
