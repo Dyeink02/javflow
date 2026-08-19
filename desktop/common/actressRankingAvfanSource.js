@@ -148,7 +148,7 @@ function parseAvfanRankingHtml(html, options = {}) {
     createRankingPage({
       mode,
       sourceChannel: 'avfan',
-      sourceName: 'AVfan 在线',
+      sourceName: 'AVfan',
       sourceUrl: mode === 'annual' ? AVFAN_YEARLY_URL : AVFAN_MONTHLY_URL,
       title: pageTitle || buildRankingTitle(mode, period.periodYear, period.periodMonth),
       periodYear: period.periodYear,

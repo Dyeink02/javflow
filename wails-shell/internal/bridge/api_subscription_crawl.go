@@ -16,14 +16,13 @@ import (
 	"javflow/internal/subcrawl"
 )
 
-const defaultSubscriptionProxy = "127.0.0.1:7897"
-
 func (a *API) resolveSubcrawlProxy(payload map[string]any) string {
 	proxyValue := common.CleanString(payload["proxy"])
-	if proxyValue == "" {
-		return defaultSubscriptionProxy
+	if proxyValue != "" {
+		return proxyValue
 	}
-	return proxyValue
+	settings := a.loadBridgeSettingsSnapshot()
+	return common.CleanString(settings["proxy"])
 }
 
 func (a *API) resolveSubcrawlCookie(payload map[string]any) string {

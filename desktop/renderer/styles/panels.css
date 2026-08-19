@@ -159,7 +159,7 @@
 
 .crawl-ops-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-top: 14px;
   grid-column: 1 / -1;
@@ -394,6 +394,10 @@
   background:
     linear-gradient(145deg, rgba(255, 76, 134, 0.08), rgba(255, 255, 255, 0.03)),
     rgba(7, 15, 27, 0.64);
+}
+
+.result-ops-card[hidden] {
+  display: none !important;
 }
 
 .result-history-hint {

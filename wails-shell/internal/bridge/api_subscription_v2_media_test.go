@@ -1,13 +1,14 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,17 +18,21 @@ import (
 	runtimepaths "javflow/internal/runtime"
 )
 
-func TestCacheSubscriptionMediaWritesHiddenLocalImage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-		img.Set(0, 0, color.RGBA{R: 80, G: 120, B: 160, A: 255})
-		_ = png.Encode(writer, img)
-	}))
-	defer server.Close()
+type subscriptionMediaRoundTripper func(*http.Request) (*http.Response, error)
 
+func (fn subscriptionMediaRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func TestCacheSubscriptionMediaWritesHiddenLocalImage(t *testing.T) {
 	mediaDir := filepath.Join(t.TempDir(), "subscriptions-v2", "media", "actor")
-	urls, err := cacheSubscriptionMedia(context.Background(), []string{server.URL + "/avatar.png"}, mediaDir, "")
+	originalFactory := newSubscriptionMediaHTTPClient
+	newSubscriptionMediaHTTPClient = func(string) (*http.Client, error) {
+		return newSubscriptionMediaTestClient(nil), nil
+	}
+	t.Cleanup(func() { newSubscriptionMediaHTTPClient = originalFactory })
+
+	urls, err := cacheSubscriptionMedia(context.Background(), []string{"https://8.8.8.8/avatar.png"}, mediaDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +45,28 @@ func TestCacheSubscriptionMediaWritesHiddenLocalImage(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(mediaDir, "photo-01.png")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDownloadSubscriptionMediaRejectsPrivateTarget(t *testing.T) {
+	_, _, err := downloadSubscriptionMedia(context.Background(), http.DefaultClient, "http://127.0.0.1/actor.png", "")
+	if err == nil || !strings.Contains(err.Error(), "unsafe actor image URL") {
+		t.Fatalf("expected private media URL to be rejected, got %v", err)
+	}
+}
+
+func TestDownloadSubscriptionMediaRejectsPrivateRedirect(t *testing.T) {
+	client := &http.Client{Transport: subscriptionMediaRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": []string{"http://127.0.0.1/actor.png"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    request,
+		}, nil
+	})}
+	_, _, err := downloadSubscriptionMedia(context.Background(), client, "https://8.8.8.8/actor.png", "")
+	if err == nil || !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("expected private redirect to be rejected, got %v", err)
 	}
 }
 
@@ -56,14 +83,13 @@ func TestActressAtlasMediaKeyIsStableAndFilesystemSafe(t *testing.T) {
 
 func TestCacheActressAtlasWorkCoversUsesLocalRouteAndWorkReferer(t *testing.T) {
 	var receivedReferer string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		receivedReferer = request.Referer()
-		writer.Header().Set("Content-Type", "image/png")
-		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-		img.Set(0, 0, color.RGBA{R: 220, G: 120, B: 170, A: 255})
-		_ = png.Encode(writer, img)
-	}))
-	defer server.Close()
+	originalFactory := newSubscriptionMediaHTTPClient
+	newSubscriptionMediaHTTPClient = func(string) (*http.Client, error) {
+		return newSubscriptionMediaTestClient(func(request *http.Request) {
+			receivedReferer = request.Referer()
+		}), nil
+	}
+	t.Cleanup(func() { newSubscriptionMediaHTTPClient = originalFactory })
 
 	userData := t.TempDir()
 	api := &API{runtime: runtimeFacade{paths: runtimepaths.Paths{UserData: userData}}}
@@ -71,8 +97,8 @@ func TestCacheActressAtlasWorkCoversUsesLocalRouteAndWorkReferer(t *testing.T) {
 		ResolvedActressName: "测试演员",
 		Works: []subscriptiontarget.ActressWork{{
 			Code:     "TEST-001",
-			URL:      server.URL + "/TEST-001",
-			CoverURL: server.URL + "/cover.png",
+			URL:      "https://8.8.8.8/TEST-001",
+			CoverURL: "https://8.8.8.8/cover.png",
 		}},
 	}
 
@@ -106,6 +132,26 @@ func TestCacheActressAtlasWorkCoversUsesLocalRouteAndWorkReferer(t *testing.T) {
 	if second.Works[0].CoverURL == "" || second.Works[0].SourceCoverURL != profile.Works[0].CoverURL {
 		t.Fatalf("second refresh lost local/source cover pair: %#v", second.Works[0])
 	}
+}
+
+func newSubscriptionMediaTestClient(onRequest func(*http.Request)) *http.Client {
+	return &http.Client{Transport: subscriptionMediaRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if onRequest != nil {
+			onRequest(request)
+		}
+		buffer := &bytes.Buffer{}
+		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+		img.Set(0, 0, color.RGBA{R: 80, G: 120, B: 160, A: 255})
+		if err := png.Encode(buffer, img); err != nil {
+			return nil, err
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"image/png"}},
+			Body:       io.NopCloser(bytes.NewReader(buffer.Bytes())),
+			Request:    request,
+		}, nil
+	})}
 }
 
 func TestActressAtlasWorkCoverStemKeepsDifferentPagesDistinct(t *testing.T) {

@@ -73,3 +73,17 @@ func (a *API) handleChooseLearningSamples() (string, error) {
 	}
 	return marshalResult(selected)
 }
+
+func (a *API) handleChooseOrganizerCrawlFile() (string, error) {
+	selected, err := a.runtime.dialogs.ChooseFile(
+		"选择视频整理输入 JSON",
+		"",
+		[]runtime.FileFilter{
+			{DisplayName: "Crawl JSON", Pattern: "*.json"},
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+	return marshalResult(selected)
+}

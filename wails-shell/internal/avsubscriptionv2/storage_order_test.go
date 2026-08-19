@@ -156,3 +156,38 @@ func TestPatchPersistsActressCountFilterThreshold(t *testing.T) {
 		t.Fatalf("threshold 0 must disable the filter: %d", cleared.ActressCountFilterThreshold)
 	}
 }
+
+func TestPatchActressCountFilterThresholdForAllPersistsEverySubscription(t *testing.T) {
+	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
+	for _, item := range []Subscription{
+		{ActressName: "Filter Actor A", CrawlURL: "https://example.test/star/filter-a"},
+		{ActressName: "Filter Actor B", CrawlURL: "https://example.test/star/filter-b"},
+	} {
+		if _, err := service.Upsert(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	updated, err := service.PatchActressCountFilterThresholdForAll(18)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated) != 2 {
+		t.Fatalf("expected two updated subscriptions, got %d", len(updated))
+	}
+	for _, item := range updated {
+		if item.ActressCountFilterThreshold != 18 {
+			t.Fatalf("unexpected bulk threshold: %+v", item)
+		}
+	}
+
+	loaded, err := service.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range loaded {
+		if item.ActressCountFilterThreshold != 18 {
+			t.Fatalf("bulk threshold was not persisted: %+v", item)
+		}
+	}
+}

@@ -37,6 +37,8 @@ type PreloadedExpectedCodes struct {
 	ActressName        string      `json:"actressName,omitempty"`
 	TotalRecords       int         `json:"totalRecords"`
 	CodeCount          int         `json:"codeCount"`
+	ActualMagnetCount  int         `json:"actualMagnetCount"`
+	MagnetPath         string      `json:"magnetPath,omitempty"`
 	Codes              []string    `json:"codes"`
 	CodeEntries        []CodeEntry `json:"codeEntries"`
 }
@@ -67,20 +69,20 @@ type RunOptions struct {
 	// CrawlOutputDir is the stable fallback input when the caller did not
 	// preload expected codes yet. Organizer may read artifacts from this path,
 	// but it should stay a read-only dependency on persisted crawl outputs.
-	CrawlOutputDir     string                 `json:"crawlOutputDir"`
-	PreloadedExpected  PreloadedExpectedCodes `json:"preloadedExpected"`
-	AdDetectionEnabled bool                   `json:"adDetectionEnabled"`
-	AdModelType        string                 `json:"adModelType"`
-	AdThreshold        int                    `json:"adThreshold"`
-	AdKeywords         string                 `json:"adKeywords"`
-	AlistBaseURL       string                 `json:"alistBaseURL"`
+	CrawlOutputDir      string                 `json:"crawlOutputDir"`
+	PreloadedExpected   PreloadedExpectedCodes `json:"preloadedExpected"`
+	AdDetectionEnabled  bool                   `json:"adDetectionEnabled"`
+	AdModelType         string                 `json:"adModelType"`
+	AdThreshold         int                    `json:"adThreshold"`
+	AdKeywords          string                 `json:"adKeywords"`
+	AlistBaseURL        string                 `json:"alistBaseURL"`
 	BatchDelete         bool                   `json:"batchDelete"`         // 是否启用批量删除
 	DeleteIntervalMs    int                    `json:"deleteIntervalMs"`    // 删除间隔（毫秒）
 	OrganizeIntervalMs  int                    `json:"organizeIntervalMs"`  // 整理间隔（毫秒）
 	RetryMissingMagnets bool                   `json:"retryMissingMagnets"` // 是否对遗漏番号补抓磁力
 	OnLog               LogSink                `json:"-"`
-	OnProgress         ProgressSink           `json:"-"`
-	EvaluateAdRisk     AdRiskEvaluator        `json:"-"`
+	OnProgress          ProgressSink           `json:"-"`
+	EvaluateAdRisk      AdRiskEvaluator        `json:"-"`
 }
 
 // Summary is the operator-facing aggregate for one organizer run. Counts here

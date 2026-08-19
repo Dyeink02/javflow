@@ -29,7 +29,6 @@
   const appendTimestampedLogLine = rendererHelpers.appendTimestampedLogLine;
   const bindAsyncClickHelper = rendererHelpers.bindAsyncClick || null;
   const createBufferedLogAppender = rendererHelpers.createBufferedLogAppender || null;
-  const SUBSCRIPTION_DEFAULT_PROXY = '127.0.0.1:7897';
   const SUBSCRIPTION_DEFAULT_PARALLEL = 2;
   const SUBSCRIPTION_DEFAULT_DELAY = 2;
   const SUBSCRIPTION_DEFAULT_TIMEOUT = 30000;
@@ -66,12 +65,16 @@
       pendingReorderIDs: null,
       activeBatchCrawl: null,
       listSearch: '',
+      listSearchCanonical: '',
+      listSearchRequestToken: 0,
       listFilter: 'all',
-      listSort: 'updated'
+      listSort: 'updated',
+      globalProxy: ''
     };
     let eventsBound = false;
     let bootstrapCompleted = false;
     let hydrationPromise = null;
+    let subscriptionSearchResolveTimerId = null;
 
     function publishActiveSubscriptionCrawlSession(session) {
       // Let the shared crawler runtime view know when the public crawl feed is
@@ -148,6 +151,11 @@
 
     function normalizeCount(value, fallback = 0) {
       return Math.max(0, toSafeInteger(value, fallback));
+    }
+
+    function normalizeActressFilterThreshold(value) {
+      const parsed = Number.parseInt(String(value == null ? '' : value).trim(), 10);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
     }
 
     function parseTimestamp(value) {
@@ -289,10 +297,60 @@
       });
     }
 
+    function subscriptionSearchTerms() {
+      const terms = new Set();
+      for (const value of [state.listSearch, state.listSearchCanonical]) {
+        const normalized = normalizeText(value).toLocaleLowerCase('zh-CN');
+        if (normalized) {
+          terms.add(normalized);
+        }
+      }
+      return Array.from(terms);
+    }
+
+    function refreshSubscriptionListForSearch() {
+      setSummaryCounts();
+      renderSubscriptionList();
+    }
+
+    function scheduleSubscriptionAliasResolution(search) {
+      if (subscriptionSearchResolveTimerId !== null) {
+        clearTimeout(subscriptionSearchResolveTimerId);
+        subscriptionSearchResolveTimerId = null;
+      }
+      if (!search || typeof desktopApi.resolveActressAlias !== 'function') {
+        return;
+      }
+
+      const requestToken = state.listSearchRequestToken;
+      subscriptionSearchResolveTimerId = setTimeout(() => {
+        subscriptionSearchResolveTimerId = null;
+        void desktopApi
+          .resolveActressAlias({ actorName: search, localOnly: true })
+          .then((alias) => {
+            if (requestToken !== state.listSearchRequestToken || state.listSearch !== search) {
+              return;
+            }
+            state.listSearchCanonical = normalizeText(alias && alias.name);
+            refreshSubscriptionListForSearch();
+          })
+          // A missing or ambiguous alias keeps the original-text search active.
+          .catch(() => {});
+      }, 140);
+    }
+
+    function updateSubscriptionListSearch(value) {
+      state.listSearch = normalizeText(value);
+      state.listSearchCanonical = '';
+      state.listSearchRequestToken += 1;
+      refreshSubscriptionListForSearch();
+      scheduleSubscriptionAliasResolution(state.listSearch);
+    }
+
     function isSubscriptionVisible(item) {
-      const search = normalizeText(state.listSearch).toLocaleLowerCase('zh-CN');
+      const searchTerms = subscriptionSearchTerms();
       const name = normalizeText(item && item.actressName).toLocaleLowerCase('zh-CN');
-      if (search && !name.includes(search)) {
+      if (searchTerms.length > 0 && !searchTerms.some((search) => name.includes(search))) {
         return false;
       }
 
@@ -374,19 +432,23 @@
     }
 
     function setSubscriptionProxyStatus(status, detailText = '') {
-      const normalized = status === 'checking' || status === 'valid' || status === 'invalid' ? status : 'empty';
+      const normalized = status === 'checking' || status === 'valid' || status === 'global' || status === 'invalid' ? status : 'empty';
       proxyValidationState.lastStatus = normalized;
 
       const statusTextMap = {
         empty: '未检测',
         checking: '检测中...',
         valid: '代理正常',
+        global: '已连接',
         invalid: '代理失败'
       };
       const detailMap = {
-        empty: '订阅抓取默认使用 127.0.0.1:7897，可手动修改。',
+        empty: normalizeText(state.globalProxy)
+          ? '正在使用 JAV 爬虫中保存的代理。'
+          : '尚未填写代理地址。请先在 JAV 爬虫中填写，或在此临时输入。',
         checking: '正在检测订阅代理连通性，请稍候。',
         valid: '检测通过，可继续使用当前订阅代理。',
+        global: `已连接：${state.globalProxy}。可直接修改此处地址，仅临时覆盖当前订阅操作。`,
         invalid: '当前订阅代理不可用，请检查代理地址或代理软件状态。'
       };
 
@@ -402,15 +464,34 @@
 
     function applyDefaultSubscriptionProxy() {
       if (!elements.subscriptionCrawlerProxy) {
-        return SUBSCRIPTION_DEFAULT_PROXY;
+        return normalizeText(state.globalProxy);
       }
-      const resolved = normalizeText(elements.subscriptionCrawlerProxy.value) || SUBSCRIPTION_DEFAULT_PROXY;
+      const resolved = normalizeText(elements.subscriptionCrawlerProxy.value) || normalizeText(state.globalProxy);
       elements.subscriptionCrawlerProxy.value = resolved;
       return resolved;
     }
 
     function resolveSubscriptionProxyValue() {
-      return normalizeText(elements.subscriptionCrawlerProxy && elements.subscriptionCrawlerProxy.value) || SUBSCRIPTION_DEFAULT_PROXY;
+      return normalizeText(elements.subscriptionCrawlerProxy && elements.subscriptionCrawlerProxy.value) || normalizeText(state.globalProxy);
+    }
+
+    function isUsingGlobalSubscriptionProxy(proxyValue) {
+      const globalProxy = normalizeText(state.globalProxy);
+      return Boolean(globalProxy && normalizeText(proxyValue) === globalProxy);
+    }
+
+    async function loadGlobalSubscriptionProxy() {
+      if (!desktopApi || typeof desktopApi.getSettings !== 'function') {
+        return '';
+      }
+      try {
+        const settings = await desktopApi.getSettings();
+        state.globalProxy = normalizeText(settings && settings.proxy);
+        return applyDefaultSubscriptionProxy();
+      } catch (error) {
+        appendLog('warn', `读取已保存代理失败：${getErrorMessage(error)}`);
+        return resolveSubscriptionProxyValue();
+      }
     }
 
     function applySubscriptionCrawlerDefaults() {
@@ -487,7 +568,7 @@
 
       if (!trimmedValue) {
         setSubscriptionProxyStatus('empty');
-        return { status: 'empty', detail: `订阅抓取默认使用 ${SUBSCRIPTION_DEFAULT_PROXY}。` };
+        return { status: 'empty', detail: '尚未填写代理地址。' };
       }
 
       if (!desktopApi || typeof desktopApi.validateProxy !== 'function') {
@@ -509,7 +590,8 @@
         }
 
         if (result && result.status === 'valid') {
-          setSubscriptionProxyStatus('valid', result.detail);
+          const usingGlobalProxy = isUsingGlobalSubscriptionProxy(trimmedValue);
+          setSubscriptionProxyStatus(usingGlobalProxy ? 'global' : 'valid', usingGlobalProxy ? '' : result.detail);
           return result;
         }
 
@@ -776,6 +858,22 @@
       renderSubscriptionDetail();
     }
 
+    function syncGlobalActressFilterInput(items) {
+      if (!elements.subscriptionGlobalActressFilter) {
+        return;
+      }
+      const values = Array.from(new Set(
+        (Array.isArray(items) ? items : []).map((item) => normalizeActressFilterThreshold(item && item.actressCountFilterThreshold))
+      ));
+      if (values.length === 1) {
+        elements.subscriptionGlobalActressFilter.value = String(values[0]);
+        elements.subscriptionGlobalActressFilter.placeholder = '0';
+        return;
+      }
+      elements.subscriptionGlobalActressFilter.value = '';
+      elements.subscriptionGlobalActressFilter.placeholder = values.length > 1 ? '混合' : '0';
+    }
+
     function findSubscriptionById(id) {
       return (Array.isArray(state.subscriptions) ? state.subscriptions : []).find((item) => item.id === id) || null;
     }
@@ -890,16 +988,41 @@
         });
         if (updated && updated.id) {
           updateSubscriptionState(state.subscriptions.map((entry) => entry.id === updated.id ? updated : entry));
-          setSummaryMessage(`已保存 ${updated.actressName || '该演员'} 的合集过滤值：${threshold === 0 ? '关闭' : `${threshold} 位演员以上`}`);
-          appendLog('info', `已保存合集过滤：${updated.actressName || '未命名订阅'}，阈值 ${threshold}`);
+          syncGlobalActressFilterInput(state.subscriptions);
+          setSummaryMessage(`已保存 ${updated.actressName || '该演员'} 的过滤演员数目：${threshold === 0 ? '关闭' : `${threshold} 位演员以上`}`);
+          appendLog('info', `已保存过滤演员数目：${updated.actressName || '未命名订阅'}，阈值 ${threshold}`);
         }
       } catch (error) {
-        appendLog('error', `保存合集过滤失败：${getErrorMessage(error)}`);
+        appendLog('error', `保存过滤演员数目失败：${getErrorMessage(error)}`);
       } finally {
         if (button) {
           button.disabled = false;
         }
       }
+    }
+
+    async function applyActressFilterToAllSubscriptions() {
+      if (!desktopApi || typeof desktopApi.patchAllAvSubscriptionActressFilter !== 'function') {
+        throw new Error('当前版本未提供统一过滤演员数目设置。');
+      }
+      const current = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+      if (current.length === 0) {
+        setSummaryMessage('当前没有订阅可应用过滤演员数目。');
+        return;
+      }
+      const rawValue = elements.subscriptionGlobalActressFilter && elements.subscriptionGlobalActressFilter.value;
+      if (String(rawValue == null ? '' : rawValue).trim() === '') {
+        throw new Error('请填写统一过滤演员数目；填 0 可关闭过滤。');
+      }
+      const threshold = normalizeActressFilterThreshold(rawValue);
+      const result = await desktopApi.patchAllAvSubscriptionActressFilter({
+        actressCountFilterThreshold: threshold
+      });
+      const nextItems = result && Array.isArray(result.subscriptions) ? result.subscriptions : current;
+      updateSubscriptionState(nextItems);
+      syncGlobalActressFilterInput(nextItems);
+      setSummaryMessage(`已将过滤演员数目应用到全部 ${nextItems.length} 条订阅：${threshold === 0 ? '关闭' : `${threshold} 位演员以上`}`);
+      appendLog('info', `已统一设置过滤演员数目：${nextItems.length} 条订阅，阈值 ${threshold}`);
     }
 
     function resolveSubscriptionMediaURLs(item) {
@@ -1331,12 +1454,19 @@
       }
 
       appendLog('info', `开始检测更新：${target.actressName || '未命名订阅'}。`);
+      updateSubscriptionState(state.subscriptions.map((item) => item.id === target.id ? { ...item, status: 'running', lastError: '' } : item));
       const payload = buildSubscriptionRuntimePayload({ id: target.id });
       appendLog(
         'info',
         `[diagnostic] 检测更新参数 proxy=${payload.proxy || 'none'} cloudflare=${payload.cloudflare} parallel=${payload.parallel} delay=${payload.delay} timeout=${payload.timeout}`
       );
-      const result = await desktopApi.refreshAvSubscription(payload);
+      let result;
+      try {
+        result = await desktopApi.refreshAvSubscription(payload);
+      } catch (error) {
+        updateSubscriptionState(state.subscriptions.map((item) => item.id === target.id ? { ...item, status: 'error', lastError: getErrorMessage(error) } : item));
+        throw error;
+      }
 
       const nextItem = result && result.subscription ? result.subscription : target;
       const nextList = items.map((entry) => (entry.id === nextItem.id ? nextItem : entry));
@@ -1389,12 +1519,19 @@
       }
 
       appendLog('info', `开始批量检测 ${items.length} 条订阅。`);
+      updateSubscriptionState(state.subscriptions.map((item) => ({ ...item, status: 'running', lastError: '' })));
       const payload = buildSubscriptionRuntimePayload();
       appendLog(
         'info',
         `[diagnostic] 批量检测参数 proxy=${payload.proxy || 'none'} cloudflare=${payload.cloudflare} parallel=${payload.parallel} delay=${payload.delay} timeout=${payload.timeout}`
       );
-      const result = await desktopApi.refreshAvSubscriptions(payload);
+      let result;
+      try {
+        result = await desktopApi.refreshAvSubscriptions(payload);
+      } catch (error) {
+        updateSubscriptionState(state.subscriptions.map((item) => ({ ...item, status: 'error', lastError: getErrorMessage(error) })));
+        throw error;
+      }
 
       if (result && Array.isArray(result.subscriptions)) {
         updateSubscriptionState(result.subscriptions);
@@ -2063,7 +2200,9 @@
 
     async function loadSubscriptions() {
       const result = await desktopApi.listAvSubscriptions();
-      updateSubscriptionState(result && result.subscriptions ? result.subscriptions : []);
+      const subscriptions = result && result.subscriptions ? result.subscriptions : [];
+      updateSubscriptionState(subscriptions);
+      syncGlobalActressFilterInput(subscriptions);
       void hydrateMissingSubscriptionMedia();
     }
 
@@ -2138,9 +2277,7 @@
       eventsBound = true;
       if (elements.subscriptionListSearch) {
         elements.subscriptionListSearch.addEventListener('input', () => {
-          state.listSearch = normalizeText(elements.subscriptionListSearch.value);
-          setSummaryCounts();
-          renderSubscriptionList();
+          updateSubscriptionListSearch(elements.subscriptionListSearch.value);
         });
       }
       if (elements.subscriptionListFilter) {
@@ -2159,6 +2296,16 @@
           renderSubscriptionDetail();
         });
       }
+      if (elements.subscriptionGlobalActressFilter) {
+        elements.subscriptionGlobalActressFilter.addEventListener('input', () => {
+          const rawValue = String(elements.subscriptionGlobalActressFilter.value || '').trim();
+          if (!rawValue) {
+            return;
+          }
+          elements.subscriptionGlobalActressFilter.value = String(normalizeActressFilterThreshold(rawValue));
+        });
+      }
+      bindAsyncClick(elements.subscriptionApplyActressFilterButton, applyActressFilterToAllSubscriptions);
       bindAsyncClick(elements.subscriptionDetectAllButton, refreshAllSubscriptions);
       bindAsyncClick(elements.subscriptionImportRecentButton, async () => {
         const option = getSelectedRecentCrawlOption();
@@ -2320,7 +2467,6 @@
       setSummaryCounts();
       renderSubscriptionDetail();
       setSubscriptionCrawlerStatus('待启动');
-      applyDefaultSubscriptionProxy();
       applySubscriptionCrawlerDefaults();
       void resolveSubscriptionDefaultOutputDir().then((outputDir) => {
         state.defaultOutputDir = normalizeText(outputDir);
@@ -2335,7 +2481,7 @@
       setSubscriptionProxyStatus('checking');
       setSummaryMessage('等待检测订阅更新。');
       appendLog('info', 'AV 订阅模块已就绪。');
-      void validateSubscriptionProxyValue(resolveSubscriptionProxyValue()).then(() => {
+      void loadGlobalSubscriptionProxy().then((proxyValue) => validateSubscriptionProxyValue(proxyValue)).then(() => {
         scheduleSubscriptionProxyAutoValidation();
       });
       bindSubcrawlEvents();

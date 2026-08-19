@@ -1,7 +1,7 @@
 <main class="atlas-content-grid">
   <section class="atlas-panel atlas-ranking-panel" aria-labelledby="atlas-ranking-title">
     <div class="atlas-panel-head">
-      <div><p class="atlas-panel-kicker">发现演员</p><h2 id="atlas-ranking-title">演员榜单</h2><p>按网站和时间浏览真实返回的榜单</p></div>
+      <div><p class="atlas-panel-kicker">发现演员</p><h2 id="atlas-ranking-title">演员榜单</h2><p>通过多个榜单扩充演员发现范围</p></div>
       <div class="atlas-panel-actions"><span id="atlas-ranking-total" class="atlas-panel-count">0 位</span><button id="atlas-refresh" class="ghost-button atlas-refresh-button" type="button">刷新榜单</button></div>
     </div>
     <section class="atlas-search-section" aria-label="演员搜索">
@@ -10,11 +10,11 @@
       <p id="atlas-search-summary" class="atlas-search-summary">搜索会查询公开演员目录，不受榜单筛选限制。</p>
     </section>
     <div class="atlas-ranking-controls" aria-label="榜单筛选条件">
-      <label class="atlas-control-field"><span>榜单网站</span><select id="atlas-source" class="atlas-ranking-select"><option value="smart">智能推荐</option><option value="fanza">FANZA 官方</option><option value="dmm">DMM 官方</option><option value="avfan">AVfan 在线</option><option value="local">本地历史</option></select></label>
+      <label class="atlas-control-field"><span>榜单</span><select id="atlas-source" class="atlas-ranking-select"><option value="smart">智能推荐</option><option value="fanza">FANZA</option><option value="dmm">DMM</option><option value="avfan">AVfan</option><option value="local">本地历史</option></select></label>
       <div class="atlas-rank-tabs" role="tablist" aria-label="榜单类型"><button id="atlas-mode-monthly" class="atlas-rank-tab active" type="button">月榜</button><button id="atlas-mode-annual" class="atlas-rank-tab" type="button">年榜</button></div>
       <div class="atlas-control-row"><label class="atlas-control-field"><span>年份</span><select id="atlas-year" class="atlas-ranking-select"><option value="">自动</option></select></label><label id="atlas-month-field" class="atlas-control-field"><span>月份</span><select id="atlas-month" class="atlas-ranking-select"><option value="">自动</option></select></label></div>
     </div>
-    <section class="atlas-proxy-section" aria-label="演员图鉴代理"><div class="atlas-operation-label"><span>代理服务器</span><span id="atlas-proxy-status" class="proxy-status-chip empty">未检测</span></div><div class="atlas-proxy-row"><label class="atlas-proxy-field"><input id="atlas-proxy" type="text" placeholder="http://127.0.0.1:7897" autocomplete="off" /></label><button id="atlas-proxy-save" class="ghost-button" type="button">应用</button></div><small id="atlas-proxy-status-detail" class="atlas-proxy-status-detail">输入代理后点击应用，软件会检测连接状态。</small></section>
+    <section class="atlas-proxy-section" aria-label="演员图鉴代理"><div class="atlas-operation-label"><span>代理地址</span><span id="atlas-proxy-status" class="proxy-status-chip empty">未检测</span></div><div class="atlas-proxy-row"><label class="atlas-proxy-field"><input id="atlas-proxy" type="text" placeholder="自动读取 JAV 爬虫中保存的代理" autocomplete="off" /></label><button id="atlas-proxy-save" class="ghost-button" type="button">应用</button></div><small id="atlas-proxy-status-detail" class="atlas-proxy-status-detail">此处保存后，JAV 爬虫及其他板块会读取同一代理地址。</small></section>
     <div id="atlas-ranking-notice" class="atlas-ranking-context">正在读取预加载榜单。</div><div id="atlas-ranking-list" class="atlas-ranking-list" role="list"></div><p id="atlas-ranking-footer" class="atlas-ranking-footer"></p>
   </section>
   <section class="atlas-panel atlas-detail-panel" aria-labelledby="atlas-detail-title">

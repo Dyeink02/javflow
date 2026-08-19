@@ -99,7 +99,7 @@
     }
 
     // 抓取完成时通过弹窗强提醒用户，避免只依赖日志/状态 pill 的弱反馈。
-    function notifyCrawlCompletion(status, message) {
+    async function notifyCrawlCompletion(status, message, details = {}) {
       const normalizedStatus = String(status || '').trim().toLowerCase();
       if (!['completed', 'error', 'stopped', 'incomplete'].includes(normalizedStatus)) {
         return;
@@ -118,14 +118,34 @@
       };
       const title = titleMap[normalizedStatus] || '抓取结束';
       const body = String(message || `${title}，请查看运行日志了解详情。`).trim();
+      const magnetPath = String(
+        (details && details.magnetPath) ||
+          (details && details.outputDir) ||
+          (lastResultPanel && (lastResultPanel.magnetPath || lastResultPanel.outputDir)) ||
+          ''
+      ).trim();
 
       if (desktopApi && typeof desktopApi.showAlert === 'function') {
-        desktopApi.showAlert({
-          type: normalizedStatus === 'completed' ? 'success' : 'warning',
-          title,
-          message: body,
-          confirmText: '知道了'
-        }).catch(() => {});
+        try {
+          const response = await desktopApi.showAlert({
+            type: normalizedStatus === 'completed' ? 'success' : 'warning',
+            title,
+            message: normalizedStatus === 'completed' && magnetPath ? `${body}\n\n是否打开磁力链接？` : body,
+            buttons: normalizedStatus === 'completed' && magnetPath ? ['打开磁力链接', '否'] : ['知道了']
+          });
+          const selection = String(response && response.selection ? response.selection : '').trim();
+          if (
+            normalizedStatus === 'completed' &&
+            magnetPath &&
+            selection.includes('打开') &&
+            desktopApi &&
+            typeof desktopApi.openMagnetFile === 'function'
+          ) {
+            await desktopApi.openMagnetFile(magnetPath);
+          }
+        } catch (_) {
+          // 完成提示失败不能影响抓取结果回收。
+        }
       } else if (typeof globalScope.alert === 'function') {
         globalScope.alert(`${title}\n${body}`);
       }
@@ -499,7 +519,7 @@
             autoRefreshWorkspacesOnCrawlCompleted(outputDir);
           }
           if (summary && summary.status) {
-            notifyCrawlCompletion(summary.status, summary.summaryLine || summary.message);
+            void notifyCrawlCompletion(summary.status, summary.summaryLine || summary.message, summary);
           }
         }));
       }
@@ -516,7 +536,7 @@
       const terminalStatuses = ['completed', 'error', 'stopped', 'incomplete'];
       const wasRunning = ['starting', 'running'].includes(previousCrawlStatus);
       if (wasRunning && terminalStatuses.includes(currentStatus)) {
-        notifyCrawlCompletion(currentStatus, state && state.message);
+        void notifyCrawlCompletion(currentStatus, state && state.message, lastResultPanel || {});
       }
       previousCrawlStatus = currentStatus;
 

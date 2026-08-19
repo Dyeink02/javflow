@@ -261,7 +261,7 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 						if !ctx.batchDeleteDirectorySafe(sourceDir, pendingDeleteSet, protectedPaths) {
 							return fmt.Errorf("\u76ee\u5f55\u5728\u5220\u9664\u524d\u51fa\u73b0\u672a\u786e\u8ba4\u5185\u5bb9")
 						}
-						return os.RemoveAll(sourceDir)
+						return removeDirectoryWithRetry(sourceDir, 5)
 					},
 					ctx.logf,
 				)

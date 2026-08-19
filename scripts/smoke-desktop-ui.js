@@ -190,7 +190,7 @@ async function main() {
     await page.waitForSelector('#start', { timeout: timeoutMs });
     console.log('[smoke] start button visible');
 
-    const versionBadge = await page.$eval('#version-badge', (element) => element.textContent.trim());
+    const versionBadge = await page.$eval('#crawler-topbar-version', (element) => element.textContent.trim());
     assert.strictEqual(versionBadge, `v${version}`);
     console.log('[smoke] version badge ok');
 

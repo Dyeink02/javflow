@@ -12,7 +12,7 @@
 // 2) shared output/log filename defaults
 // 3) exported app-info payload registry
 (function registerDesktopAppInfo(globalScope) {
-  const APP_VERSION = '0.4.31';
+  const APP_VERSION = '0.4.32';
   const APP_TITLE = 'JavFlow';
   const DEFAULT_BASE_URL = 'https://www.javbus.com';
 

@@ -52,7 +52,7 @@ func (a *API) cacheActressAtlasWorkCovers(ctx context.Context, profile subscript
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
 		return profile
 	}
-	client, err := subscriptionMediaHTTPClient(proxyValue)
+	client, err := newSubscriptionMediaHTTPClient(proxyValue)
 	if err != nil {
 		return profile
 	}
@@ -114,7 +114,7 @@ func (a *API) cacheActressAtlasProfileMedia(ctx context.Context, profile subscri
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
 		return profile
 	}
-	client, err := subscriptionMediaHTTPClient(proxyValue)
+	client, err := newSubscriptionMediaHTTPClient(proxyValue)
 	if err != nil {
 		return profile
 	}

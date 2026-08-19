@@ -119,6 +119,12 @@ select optgroup {
   border-color: rgba(130, 255, 196, 0.75);
 }
 
+.proxy-status-chip.global {
+  color: #062b34;
+  background: rgba(112, 232, 247, 0.9);
+  border-color: rgba(112, 232, 247, 0.74);
+}
+
 .proxy-status-chip.invalid {
   color: #fff7f8;
   background: rgba(255, 97, 124, 0.22);

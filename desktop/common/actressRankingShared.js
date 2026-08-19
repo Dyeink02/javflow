@@ -47,17 +47,17 @@ const SOURCE_CHANNELS = Object.freeze({
   },
   fanza: {
     id: 'fanza',
-    label: 'FANZA 官方',
+    label: 'FANZA',
     cacheBucket: 'official'
   },
   dmm: {
     id: 'dmm',
-    label: 'DMM 官方',
+    label: 'DMM',
     cacheBucket: 'official'
   },
   avfan: {
     id: 'avfan',
-    label: 'AVfan 在线',
+    label: 'AVfan',
     cacheBucket: 'avfan'
   },
   local: {

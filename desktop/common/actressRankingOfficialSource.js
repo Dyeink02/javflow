@@ -30,14 +30,14 @@ const {
 
 function getOfficialSourceName(requestedChannel) {
   if (requestedChannel === 'dmm') {
-    return 'DMM 官方';
+    return 'DMM';
   }
 
   if (requestedChannel === 'fanza') {
-    return 'FANZA 官方';
+    return 'FANZA';
   }
 
-  return 'DMM/FANZA 官方';
+  return 'DMM/FANZA';
 }
 
 function buildAgePassUrl(targetUrl) {

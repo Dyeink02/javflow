@@ -85,11 +85,15 @@
   }
 
   function buildStatusChip(item) {
+    const status = String(item && item.status || '').trim();
     const chip = document.createElement('span');
     const hasPending = Number(item && item.pendingCount || 0) > 0;
     const hasError = String(item && item.lastError || '').trim() !== '';
-    chip.className = `subscription-status-chip ${hasError ? 'error' : hasPending ? 'updated' : 'idle'}`;
-    chip.textContent = hasError ? '检查失败' : hasPending ? `发现更新 +${item.pendingCount}` : '正常';
+    if (!hasError && !hasPending && status !== 'running') {
+      return null;
+    }
+    chip.className = `subscription-status-chip ${hasError ? 'error' : status === 'running' ? 'checking' : 'updated'}`;
+    chip.textContent = hasError ? '检查失败' : status === 'running' ? '检测更新中' : `待更新 +${item.pendingCount}`;
     return chip;
   }
 
@@ -148,7 +152,7 @@
     const copy = document.createElement('div');
     copy.className = 'subscription-actress-filter-copy';
     const label = document.createElement('span');
-    label.textContent = '合集过滤';
+    label.textContent = '过滤演员数目';
     const hint = document.createElement('small');
     hint.textContent = '达到该演员数时不输出磁力，0 为关闭';
     copy.appendChild(label);
@@ -162,7 +166,7 @@
     input.step = '1';
     input.inputMode = 'numeric';
     input.value = String(Math.max(0, Number(item && item.actressCountFilterThreshold) || 0));
-    input.setAttribute('aria-label', '合集过滤演员数量阈值');
+    input.setAttribute('aria-label', '过滤演员数目阈值');
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
     saveButton.className = 'ghost-button subscription-filter-save-button';
@@ -349,7 +353,10 @@
     titleWrap.appendChild(meta);
 
     head.appendChild(titleWrap);
-    head.appendChild(buildStatusChip(item));
+    const statusChip = buildStatusChip(item);
+    if (statusChip) {
+      head.appendChild(statusChip);
+    }
     if (callbacks.showOrderControls !== false) {
       head.appendChild(buildOrderControls(item, index, callbacks));
     }

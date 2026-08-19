@@ -63,6 +63,17 @@ func (a *API) handleLookupTargetCommand(command string, payload map[string]any) 
 				return result, true, err
 			}
 		}
+		if boolValue(payload["localOnly"], false) {
+			// List filtering may call this while the user is typing. Keep that
+			// path local-only so an unknown partial name never starts a provider
+			// request or delays the UI.
+			result, err := marshalResult(map[string]any{
+				"name":     "",
+				"aliases":  []string{},
+				"provider": "local-alias-index",
+			})
+			return result, true, err
+		}
 		if a.libraryMetadata.library == nil {
 			return "", true, fmt.Errorf("actor metadata service is not initialized")
 		}

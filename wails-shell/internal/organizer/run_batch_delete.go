@@ -116,7 +116,7 @@ func (ctx *organizerRunContext) executeBatchDelete(pendingDelete []Candidate, wa
 					if !ctx.batchDeleteDirectorySafe(targetPath, pendingSet, protectedPaths) {
 						return fmt.Errorf("目标目录在删除前出现未确认内容")
 					}
-					return os.RemoveAll(targetPath)
+					return removeDirectoryWithRetry(targetPath, 5)
 				}
 				return os.Remove(targetPath)
 			},

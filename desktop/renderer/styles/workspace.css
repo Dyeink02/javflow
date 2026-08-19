@@ -37,6 +37,20 @@
   white-space: nowrap;
 }
 
+.workspace-topbar .workspace-topbar-version {
+  flex: 0 0 auto;
+  margin-left: -8px;
+  padding: 5px 8px;
+  border-color: rgba(255, 76, 134, 0.48);
+  background: rgba(255, 76, 134, 0.12);
+  color: var(--accent-warm);
+  font-size: 11px;
+}
+
+.workspace-topbar .workspace-topbar-version.hidden {
+  display: none;
+}
+
 .workspace-topbar-tabs {
   display: flex;
   gap: 8px;
@@ -60,6 +74,24 @@
 .organizer-inline-actions {
   display: flex;
   gap: 10px;
+}
+
+.organizer-crawl-input-row {
+  display: grid;
+  gap: 8px;
+}
+
+.organizer-crawl-browse-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.organizer-crawl-browse-actions .inline-button {
+  min-width: 72px;
+}
+
+.organizer-crawl-input-row select {
+  min-width: 0;
 }
 
 .organizer-ad-action-grid {
@@ -95,6 +127,12 @@
   margin-top: 14px;
   display: grid;
   gap: 12px;
+}
+
+/* The component has an explicit hidden product state. Keep it hidden even
+   when the component layout rule declares display:grid below. */
+.organizer-learning-box[hidden] {
+  display: none !important;
 }
 
 .organizer-learning-tip {

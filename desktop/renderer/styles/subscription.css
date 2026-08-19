@@ -223,6 +223,60 @@
   white-space: nowrap;
 }
 
+.subscription-global-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 167, 93, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 167, 93, 0.06);
+}
+
+.subscription-global-filter-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.subscription-global-filter-copy strong {
+  color: #ffe5cb;
+  font-size: 12px;
+}
+
+.subscription-global-filter-copy small {
+  color: #b9c9dd;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.subscription-global-filter-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.subscription-global-filter-controls input {
+  width: 84px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(3, 9, 22, 0.84);
+  color: #f7fbff;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.subscription-global-filter-controls input:focus {
+  border-color: rgba(255, 167, 93, 0.8);
+  box-shadow: 0 0 0 3px rgba(255, 167, 93, 0.12);
+}
+
 .subscription-refresh-summary {
   min-height: 20px;
   margin: 0 0 10px;
@@ -464,7 +518,7 @@
   text-align: center;
 }
 
-.subscription-status-chip.idle {
+.subscription-status-chip.checking {
   background: rgba(86, 224, 255, 0.16);
   color: #b9f6ff;
 }
@@ -1037,6 +1091,10 @@
     justify-self: end;
   }
 
+  .subscription-global-filter-bar {
+    align-items: flex-start;
+  }
+
   .subscription-card-head {
     grid-template-columns: 56px minmax(0, 1fr);
   }
@@ -1070,6 +1128,17 @@
 
   .subscription-list-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-global-filter-bar,
+  .subscription-global-filter-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .subscription-global-filter-controls input,
+  .subscription-global-filter-controls button {
+    width: 100%;
   }
 
   .subscription-search-field,

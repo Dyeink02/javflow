@@ -1,10 +1,10 @@
 // Package dependency manages runtime prerequisites such as FFmpeg and ONNX.
 //
 // Ownership summary:
-// 1) inspect whether required desktop dependencies are already available
-// 2) download, extract, and install missing runtime prerequisites
-// 3) emit installation/status progress without leaking dependency policy into
-//    feature-domain services
+//  1. inspect whether required desktop dependencies are already available
+//  2. download, extract, and install missing runtime prerequisites
+//  3. emit installation/status progress without leaking dependency policy into
+//     feature-domain services
 package dependency
 
 import (
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"javflow/internal/netguard"
 	runtimepaths "javflow/internal/runtime"
 )
 
@@ -51,29 +51,15 @@ var ffmpegVersionPattern = regexp.MustCompile(`(?i)ffmpeg version\s+([^\s]+)`)
 // validateDependencyDownloadURL 校验用户自定义依赖下载地址。
 // 仅允许 http/https，禁止指向本机或私有网络，防止通过自定义 URL 实施 RCE/SSRF。
 func validateDependencyDownloadURL(rawURL string) error {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
+	target, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return fmt.Errorf("invalid download URL: %w", err)
+	}
+	if strings.TrimSpace(rawURL) == "" {
 		return nil
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil {
-		return fmt.Errorf("无效的下载地址：%s", err.Error())
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("下载地址仅支持 http/https 协议")
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("下载地址缺少主机名")
-	}
-	hostWithoutPort := parsed.Hostname()
-	if hostWithoutPort == "" {
-		return fmt.Errorf("下载地址主机名无效")
-	}
-	if hostWithoutPort == "localhost" || hostWithoutPort == "127.0.0.1" || hostWithoutPort == "::1" {
-		return fmt.Errorf("下载地址不能指向本机")
-	}
-	if ip := net.ParseIP(hostWithoutPort); ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
-		return fmt.Errorf("下载地址不能指向私有网络")
+	if err := netguard.ValidatePublicURL(context.Background(), target); err != nil {
+		return fmt.Errorf("下载地址不安全：%w", err)
 	}
 	return nil
 }
@@ -132,12 +118,15 @@ type Service struct {
 }
 
 func NewService(paths runtimepaths.Paths, bus eventEmitter) *Service {
+	client := &http.Client{
+		Timeout:   30 * time.Minute,
+		Transport: netguard.NewPublicTransport(),
+	}
+	netguard.ApplyRedirectPolicy(client)
 	return &Service{
-		paths: paths,
-		bus:   bus,
-		client: &http.Client{
-			Timeout: 30 * time.Minute,
-		},
+		paths:  paths,
+		bus:    bus,
+		client: client,
 	}
 }
 
@@ -416,7 +405,7 @@ func (s *Service) resolveLatestONNXDownloadURL(ctx context.Context) (string, str
 	if err != nil {
 		return "", "", err
 	}
-	request.Header.Set("User-Agent", "JavFlow/0.4.31")
+	request.Header.Set("User-Agent", "JavFlow/0.4.32")
 	request.Header.Set("Accept", "application/vnd.github+json")
 
 	response, err := s.client.Do(request)
@@ -451,7 +440,7 @@ func (s *Service) downloadToFile(ctx context.Context, sourceURL string, targetPa
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "JavFlow/0.4.31")
+	request.Header.Set("User-Agent", "JavFlow/0.4.32")
 
 	response, err := s.client.Do(request)
 	if err != nil {

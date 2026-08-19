@@ -63,3 +63,17 @@ func (a *API) patchSubscriptionV2Result(payload map[string]any) (string, error) 
 	}
 	return marshalResult(item)
 }
+
+func (a *API) patchAllSubscriptionActressFilterV2Result(payload map[string]any) (string, error) {
+	if a.lookup.avSubscriptionsV2 == nil {
+		return "", fmt.Errorf("AV subscription V2 service is not initialized")
+	}
+	threshold := intValue(payload["actressCountFilterThreshold"], 0)
+	items, err := a.lookup.avSubscriptionsV2.PatchActressCountFilterThresholdForAll(threshold)
+	if err != nil {
+		return "", err
+	}
+	return marshalSubscriptionCollectionV2(items, map[string]any{
+		"actressCountFilterThreshold": threshold,
+	})
+}

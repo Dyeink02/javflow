@@ -30,9 +30,17 @@
 
                   <label class="field span-2">
                     <span>整理快照或爬虫结果输入</span>
-                    <div class="path-row">
-                      <input id="organizer-crawl-output" type="text" placeholder="默认使用最近整理快照、filmData.json 或爬虫结果目录" />
-                      <button id="organizer-use-latest-output" class="inline-button" type="button">最近整理输入</button>
+                    <div class="organizer-crawl-input-row">
+                      <div class="path-row">
+                        <input id="organizer-crawl-output" type="text" placeholder="可输入路径，或浏览选择 JSON / 结果文件夹" />
+                        <div class="organizer-crawl-browse-actions">
+                          <button id="organizer-browse-crawl-file" class="inline-button" type="button">浏览</button>
+                          <button id="organizer-browse-crawl-folder" class="inline-button" type="button">文件夹</button>
+                        </div>
+                      </div>
+                      <select id="organizer-crawl-output-history" aria-label="选择历史抓取输入">
+                        <option value="">选择历史抓取快照</option>
+                      </select>
                     </div>
                     <div class="organizer-inline-actions">
                       <button id="organizer-load-codes" class="ghost-button" type="button">加载番号名单</button>
@@ -41,6 +49,7 @@
                     <small id="organizer-code-source">来源：尚未加载番号名单</small>
                     <small>支持 organizer-codes.json、filmData.json 或原始爬虫结果目录。</small>
                     <small>当前已加载番号数量：<strong id="organizer-code-count">0</strong></small>
+                    <small>实际产出：<strong id="organizer-magnet-count">尚未读取 magnet-links.txt</strong></small>
                   </label>
 
                   <label class="field">
