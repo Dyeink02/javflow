@@ -70,6 +70,16 @@
         </label>
         <span id="subscription-list-result-count" class="subscription-list-result-count">显示 0 / 0 位</span>
       </div>
+      <div class="subscription-global-filter-bar" role="region" aria-label="统一过滤演员数目">
+        <div class="subscription-global-filter-copy">
+          <strong>统一过滤演员数目</strong>
+          <small>一键应用到全部订阅，达到该演员数时不输出磁力，0 为关闭。</small>
+        </div>
+        <div class="subscription-global-filter-controls">
+          <input id="subscription-global-actress-filter" type="number" min="0" step="1" inputmode="numeric" aria-label="统一过滤演员数目" value="0" />
+          <button id="subscription-apply-actress-filter" class="secondary-button" type="button">应用到全部订阅</button>
+        </div>
+      </div>
       <div id="subscription-refresh-summary" class="subscription-refresh-summary" aria-live="polite">
         尚未执行批量检测。
       </div>
@@ -122,11 +132,11 @@
 
         <label class="field span-2">
           <span>代理地址</span>
-          <input id="subscription-crawler-proxy" type="text" placeholder="例如：http://127.0.0.1:7897" />
+          <input id="subscription-crawler-proxy" type="text" placeholder="自动读取 JAV 爬虫中保存的代理，也可临时覆盖" />
           <div class="field-inline-status">
             <span id="subscription-proxy-status" class="proxy-status-chip empty">未检测</span>
           </div>
-          <small id="subscription-proxy-status-detail">订阅抓取默认使用 127.0.0.1:7897，可手动修改。</small>
+          <small id="subscription-proxy-status-detail">自动读取 JAV 爬虫中保存的代理，也可临时覆盖。</small>
         </label>
 
         <label class="toggle-line subscription-runtime-toggle">

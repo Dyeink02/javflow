@@ -34,6 +34,31 @@ func TestResolveActressAliasPrefersUniqueLocalAlias(t *testing.T) {
 	}
 }
 
+func TestResolveActressAliasLocalOnlySkipsProviderAfterLocalMiss(t *testing.T) {
+	api := &API{lookup: lookupFacade{actressLookup: actresslookup.NewService()}}
+	raw, handled, err := api.handleLookupTargetCommand("app:resolve-actress-alias", map[string]any{
+		"actorName": "不存在的演员",
+		"localOnly": true,
+	})
+	if err != nil {
+		t.Fatalf("resolve local-only alias: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected local-only alias command to be handled")
+	}
+
+	var result struct {
+		Name     string `json:"name"`
+		Provider string `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatalf("decode local-only alias result: %v", err)
+	}
+	if result.Name != "" || result.Provider != "local-alias-index" {
+		t.Fatalf("unexpected local-only alias result: %+v", result)
+	}
+}
+
 func TestResolveActressAliasRequiresMetadataServiceAfterLocalMiss(t *testing.T) {
 	api := &API{lookup: lookupFacade{actressLookup: actresslookup.NewService()}}
 	_, handled, err := api.handleLookupTargetCommand("app:resolve-actress-alias", map[string]any{"actorName": "不存在的演员"})

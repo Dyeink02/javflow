@@ -66,11 +66,36 @@
       }
     }
 
+    function rankingDisplayName(ranking) {
+      const labels = {
+        smart: '智能推荐',
+        fanza: 'FANZA',
+        dmm: 'DMM',
+        avfan: 'AVfan',
+        local: '本地历史'
+      };
+      const channel = String(ranking && (ranking.sourceChannel || ranking.resolvedSource) || '').trim().toLowerCase();
+      if (labels[channel]) return labels[channel];
+      return String(ranking && ranking.sourceName || '榜单')
+        .replace(/\s*(官方|第三方参考|第三方|在线)\s*/g, '')
+        .trim() || '榜单';
+    }
+
+    function neutralizeRankingNotice(value) {
+      return String(value || '')
+        .replace(/官方(?:榜单|月榜|年榜|渠道)?/g, '榜单')
+        .replace(/第三方参考/g, '')
+        .replace(/第三方/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
     function renderRanking(ranking, onSelect) {
       const items = Array.isArray(ranking && ranking.items) ? ranking.items : [];
       nodeText(elements.atlasRankingTotal, `${items.length} 位`);
-      nodeText(elements.atlasRankingNotice, ranking && ranking.notice || `${ranking && ranking.sourceName || '榜单'} · ${ranking && ranking.periodLabel || ''}`);
-      nodeText(elements.atlasRankingFooter, `显示来源实际返回的 ${items.length} 位演员`);
+      const notice = neutralizeRankingNotice(ranking && ranking.notice);
+      nodeText(elements.atlasRankingNotice, notice || `${rankingDisplayName(ranking)} · ${ranking && ranking.periodLabel || ''}`);
+      nodeText(elements.atlasRankingFooter, `显示榜单返回的 ${items.length} 位演员`);
       if (!elements.atlasRankingList) return;
 
       elements.atlasRankingList.replaceChildren();

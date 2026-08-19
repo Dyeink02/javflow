@@ -15,6 +15,12 @@
 (function initializeOrganizerCrawlOutputController(globalScope) {
   function createOrganizerCrawlOutputController(options) {
     const { elements, desktopApi, state, messages, appendLogLine, getErrorMessage } = options;
+    const rendererHelpers = globalScope.desktopRendererHelpers || {};
+    const clearChildren = rendererHelpers.clearChildren;
+    const createOption = rendererHelpers.createOption;
+    if (typeof clearChildren !== 'function' || typeof createOption !== 'function') {
+      throw new Error('desktopRendererHelpers option helpers are required before organizerCrawlOutputController');
+    }
     const artifactInputHelperFactory = globalScope.desktopArtifactInputHelper || null;
     if (!artifactInputHelperFactory) {
       throw new Error('desktopArtifactInputHelper is required before organizerCrawlOutputController');
@@ -117,6 +123,14 @@
         } else {
           elements.organizerCodeSource.textContent = '来源：尚未加载番号名单';
         }
+      }
+
+      if (elements.organizerMagnetCount) {
+        const actualMagnetCount = Number(meta.actualMagnetCount);
+        elements.organizerMagnetCount.textContent =
+          Number.isFinite(actualMagnetCount) && actualMagnetCount >= 0
+            ? `${actualMagnetCount}（不含屏蔽番号）`
+            : '尚未读取 magnet-links.txt';
       }
     }
 
@@ -359,6 +373,11 @@
       normalized.organizerCodesPath = normalizeOutputDir(normalized.organizerCodesPath || fallbackOrganizerCodesPath);
       normalized.actressName = normalizeOutputDir(normalized.actressName || (result && result.actressName));
       normalized.totalRecords = Number(normalized.totalRecords) || Number(result && result.totalRecords) || 0;
+      const actualMagnetCount = Number(
+        normalized.actualMagnetCount != null ? normalized.actualMagnetCount : result && result.actualMagnetCount
+      );
+      normalized.actualMagnetCount = Number.isFinite(actualMagnetCount) ? actualMagnetCount : -1;
+      normalized.magnetPath = normalizeOutputDir(normalized.magnetPath || (result && result.magnetPath));
       normalized.codes = loadedCodes.length > 0 ? loadedCodes : cloneLoadedCodes(normalized.codes);
       normalized.codeEntries =
         loadedCodeEntries.length > 0 ? loadedCodeEntries : cloneLoadedCodeEntries(normalized.codeEntries);
@@ -403,7 +422,8 @@
       updateCodeMetaView({
         codeCount: snapshotView.loadedCodes.length,
         sourcePath: snapshotView.sourceMeta.sourcePath,
-        sourceType: snapshotView.sourceMeta.sourceType
+        sourceType: snapshotView.sourceMeta.sourceType,
+        actualMagnetCount: loadedSnapshot && loadedSnapshot.actualMagnetCount
       });
 
       appendLogLine(
@@ -500,6 +520,72 @@
       return result;
     }
 
+    function setCrawlInputValue(value) {
+      const normalizedValue = applyOrganizerArtifactInputValue(value);
+      syncLoadedExpectedStateForOutput(normalizedValue);
+      return normalizedValue;
+    }
+
+    async function browseCrawlFile() {
+      if (!desktopApi || typeof desktopApi.chooseOrganizerCrawlFile !== 'function') {
+        throw new Error('JSON 文件选择器尚未就绪');
+      }
+      const selected = await desktopApi.chooseOrganizerCrawlFile();
+      if (!selected) {
+        return null;
+      }
+      setCrawlInputValue(selected);
+      return loadExpectedCodes();
+    }
+
+    async function browseCrawlFolder() {
+      if (!desktopApi || typeof desktopApi.chooseOutput !== 'function') {
+        throw new Error('文件夹选择器尚未就绪');
+      }
+      const selected = await desktopApi.chooseOutput();
+      if (!selected) {
+        return null;
+      }
+      setCrawlInputValue(selected);
+      return loadExpectedCodes();
+    }
+
+    function renderCrawlHistory(items) {
+      const select = elements.organizerCrawlOutputHistory;
+      if (!select) {
+        return;
+      }
+      clearChildren(select);
+      select.appendChild(createOption('', '选择历史抓取快照'));
+      (Array.isArray(items) ? items : []).forEach((item, index) => {
+        const artifactInput = normalizeOutputDir(item && (item.organizerCodesPath || item.filmDataPath || item.outputDir));
+        if (!artifactInput) {
+          return;
+        }
+        const actressName = normalizeOutputDir(item.actressName) || '未命名任务';
+        const updatedAt = normalizeOutputDir(item.updatedAt).replace('T', ' ').slice(0, 16);
+        const completedCount = Number(item.completedCount) || 0;
+        const option = createOption(
+          artifactInput,
+          `${actressName}${updatedAt ? ` | ${updatedAt}` : ''} | ${completedCount} 部`
+        );
+        option.dataset.historyIndex = String(index);
+        select.appendChild(option);
+      });
+    }
+
+    async function loadCrawlHistory() {
+      if (!desktopApi || typeof desktopApi.listCrawlCacheSnapshots !== 'function') {
+        return;
+      }
+      try {
+        const result = await desktopApi.listCrawlCacheSnapshots();
+        renderCrawlHistory(result && result.items);
+      } catch (error) {
+        appendOrganizerLog('warn', `读取历史抓取快照失败：${getErrorMessage(error)}`);
+      }
+    }
+
     // Read-only fallback for legacy libraries: identify unambiguous codes from
     // local video paths, persist the hidden snapshot, and feed that snapshot
     // through the same preload boundary as crawler artifacts.
@@ -557,7 +643,19 @@
         elements.organizerCrawlOutput.addEventListener('change', invalidateLoadedState);
       }
 
-      bindAsyncClick(elements.organizerUseLatestOutputButton, applyLatestCrawlOutput);
+      bindAsyncClick(elements.organizerBrowseCrawlFileButton, browseCrawlFile);
+      bindAsyncClick(elements.organizerBrowseCrawlFolderButton, browseCrawlFolder);
+      if (elements.organizerCrawlOutputHistory) {
+        elements.organizerCrawlOutputHistory.addEventListener('change', () => {
+          const selected = normalizeOutputDir(elements.organizerCrawlOutputHistory.value);
+          if (!selected) {
+            return;
+          }
+          setCrawlInputValue(selected);
+          void loadExpectedCodes().catch((error) => appendOrganizerLog('error', getErrorMessage(error)));
+        });
+      }
+      void loadCrawlHistory();
 
       bindAsyncClick(
         elements.organizerLoadCodesButton,
@@ -568,7 +666,8 @@
           updateCodeMetaView({
             codeCount: getLoadedCodes().length,
             sourcePath: sourceMeta.sourcePath,
-            sourceType: sourceMeta.sourceType
+            sourceType: sourceMeta.sourceType,
+            actualMagnetCount: getLoadedExpectedSnapshot() && getLoadedExpectedSnapshot().actualMagnetCount
           });
         }
       );

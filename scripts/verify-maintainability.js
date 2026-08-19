@@ -440,7 +440,7 @@ function runVersionConsistencyGuard() {
     ['desktop/renderer/uiText.js', `version: '${packageVersion}'`],
     ['wails-shell/internal/crawlrunner/runner.go', `AppVersion: "${packageVersion}"`],
     ['wails-shell/internal/dependency/service.go', `JavFlow/${packageVersion}`],
-    ['desktop/renderer/partials/crawler-hero.html', expectedBadge],
+    ['desktop/renderer/index.template.html', `id="crawler-topbar-version" class="workspace-topbar-version version-badge hidden">v${packageVersion}<`],
     ['desktop/renderer/partials/organizer-hero.html', expectedBadge],
     ['desktop/renderer/partials/subscription-hero.html', expectedBadge],
     ['desktop/renderer/partials/librarymetadata-hero.html', expectedBadge],

@@ -73,9 +73,9 @@ type sourceChannel struct {
 // fetch/cache behavior.
 var sourceChannels = map[string]sourceChannel{
 	"smart": {ID: "smart", Label: "智能推荐", CacheBucket: "smart"},
-	"fanza": {ID: "fanza", Label: "FANZA 官方", CacheBucket: "official"},
-	"dmm":   {ID: "dmm", Label: "DMM 官方", CacheBucket: "official"},
-	"avfan": {ID: "avfan", Label: "AVfan 在线", CacheBucket: "avfan"},
+	"fanza": {ID: "fanza", Label: "FANZA", CacheBucket: "official"},
+	"dmm":   {ID: "dmm", Label: "DMM", CacheBucket: "official"},
+	"avfan": {ID: "avfan", Label: "AVfan", CacheBucket: "avfan"},
 	"local": {ID: "local", Label: "本地历史", CacheBucket: "local"},
 }
 
@@ -823,7 +823,7 @@ func parseAVFanRankingHTML(htmlSource string, mode string, sourceURL string, fal
 
 	return Result{
 		Mode:           mode,
-		SourceName:     "AVfan 在线",
+		SourceName:     "AVfan 第三方参考",
 		SourceURL:      sourceURL,
 		Title:          buildAVFanTitle(mode, periodYear, periodMonth),
 		PeriodLabel:    periodLabel,

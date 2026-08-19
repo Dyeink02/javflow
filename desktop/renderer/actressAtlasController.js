@@ -104,17 +104,19 @@
     }
 
     function setProxyStatus(status, detail = '') {
-      const normalized = ['checking', 'valid', 'invalid'].includes(status) ? status : 'empty';
+      const normalized = ['checking', 'valid', 'global', 'invalid'].includes(status) ? status : 'empty';
       const label = {
         empty: '未检测',
         checking: '检测中...',
         valid: '代理正常',
+        global: '已连接',
         invalid: '代理失败'
       }[normalized];
       const defaultDetail = {
-        empty: '输入代理后点击应用，软件会检测连接状态。',
+        empty: '请先在 JAV 爬虫中填写代理地址，或在此填写后点击应用。',
         checking: '正在检测演员资料与榜单的代理连通性。',
         valid: '检测通过，榜单和演员资料会使用当前代理。',
+        global: `已连接：${proxyValue}。此处与 JAV 爬虫共用同一保存的代理设置。`,
         invalid: '当前代理不可用，请检查地址或代理软件状态。'
       }[normalized];
       if (elements.atlasProxyStatus) {
@@ -141,7 +143,7 @@
       // Settings are restored before the first ranking request so a new launch
       // reflects the real connection state instead of pretending the saved URL
       // is usable.
-      void validateProxy(saved);
+      void validateProxy(saved, true);
     }
 
     async function saveProxy() {
@@ -152,11 +154,11 @@
       } catch (_) {
         // Ranking lookup still carries the explicit value in this request.
       }
-      await validateProxy(proxyValue);
+      await validateProxy(proxyValue, true);
       await loadRankings(true);
     }
 
-    async function validateProxy(value) {
+    async function validateProxy(value, usingGlobalProxy = false) {
       const proxy = String(value || '').trim();
       if (!proxy) {
         setProxyStatus('empty');
@@ -170,7 +172,7 @@
       try {
         const result = await desktopApi.validateProxy(proxy, { targetUrl: 'https://www.javbus.com/' });
         if (result && result.status === 'valid') {
-          setProxyStatus('valid', result.detail || '检测通过，榜单和演员资料会使用当前代理。');
+          setProxyStatus(usingGlobalProxy ? 'global' : 'valid', usingGlobalProxy ? '' : result.detail || '检测通过，榜单和演员资料会使用当前代理。');
           return result;
         }
         setProxyStatus('invalid', result && result.detail);

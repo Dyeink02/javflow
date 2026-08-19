@@ -403,6 +403,10 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	if err := os.MkdirAll(managedNestedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	emptyNestedDir := filepath.Join(validDir, "empty", "deeper")
+	if err := os.MkdirAll(emptyNestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(managedNestedDir, "state.json"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -483,13 +487,16 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	if _, err := os.Stat(filepath.Join(validDir, "filmData.json")); err != nil {
 		t.Fatalf("expected nested crawler artifact to be preserved: %v", err)
 	}
+	if _, err := os.Stat(emptyNestedDir); !os.IsNotExist(err) {
+		t.Fatalf("expected nested empty directory to be cleaned, stat err=%v", err)
+	}
 	for _, removedPath := range []string{trashDir} {
 		if _, err := os.Stat(removedPath); !os.IsNotExist(err) {
 			t.Fatalf("expected batch-deleted path %s, stat err=%v", removedPath, err)
 		}
 	}
-	if entries, err := os.ReadDir(unlistedDir); err != nil || len(entries) != 0 {
-		t.Fatalf("expected unmatched source directory to remain empty for manual review, entries=%v err=%v", entries, err)
+	if _, err := os.Stat(unlistedDir); !os.IsNotExist(err) {
+		t.Fatalf("expected empty unmatched source directory to be cleaned, stat err=%v", err)
 	}
 	unmatchedVideo := filepath.Join(paths.UnmatchedDir, "FSET-739.mp4")
 	preservedArtifacts := []string{
@@ -649,6 +656,10 @@ func TestLoadCrawlFilmCodes(t *testing.T) {
 	if err := os.WriteFile(filmDataPath, contents, 0o644); err != nil {
 		t.Fatalf("write filmData.json: %v", err)
 	}
+	magnetPath := filepath.Join(outputDir, crawlartifact.DefaultMagnetTxt)
+	if err := os.WriteFile(magnetPath, []byte("magnet:?xt=urn:btih:AAA\r\nmagnet:?xt=urn:btih:BBB\r\nfiltered-code\r\nmagnet:?xt=urn:btih:AAA\r\n"), 0o644); err != nil {
+		t.Fatalf("write magnet-links.txt: %v", err)
+	}
 
 	result, err := service.LoadCrawlFilmCodes(outputDir)
 	if err != nil {
@@ -657,6 +668,12 @@ func TestLoadCrawlFilmCodes(t *testing.T) {
 
 	if result.CodeCount != 2 {
 		t.Fatalf("expected 2 codes, got %d", result.CodeCount)
+	}
+	if result.ActualMagnetCount != 2 {
+		t.Fatalf("expected 2 actual magnet outputs, got %d", result.ActualMagnetCount)
+	}
+	if result.MagnetPath != magnetPath {
+		t.Fatalf("expected magnet path %q, got %q", magnetPath, result.MagnetPath)
 	}
 
 	if len(result.CodeEntries) != 2 {
@@ -735,6 +752,43 @@ func TestLoadCrawlFilmCodesPrefersOrganizerCodesArtifact(t *testing.T) {
 	}
 	if result.PreloadedExpected.SourcePath != result.OrganizerCodesPath {
 		t.Fatalf("expected preloaded sourcePath %q, got %q", result.OrganizerCodesPath, result.PreloadedExpected.SourcePath)
+	}
+}
+
+func TestLoadCrawlFilmCodesFallsBackToFilmDataMagnetLinks(t *testing.T) {
+	service := NewService()
+	outputDir := t.TempDir()
+	payload := []map[string]any{
+		{
+			"title":             "ABP-001 sample",
+			"magnetLinks":       []map[string]any{{"link": "magnet:?xt=urn:btih:AAA"}},
+			"backupMagnetLinks": []map[string]any{{"link": "magnet:?xt=urn:btih:BACKUP"}},
+		},
+		{
+			"title":                  "ABP-002 filtered",
+			"filteredByActressCount": true,
+			"magnetLinks":            []map[string]any{{"link": "magnet:?xt=urn:btih:FILTERED"}},
+		},
+		{
+			"title":       "ABP-003 sample",
+			"magnetLinks": []map[string]any{{"link": "magnet:?xt=urn:btih:AAA"}},
+			"magnet":      "magnet:?xt=urn:btih:CCC",
+		},
+	}
+	contents, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal filmData fallback payload: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile), contents, 0o644); err != nil {
+		t.Fatalf("write filmData fallback payload: %v", err)
+	}
+
+	result, err := service.LoadCrawlFilmCodes(outputDir)
+	if err != nil {
+		t.Fatalf("LoadCrawlFilmCodes fallback returned error: %v", err)
+	}
+	if result.ActualMagnetCount != 2 {
+		t.Fatalf("expected filtered and duplicate-safe fallback count 2, got %d", result.ActualMagnetCount)
 	}
 }
 

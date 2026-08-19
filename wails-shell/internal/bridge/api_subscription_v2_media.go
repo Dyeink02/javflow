@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"javflow/internal/avsubscriptionv2"
+	"javflow/internal/netguard"
 	"javflow/internal/proxy"
 )
 
@@ -28,6 +29,10 @@ const (
 	subscriptionMediaMaxBytes  = 12 * 1024 * 1024
 	subscriptionMediaURLPrefix = "/subscription-media/"
 )
+
+// Kept as a package variable so media cache behavior can be tested without
+// routing test fixtures through a real public network connection.
+var newSubscriptionMediaHTTPClient = subscriptionMediaHTTPClient
 
 func (a *API) reorderSubscriptionsV2Result(payload map[string]any) (string, error) {
 	if a.lookup.avSubscriptionsV2 == nil {
@@ -150,7 +155,7 @@ func cacheSubscriptionMedia(ctx context.Context, imageURLs []string, mediaDir st
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
 		return nil, err
 	}
-	client, err := subscriptionMediaHTTPClient(proxyValue)
+	client, err := newSubscriptionMediaHTTPClient(proxyValue)
 	if err != nil {
 		return nil, err
 	}
@@ -194,22 +199,30 @@ func cacheNamedSubscriptionMedia(ctx context.Context, client *http.Client, image
 }
 
 func subscriptionMediaHTTPClient(proxyValue string) (*http.Client, error) {
-	transport := &http.Transport{}
+	transport := netguard.NewPublicTransport()
 	normalizedProxy := proxy.NormalizeProxyValue(proxyValue)
 	if normalizedProxy != "" {
 		proxyURL, err := url.Parse(normalizedProxy)
 		if err != nil {
 			return nil, err
 		}
+		// A user-selected local proxy is permitted; URL and redirect validation
+		// still runs below, while the proxy itself owns the remote connection.
+		transport.DialContext = nil
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}
-	return &http.Client{Timeout: 15 * time.Second, Transport: transport}, nil
+	client := &http.Client{Timeout: 15 * time.Second, Transport: transport}
+	netguard.ApplyRedirectPolicy(client)
+	return client, nil
 }
 
 func downloadSubscriptionMedia(ctx context.Context, client *http.Client, imageURL, referer string) ([]byte, string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(imageURL))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, "", fmt.Errorf("unsupported actor image URL")
+	}
+	if err := netguard.ValidatePublicURL(ctx, parsed); err != nil {
+		return nil, "", fmt.Errorf("unsafe actor image URL: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
@@ -221,7 +234,9 @@ func downloadSubscriptionMedia(ctx context.Context, client *http.Client, imageUR
 		request.Header.Set("Referer", parsedReferer.String())
 	}
 
-	response, err := client.Do(request)
+	clientCopy := *client
+	netguard.ApplyRedirectPolicy(&clientCopy)
+	response, err := clientCopy.Do(request)
 	if err != nil {
 		return nil, "", err
 	}

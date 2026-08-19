@@ -44,7 +44,7 @@ describe('actressRanking official source parser', () => {
 
     assert.strictEqual(result.mode, 'monthly');
     assert.strictEqual(result.sourceChannel, 'dmm');
-    assert.strictEqual(result.sourceName, 'DMM 官方');
+    assert.strictEqual(result.sourceName, 'DMM');
     assert.strictEqual(result.title, '官方榜单');
     assert.strictEqual(result.periodYear, current.year);
     assert.strictEqual(result.periodMonth, current.month);

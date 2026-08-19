@@ -64,6 +64,8 @@ type LoadCrawlFilmCodesResult struct {
 	ActressName        string                                `json:"actressName,omitempty"`
 	TotalRecords       int                                   `json:"totalRecords"`
 	CodeCount          int                                   `json:"codeCount"`
+	ActualMagnetCount  int                                   `json:"actualMagnetCount"`
+	MagnetPath         string                                `json:"magnetPath,omitempty"`
 	Codes              []string                              `json:"codes"`
 	CodeEntries        []CodeEntry                           `json:"codeEntries"`
 	FilteredCodes      []crawlartifact.FilteredFilmCodeEntry `json:"filteredCodes,omitempty"`
@@ -94,6 +96,8 @@ func (r LoadCrawlFilmCodesResult) ToPreloadedExpectedCodes() PreloadedExpectedCo
 		ActressName:        strings.TrimSpace(r.ActressName),
 		TotalRecords:       r.TotalRecords,
 		CodeCount:          r.CodeCount,
+		ActualMagnetCount:  r.ActualMagnetCount,
+		MagnetPath:         strings.TrimSpace(r.MagnetPath),
 		Codes:              append([]string(nil), r.Codes...),
 		CodeEntries:        append([]CodeEntry(nil), r.CodeEntries...),
 	}
@@ -227,20 +231,20 @@ func (s *Service) LoadCrawlFilmCodes(outputDir string) (LoadCrawlFilmCodesResult
 	internalPaths := crawlartifact.ResolveInternalArtifactPaths(s.paths.UserData, outputDir)
 	if pathIsFile(internalPaths.OrganizerCodesPath) {
 		if loaded, err := s.loadOrganizerCodesArtifact(outputDir); err == nil {
-			return loaded, nil
+			return s.withMagnetStats(outputDir, loaded), nil
 		}
 	}
 	if pathIsFile(internalPaths.FilmDataPath) {
 		paths, records, err := crawlartifact.ReadFilmDataRecordsWithUserData(outputDir, s.paths.UserData)
 		if err == nil {
-			return s.withFilteredCodes(outputDir, buildFilmDataCodeResult(paths, records)), nil
+			return s.withMagnetStats(outputDir, s.withFilteredCodes(outputDir, buildFilmDataCodeResult(paths, records))), nil
 		}
 	}
 
 	visiblePaths := crawlartifact.ResolveCrawlOutputPaths(outputDir)
 	if pathIsFile(visiblePaths.OrganizerCodesPath) {
 		if loaded, err := s.loadOrganizerCodesArtifact(outputDir); err == nil {
-			return loaded, nil
+			return s.withMagnetStats(outputDir, loaded), nil
 		}
 	}
 
@@ -249,14 +253,101 @@ func (s *Service) LoadCrawlFilmCodes(outputDir string) (LoadCrawlFilmCodesResult
 	// is intentionally checked after crawler artifacts so an older local scan
 	// can never override a newer authoritative crawl list.
 	if discovered, err := s.loadDiscoveredCodesArtifact(outputDir); err == nil && discovered.CodeCount > 0 {
-		return discovered, nil
+		return s.withMagnetStats(outputDir, discovered), nil
 	}
 
 	paths, records, err := crawlartifact.ReadFilmDataRecordsWithUserData(outputDir, s.paths.UserData)
 	if err != nil {
 		return LoadCrawlFilmCodesResult{}, fmt.Errorf("在 %s 中未找到可用的番号名单（需要 filmData.json 或 organizer-codes.json），请确认已选择正确的爬虫结果目录或整理快照：%w", outputDir, err)
 	}
-	return s.withFilteredCodes(outputDir, buildFilmDataCodeResult(paths, records)), nil
+	return s.withMagnetStats(outputDir, s.withFilteredCodes(outputDir, buildFilmDataCodeResult(paths, records))), nil
+}
+
+// withMagnetStats prefers the final magnet TXT, then reconstructs the same
+// effective output count from filmData.json when the TXT is absent from a
+// hidden artifact cache. The organizer UI must show actual magnet output, not
+// completed film records or code-entry count.
+func (s *Service) withMagnetStats(outputDir string, result LoadCrawlFilmCodesResult) LoadCrawlFilmCodesResult {
+	magnetPath := crawlartifact.ResolveCrawlRunPaths(outputDir).MagnetPath
+	result.MagnetPath = magnetPath
+	result.ActualMagnetCount = -1
+	if pathIsFile(magnetPath) {
+		if count, err := countMagnetLinksInTextFile(magnetPath); err == nil {
+			result.ActualMagnetCount = count
+			result.PreloadedExpected = result.ToPreloadedExpectedCodes()
+			return result
+		}
+	}
+
+	if count, found := s.countMagnetLinksFromFilmData(outputDir); found {
+		result.ActualMagnetCount = count
+		result.PreloadedExpected = result.ToPreloadedExpectedCodes()
+		return result
+	}
+
+	// organizer-codes.json is a smaller compatibility artifact. It is only the
+	// last fallback because older versions may merge backup candidates into its
+	// normalized magnet list.
+	seen := map[string]struct{}{}
+	for _, entry := range result.CodeEntries {
+		for _, magnet := range entry.Magnets {
+			link := strings.TrimSpace(magnet.Link)
+			if link == "" || !strings.HasPrefix(strings.ToLower(link), "magnet:") {
+				continue
+			}
+			seen[strings.ToLower(link)] = struct{}{}
+		}
+	}
+	if len(result.CodeEntries) > 0 {
+		result.ActualMagnetCount = len(seen)
+	}
+	result.PreloadedExpected = result.ToPreloadedExpectedCodes()
+	return result
+}
+
+func countMagnetLinksInTextFile(path string) (int, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return -1, err
+	}
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(contents), "\n") {
+		link := strings.TrimSpace(line)
+		if link == "" || !strings.HasPrefix(strings.ToLower(link), "magnet:") {
+			continue
+		}
+		seen[strings.ToLower(link)] = struct{}{}
+	}
+	return len(seen), nil
+}
+
+func (s *Service) countMagnetLinksFromFilmData(outputDir string) (int, bool) {
+	_, records, err := crawlartifact.ReadFilmDataRecordsWithUserData(outputDir, s.paths.UserData)
+	if err != nil {
+		return -1, false
+	}
+
+	seen := map[string]struct{}{}
+	for _, record := range records {
+		if boolValue(record["filteredByActressCount"]) ||
+			boolValue(record["filteredByFilmCode"]) ||
+			boolValue(record["filteredByReleaseDate"]) {
+			continue
+		}
+		for _, magnet := range mergeMagnetEntries(record["magnetLinks"], record["magnet"]) {
+			link := strings.TrimSpace(magnet.Link)
+			if link == "" || !strings.HasPrefix(strings.ToLower(link), "magnet:") {
+				continue
+			}
+			seen[strings.ToLower(link)] = struct{}{}
+		}
+	}
+	return len(seen), true
+}
+
+func boolValue(value any) bool {
+	typed, ok := value.(bool)
+	return ok && typed
 }
 
 func (s *Service) loadDiscoveredCodesArtifact(outputDir string) (LoadCrawlFilmCodesResult, error) {
@@ -628,6 +719,8 @@ func normalizePreloadedExpectedCodes(input PreloadedExpectedCodes) PreloadedExpe
 		OrganizerCodesPath: strings.TrimSpace(input.OrganizerCodesPath),
 		ActressName:        strings.TrimSpace(input.ActressName),
 		TotalRecords:       input.TotalRecords,
+		ActualMagnetCount:  input.ActualMagnetCount,
+		MagnetPath:         strings.TrimSpace(input.MagnetPath),
 	}
 
 	codeSet, _ := buildExpectedCodeSets(input.Codes)
@@ -716,6 +809,8 @@ func mergePreloadedExpectedCodes(primary PreloadedExpectedCodes, fallback Preloa
 		OrganizerCodesPath: firstNonEmpty(primary.OrganizerCodesPath, fallback.OrganizerCodesPath),
 		ActressName:        firstNonEmpty(primary.ActressName, fallback.ActressName),
 		TotalRecords:       organizerMaxInt(primary.TotalRecords, fallback.TotalRecords),
+		ActualMagnetCount:  resolveMagnetCount(primary.ActualMagnetCount, fallback.ActualMagnetCount),
+		MagnetPath:         firstNonEmpty(primary.MagnetPath, fallback.MagnetPath),
 		Codes:              append(append([]string(nil), primary.Codes...), fallback.Codes...),
 		CodeEntries:        append(append([]CodeEntry(nil), primary.CodeEntries...), fallback.CodeEntries...),
 	}
@@ -725,6 +820,13 @@ func mergePreloadedExpectedCodes(primary PreloadedExpectedCodes, fallback Preloa
 
 func organizerMaxInt(left int, right int) int {
 	if left > right {
+		return left
+	}
+	return right
+}
+
+func resolveMagnetCount(left int, right int) int {
+	if left >= 0 {
 		return left
 	}
 	return right

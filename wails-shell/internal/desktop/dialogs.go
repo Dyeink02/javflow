@@ -67,18 +67,22 @@ func (s *Service) ShowAlert(options map[string]any) (map[string]any, error) {
 
 	title, _ := options["title"].(string)
 	message, _ := options["message"].(string)
-	buttonLabel, _ := options["buttonLabel"].(string)
-	if buttonLabel == "" {
-		buttonLabel = "我知道了"
+	buttons := dialogButtons(options["buttons"])
+	if len(buttons) == 0 {
+		buttonLabel, _ := options["buttonLabel"].(string)
+		if buttonLabel == "" {
+			buttonLabel = "我知道了"
+		}
+		buttons = []string{buttonLabel}
 	}
 
 	result, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:          dialogTypeFromString(stringValue(options["type"])),
 		Title:         title,
 		Message:       message,
-		Buttons:       []string{buttonLabel},
-		DefaultButton: buttonLabel,
-		CancelButton:  buttonLabel,
+		Buttons:       buttons,
+		DefaultButton: buttons[0],
+		CancelButton:  buttons[len(buttons)-1],
 	})
 	if err != nil {
 		return nil, err
@@ -89,6 +93,39 @@ func (s *Service) ShowAlert(options map[string]any) (map[string]any, error) {
 	}, nil
 }
 
+func dialogButtons(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		if typed, typedOK := value.([]string); typedOK {
+			items = make([]any, 0, len(typed))
+			for _, item := range typed {
+				items = append(items, item)
+			}
+		} else {
+			return nil
+		}
+	}
+
+	buttons := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		label, itemOK := item.(string)
+		if !itemOK {
+			continue
+		}
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		buttons = append(buttons, label)
+	}
+	return buttons
+}
+
 func (s *Service) ChooseDirectory(title string, defaultDirectory string) (string, error) {
 	ctx, err := s.ctx()
 	if err != nil {
@@ -96,8 +133,8 @@ func (s *Service) ChooseDirectory(title string, defaultDirectory string) (string
 	}
 
 	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
-		Title:            title,
-		DefaultDirectory: defaultDirectory,
+		Title:                title,
+		DefaultDirectory:     defaultDirectory,
 		CanCreateDirectories: true,
 	})
 }

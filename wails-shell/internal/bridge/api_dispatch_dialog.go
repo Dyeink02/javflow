@@ -56,6 +56,10 @@ func (a *API) handleDialogSelectionCommand(command string, payload map[string]an
 	case "app:choose-learning-samples":
 		result, err := a.handleChooseLearningSamples()
 		return result, true, err
+
+	case "app:choose-organizer-crawl-file":
+		result, err := a.handleChooseOrganizerCrawlFile()
+		return result, true, err
 	}
 
 	return "", false, nil

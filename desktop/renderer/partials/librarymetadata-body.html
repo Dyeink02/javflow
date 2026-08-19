@@ -67,8 +67,8 @@
             <span>代理地址</span>
             <span id="libraryProxyStatus" class="proxy-status-chip empty">未检测</span>
           </div>
-          <input id="libraryProxyUrl" type="text" value="127.0.0.1:7897" placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080（留空使用全局代理）" />
-          <small id="libraryProxyStatusDetail">媒体库刮削默认使用 127.0.0.1:7897，可手动修改；留空时自动使用爬虫设置中的全局代理。</small>
+          <input id="libraryProxyUrl" type="text" placeholder="自动读取 JAV 爬虫中保存的代理，也可临时覆盖" />
+          <small id="libraryProxyStatusDetail">正在读取 JAV 爬虫中保存的代理地址。</small>
         </label>
 
         <label class="field span-2">
@@ -94,7 +94,7 @@
           <small>自动读取 C 盘隐藏抓取产物中的历史快照；选择后会作为本地元数据来源。</small>
         </label>
 
-        <label class="field span-2">
+        <label class="field span-2 librarymetadata-hidden-option" hidden>
           <span>番号快速测试 / 路由回填</span>
           <div class="path-row">
             <input id="crawlFallbackInput" type="text" placeholder="输入番号或网页地址，例如 BBAN-452 或 https://www.javbus.com/BBAN-452" />
@@ -104,7 +104,7 @@
           <small>测试刮削会直接调用 metatube-sdk-go 查看返回结果，不写入本地文件；路由回 JAV 爬虫会把输入的番号回填到爬虫工作区并切换过去。</small>
         </label>
 
-        <label class="field span-2">
+        <label class="field span-2 librarymetadata-hidden-option" hidden>
           <span>忽略目录 / 样本目录</span>
           <div class="path-row">
             <input id="hiddenArtifactPath" type="text" placeholder="可指定不参与刮削的目录（可选）" />
@@ -113,7 +113,7 @@
           <small>命中该目录的视频会被标记为忽略，避免误刮削广告或样本文件。</small>
         </label>
 
-        <div class="field span-2">
+        <div class="field span-2 librarymetadata-hidden-option" hidden>
           <span>隐藏路径文件</span>
           <label class="librarymetadata-auto-subscribe-control">
             <input id="showHiddenFiles" type="checkbox" />
@@ -127,6 +127,7 @@
         <button id="scanLibrary" class="primary-button" type="button">扫描库</button>
         <button id="filterComplete" class="secondary-button" type="button">只看已完整</button>
         <button id="filterMissing" class="secondary-button" type="button">只看缺失</button>
+        <button id="filterFailed" class="secondary-button librarymetadata-filter-failed" type="button">只看刮削失败</button>
         <button id="exportIndex" class="ghost-button" type="button">导出索引</button>
         <button id="toggleLibraryLayout" class="ghost-button" type="button">切换紧凑布局</button>
       </div>

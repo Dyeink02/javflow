@@ -89,6 +89,7 @@ func sharedNeutralPackages() []string {
 		"internal/runtime",
 		"internal/events",
 		"internal/modulelog",
+		"internal/netguard",
 		"internal/contracts/crawlartifact",
 		"internal/contracts/subscriptiontarget",
 	}

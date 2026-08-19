@@ -182,9 +182,9 @@
     const allowedValues = ['smart', 'fanza', 'dmm', 'avfan', 'local'];
     clearChildren(selectElement);
     selectElement.appendChild(createOption('smart', text.channelSmart || '智能推荐'));
-    selectElement.appendChild(createOption('fanza', text.channelFanza || 'FANZA 官方'));
-    selectElement.appendChild(createOption('dmm', text.channelDmm || 'DMM 官方'));
-    selectElement.appendChild(createOption('avfan', text.channelAvfan || 'AVfan 在线'));
+    selectElement.appendChild(createOption('fanza', text.channelFanza || 'FANZA'));
+    selectElement.appendChild(createOption('dmm', text.channelDmm || 'DMM'));
+    selectElement.appendChild(createOption('avfan', text.channelAvfan || 'AVfan'));
     selectElement.appendChild(createOption('local', text.channelLocal || '本地历史'));
     selectElement.value = allowedValues.includes(String(selectedValue || '')) ? String(selectedValue) : 'smart';
   }

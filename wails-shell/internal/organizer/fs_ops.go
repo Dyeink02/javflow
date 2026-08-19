@@ -294,7 +294,7 @@ func removeDirectoryWithRetry(targetPath string, maxAttempts int) error {
 	return fmt.Errorf("删除目录后仍可见 %s", targetPath)
 }
 
-func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct{}, logf func(string, string), progressSinks ...ProgressSink) int {
+func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct{}, protectedPaths []string, logf func(string, string), progressSinks ...ProgressSink) int {
 	removedCount := 0
 	var progressf ProgressSink
 	if len(progressSinks) > 0 {
@@ -322,6 +322,15 @@ func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct
 		if _, preserved := preservedTopDirs[topDirName]; preserved {
 			return
 		}
+		for _, protectedPath := range protectedPaths {
+			cleanedProtectedPath := filepath.Clean(strings.TrimSpace(protectedPath))
+			if cleanedProtectedPath != "" && (isPathInside(currentPath, cleanedProtectedPath) || isPathInside(cleanedProtectedPath, currentPath)) {
+				if logf != nil {
+					logf("info", "清理空目录时保留移动失败来源路径："+currentPath)
+				}
+				return
+			}
+		}
 		restEntries, err := os.ReadDir(currentPath)
 		if err != nil || len(restEntries) > 0 {
 			return
@@ -337,7 +346,7 @@ func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct
 				"currentPath":       currentPath,
 			},
 			progressf,
-			func() error { return os.Remove(currentPath) },
+			func() error { return removeDirectoryWithRetry(currentPath, 5) },
 			logf,
 		)
 		if removeErr == nil {

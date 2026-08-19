@@ -348,10 +348,25 @@ func (ctx *organizerRunContext) writeRunReports(
 // still inspect the tree before the organizer compacts it.
 func (ctx *organizerRunContext) cleanupManagedDirectories(waitingMoveFailedSources []string) {
 	if ctx.batchDelete && ctx.adFileAction == adFileActionDeleteDirectly {
-		ctx.summary.RemovedEmptyDirs = 0
-		ctx.logf("info", "批量删除模式已完成统一收口，不再执行逐目录清理。")
-		ctx.emitFinalizeProgress(3, "已跳过逐目录清理", ctx.normalizedRootPath, nil)
-		ctx.emitFinalizeProgress(4, "整理收尾完成", ctx.normalizedRootPath, nil)
+		preservedTopDirs := managedDirectoryNames(ctx.paths, false)
+		removedEmptyDirs := 0
+		if !ctx.dryRun {
+			removedEmptyDirs = cleanupEmptyDirectories(
+				ctx.normalizedRootPath,
+				preservedTopDirs,
+				waitingMoveFailedSources,
+				ctx.logf,
+				ctx.progressf,
+			)
+		}
+		ctx.summary.RemovedEmptyDirs = removedEmptyDirs
+		ctx.logf("info", fmt.Sprintf("批量删除收口完成：已清理空目录 %d 个，必要目录和未确认内容均已保留。", removedEmptyDirs))
+		ctx.emitFinalizeProgress(3, "批量删除后的空目录已清理", ctx.normalizedRootPath, ProgressEntry{
+			"removedEmptyDirs": removedEmptyDirs,
+		})
+		ctx.emitFinalizeProgress(4, "整理收尾完成", ctx.normalizedRootPath, ProgressEntry{
+			"removedEmptyDirs": removedEmptyDirs,
+		})
 		ctx.emitCompletionSummary()
 		return
 	}
@@ -363,7 +378,7 @@ func (ctx *organizerRunContext) cleanupManagedDirectories(waitingMoveFailedSourc
 	preservedTopDirs := managedDirectoryNames(ctx.paths, ctx.adFileAction == adFileActionMoveToDelete)
 	removedEmptyDirs := 0
 	if !ctx.dryRun {
-		removedEmptyDirs = cleanupEmptyDirectories(ctx.normalizedRootPath, preservedTopDirs, ctx.logf, ctx.progressf)
+		removedEmptyDirs = cleanupEmptyDirectories(ctx.normalizedRootPath, preservedTopDirs, waitingMoveFailedSources, ctx.logf, ctx.progressf)
 	}
 	ctx.summary.RemovedEmptyDirs = removedEmptyDirs
 

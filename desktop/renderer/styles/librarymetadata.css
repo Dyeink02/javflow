@@ -10,6 +10,11 @@
   line-height: 1.9;
 }
 
+/* 暂时隐藏排障用选项，但保留 DOM、ID 和控制器逻辑，后续可直接恢复。 */
+.librarymetadata-hidden-option[hidden] {
+  display: none !important;
+}
+
 .librarymetadata-priority-list li::marker {
   color: var(--accent-cyan);
 }
@@ -49,6 +54,18 @@
   border-color: rgba(52, 211, 153, 0.42);
   background: rgba(52, 211, 153, 0.12);
   color: #a7f3d0;
+}
+
+.librarymetadata-layout .actions .secondary-button.active {
+  border-color: rgba(86, 224, 255, 0.72);
+  background: rgba(86, 224, 255, 0.18);
+  color: #d9fbff;
+}
+
+.librarymetadata-layout .actions .librarymetadata-filter-failed.active {
+  border-color: rgba(255, 110, 157, 0.68);
+  background: rgba(255, 110, 157, 0.18);
+  color: #ffd6e5;
 }
 
 .librarymetadata-table-wrap::-webkit-scrollbar {
@@ -221,6 +238,34 @@
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.librarymetadata-status-light {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+
+.librarymetadata-status-light.complete {
+  background: #55e3a4;
+  box-shadow: 0 0 0 3px rgba(85, 227, 164, 0.13), 0 0 12px rgba(85, 227, 164, 0.42);
+}
+
+.librarymetadata-status-light.missing {
+  background: #ffbd72;
+  box-shadow: 0 0 0 3px rgba(255, 189, 114, 0.13), 0 0 12px rgba(255, 189, 114, 0.3);
+}
+
+.librarymetadata-status-light.failed {
+  background: #ff6e9d;
+  box-shadow: 0 0 0 3px rgba(255, 110, 157, 0.13), 0 0 12px rgba(255, 110, 157, 0.34);
+}
+
+.librarymetadata-status-light.no-media {
+  background: #7d8798;
+  box-shadow: 0 0 0 3px rgba(125, 135, 152, 0.13);
 }
 
 .librarymetadata-status-complete {

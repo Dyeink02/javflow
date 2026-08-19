@@ -45,7 +45,8 @@
     { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' },
     { version: '0.4.2', summary: '视频整理、媒体库刮削与 AV 订阅体验优化' },
     { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' },
-    { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' }
+    { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
+    { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' }
   ];
 
   const payload = { VERSION_HISTORY };

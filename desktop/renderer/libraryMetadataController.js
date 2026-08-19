@@ -38,6 +38,7 @@
       localScanResults: [],
       missingScanResults: [],
       resultScope: 'local',
+      resultFilter: 'all',
       selectedIds: new Set(),
       autoSubscriptionSources: new Set(),
       busy: false,
@@ -45,7 +46,8 @@
       activeJobId: '',
       artifactCountToken: 0,
       currentLogRootPath: '',
-      compactLayout: false
+      compactLayout: false,
+      globalProxy: ''
     };
 
     let eventsBound = false;
@@ -75,13 +77,15 @@
       empty: '未检测',
       checking: '检测中...',
       valid: '代理正常',
+      global: '已连接',
       invalid: '代理失败'
     };
 
     const PROXY_DETAIL_TEXT = {
-      empty: '媒体库刮削默认使用 127.0.0.1:7897，可手动修改；留空时自动使用爬虫设置中的全局代理。',
+      empty: '尚未填写代理地址。请先在 JAV 爬虫中填写，或在此临时输入。',
       checking: '正在检测媒体库代理连通性，请稍候。',
       valid: '检测通过，可继续使用当前媒体库代理。',
+      global: '正在使用 JAV 爬虫中保存的代理。',
       invalid: '当前媒体库代理不可用，请检查代理地址或代理软件状态。'
     };
 
@@ -368,6 +372,32 @@
       return normalizeText(elements.libraryProxyUrl && elements.libraryProxyUrl.value);
     }
 
+    function isUsingGlobalLibraryProxy(proxyValue) {
+      const globalProxy = normalizeText(state.globalProxy);
+      return Boolean(globalProxy && normalizeText(proxyValue) === globalProxy);
+    }
+
+    function proxyStatusDetail(status) {
+      if (status === 'global') {
+        return `已连接：${state.globalProxy}。可直接修改此处地址，仅临时覆盖当前媒体库操作。`;
+      }
+      if (status === 'empty' && !normalizeText(state.globalProxy)) {
+        return '尚未填写代理地址。请先在 JAV 爬虫中填写，或在此临时输入。';
+      }
+      return PROXY_DETAIL_TEXT[status] || PROXY_DETAIL_TEXT.empty;
+    }
+
+    function applyGlobalLibraryProxy(settings) {
+      state.globalProxy = normalizeText(settings && settings.proxy);
+      if (!elements.libraryProxyUrl || !state.globalProxy) {
+        return '';
+      }
+      if (!normalizeText(elements.libraryProxyUrl.value)) {
+        elements.libraryProxyUrl.value = state.globalProxy;
+      }
+      return state.globalProxy;
+    }
+
     async function initLibraryLog(rootPath) {
       const normalizedRoot = normalizeText(rootPath);
       if (!normalizedRoot) {
@@ -387,7 +417,7 @@
     }
 
     function setProxyStatus(status, detailText = '') {
-      const normalized = status === 'checking' || status === 'valid' || status === 'invalid' ? status : 'empty';
+      const normalized = status === 'checking' || status === 'valid' || status === 'global' || status === 'invalid' ? status : 'empty';
       proxyValidationState.lastStatus = normalized;
 
       if (elements.libraryProxyStatus) {
@@ -396,7 +426,7 @@
       }
       if (elements.libraryProxyStatusDetail) {
         const detail =
-          typeof detailText === 'string' && detailText.trim() ? detailText.trim() : PROXY_DETAIL_TEXT[normalized];
+          typeof detailText === 'string' && detailText.trim() ? detailText.trim() : proxyStatusDetail(normalized);
         elements.libraryProxyStatusDetail.textContent = detail;
       }
 
@@ -438,7 +468,7 @@
       if (!elements.libraryProxyStatusDetail) {
         return;
       }
-      const baseDetail = PROXY_DETAIL_TEXT[proxyValidationState.lastStatus] || PROXY_DETAIL_TEXT.empty;
+      const baseDetail = proxyStatusDetail(proxyValidationState.lastStatus);
       if (proxyValidationState.countdownValue > 0 && proxyValidationState.lastStatus !== 'checking') {
         elements.libraryProxyStatusDetail.textContent = `${baseDetail}（${proxyValidationState.countdownValue} 秒后刷新）`;
       } else {
@@ -484,7 +514,8 @@
         }
 
         if (result && result.status === 'valid') {
-          setProxyStatus('valid', result.detail);
+          const usingGlobalProxy = isUsingGlobalLibraryProxy(trimmedValue);
+          setProxyStatus(usingGlobalProxy ? 'global' : 'valid', usingGlobalProxy ? '' : result.detail);
           return result;
         }
 
@@ -549,10 +580,6 @@
     function initializeProxyDetection() {
       if (!elements.libraryProxyUrl || !elements.libraryProxyStatus || !elements.libraryProxyStatusDetail) {
         return;
-      }
-
-      if (!elements.libraryProxyUrl.value.trim()) {
-        elements.libraryProxyUrl.value = '127.0.0.1:7897';
       }
 
       // 输入时防抖检测（倒计时 5 秒），失去焦点时立即检测，并启动 5 秒轮询。
@@ -754,6 +781,7 @@
       if (desktopApi && typeof desktopApi.getSettings === 'function') {
         try {
           const settings = await desktopApi.getSettings();
+          const appliedGlobalProxy = applyGlobalLibraryProxy(settings);
           restoreLayoutMode(settings);
           restoreScrapePreferences(settings);
           restoreShowHiddenFilesPreference(settings);
@@ -766,6 +794,9 @@
                 elements.libraryAutoSubscribeLeadActor && elements.libraryAutoSubscribeLeadActor.checked
               )
             });
+          }
+          if (appliedGlobalProxy) {
+            void validateProxyValue(getLibraryProxy());
           }
         } catch (error) {
           appendLog('warn', `读取媒体库偏好失败，继续使用本地设置：${getErrorMessage(error)}`);
@@ -1021,6 +1052,7 @@
         const sortedIndexes = Array.from(state.selectedIds).sort((a, b) => a - b);
         const selectedCount = sortedIndexes.length;
         let successCount = 0;
+        let partialCount = 0;
         let failCount = 0;
         let skipCount = 0;
         let processedCount = 0;
@@ -1198,6 +1230,26 @@
             );
 
             if (writeResult && writeResult.error) {
+              const wrotePartialOutput = Boolean(
+                writeResult.nfoPath ||
+                writeResult.posterPath ||
+                writeResult.backdropPath ||
+                writeResult.landscapePath ||
+                (item.hasNfo && /^下载失败：/i.test(normalizeText(writeResult.error)))
+              );
+              if (wrotePartialOutput) {
+                // 图片下载失败不应让已经写入的 NFO 重新走一次元数据解析。
+                // 缺失图片会保留为未完成状态，用户可通过“补刮未完成”重试。
+                appendLog('warn', `部分写入 ${code}：${writeResult.error}；已保留成功内容，跳过重复解析`);
+                state.results[index] = updateItemAfterWrite(item, resolveResult.info, writeResult, resolveResult.source);
+                syncLocalScanResult(state.results[index]);
+                failureReasons.delete(index);
+                updateResultRow(index, state.results[index]);
+                queueCrawlArtifactAutoSubscription(crawlOutputDir);
+                partialCount += 1;
+                processedCount += 1;
+                return;
+              }
               lastError = writeResult.error;
               appendLog('warn', `第 ${attempt} 次写入 ${code} 失败：${lastError}，准备换源重试`);
               continue;
@@ -1312,6 +1364,7 @@
 
       const summaryParts = [];
       if (successCount > 0) summaryParts.push(`完成 ${successCount} 部`);
+      if (partialCount > 0) summaryParts.push(`部分完成 ${partialCount} 部`);
       if (failCount > 0) summaryParts.push(`失败 ${failCount} 部`);
       if (skipCount > 0) summaryParts.push(`跳过 ${skipCount} 部`);
       const summaryText = summaryParts.length > 0 ? summaryParts.join('，') : '没有需要处理的影片';
@@ -1528,12 +1581,52 @@
         : '当前显示所选 JSON 中的全部番号';
     }
 
+    function matchesResultFilter(item) {
+      if (state.resultFilter === 'complete') {
+        return item && item.status === '已完整';
+      }
+      if (state.resultFilter === 'missing') {
+        return item && !item.failed && item.status !== '已完整';
+      }
+      if (state.resultFilter === 'failed') {
+        return Boolean(item && item.failed);
+      }
+      return true;
+    }
+
+    function updateResultFilterButtons() {
+      const buttonFilters = [
+        [elements.filterCompleteButton, 'complete'],
+        [elements.filterMissingButton, 'missing'],
+        [elements.filterFailedButton, 'failed']
+      ];
+      buttonFilters.forEach(([button, filter]) => {
+        if (!button) {
+          return;
+        }
+        const active = state.resultFilter === filter;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
+    function setResultFilter(filter) {
+      const normalized = ['all', 'complete', 'missing', 'failed'].includes(filter) ? filter : 'all';
+      if (state.busy) {
+        appendLog('warn', '刮削进行中，任务结束后再切换影片筛选');
+        return;
+      }
+      state.resultFilter = state.resultFilter === normalized ? 'all' : normalized;
+      renderCurrentResultScope();
+    }
+
     function renderCurrentResultScope() {
-      const visibleResults = state.resultScope === 'all'
+      const scopedResults = state.resultScope === 'all'
         ? [...state.localScanResults, ...state.missingScanResults]
         : state.localScanResults;
-      renderResultList(visibleResults);
+      renderResultList(scopedResults.filter(matchesResultFilter));
       updateResultScopeButton();
+      updateResultFilterButtons();
     }
 
     function renderResultList(mergedResults) {
@@ -1764,6 +1857,7 @@
         const missingItems = Array.isArray(result && result.missingItems) ? result.missingItems : [];
         state.localScanResults = items;
         state.missingScanResults = missingItems;
+        state.resultFilter = 'all';
         renderCurrentResultScope();
         const missingCount = missingItems.length;
         const logMessage = missingCount > 0
@@ -1888,6 +1982,16 @@
         appendLog('info', '开始扫描本地媒体库...');
         await performScan();
       });
+
+      if (elements.filterCompleteButton) {
+        elements.filterCompleteButton.addEventListener('click', () => setResultFilter('complete'));
+      }
+      if (elements.filterMissingButton) {
+        elements.filterMissingButton.addEventListener('click', () => setResultFilter('missing'));
+      }
+      if (elements.filterFailedButton) {
+        elements.filterFailedButton.addEventListener('click', () => setResultFilter('failed'));
+      }
 
       if (elements.openLibraryLogButton) {
         bindAsyncButton(elements.openLibraryLogButton, async () => {

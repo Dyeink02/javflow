@@ -291,6 +291,30 @@ func (s *Service) Patch(id string, patch map[string]any) (Subscription, error) {
 	return Subscription{}, os.ErrNotExist
 }
 
+// PatchActressCountFilterThresholdForAll applies one actor-count filter to
+// every subscription and saves the collection once, keeping the bulk UI
+// action atomic from the user's perspective.
+func (s *Service) PatchActressCountFilterThresholdForAll(threshold int) ([]Subscription, error) {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	items, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	for index, item := range items {
+		item.ActressCountFilterThreshold = maxInt(0, threshold)
+		item.LastUpdatedAt = now
+		items[index] = normalizeSubscription(item, now)
+	}
+	sortSubscriptions(items)
+	if err := s.save(items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // Reorder persists the exact user-facing order. Unknown IDs are ignored and
 // any subscriptions omitted by the caller are appended in their current order.
 func (s *Service) Reorder(orderedIDs []string) ([]Subscription, error) {

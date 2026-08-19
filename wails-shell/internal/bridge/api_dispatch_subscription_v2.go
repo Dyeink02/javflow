@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file dispatches V2 subscription bridge commands to the avsubscriptionv2 service.
+//
+//	This file dispatches V2 subscription bridge commands to the avsubscriptionv2 service.
 //
 // File map for maintainers:
-//   1) Command switch and parameter extraction.
-//   2) Result wrappers for list, scan, add, refresh, and crawl commands.
-//   3) Error marshalling back to the renderer.
-//
+//  1. Command switch and parameter extraction.
+//  2. Result wrappers for list, scan, add, refresh, and crawl commands.
+//  3. Error marshalling back to the renderer.
 package bridge
 
 // V2 subscription commands intentionally live beside the old subscription
@@ -57,6 +57,9 @@ func (a *API) handleSubscriptionV2Command(command string, payload map[string]any
 		return result, true, err
 	case "app:patch-av-subscription-v2":
 		result, err := a.patchSubscriptionV2Result(payload)
+		return result, true, err
+	case "app:patch-all-av-subscriptions-actress-filter-v2":
+		result, err := a.patchAllSubscriptionActressFilterV2Result(payload)
 		return result, true, err
 	case "app:reorder-av-subscriptions-v2":
 		result, err := a.reorderSubscriptionsV2Result(payload)
