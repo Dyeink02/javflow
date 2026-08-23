@@ -456,7 +456,6 @@
       [
         elements.organizerStartButton,
         elements.organizerPreviewButton,
-        elements.organizerRescueNamesButton,
         elements.organizerLoadCodesButton,
         elements.organizerDiscoverCodesButton,
         elements.organizerBrowseCrawlFileButton,
@@ -645,6 +644,42 @@
       try {
         const settings = getSettings(dryRun);
         validateSettings(settings);
+
+        // 缺少资料时的风险告知：无爬取数据或未开启严格匹配时，番号识别完全
+        // 依赖文件名推断，先让用户确认代价再开始正式任务（预览不拦截）。
+        const missingCrawlData = !String(settings.crawlOutputDir || '').trim();
+        const strictMatchOff = !settings.strictExpectedCodes;
+        if (!dryRun && (missingCrawlData || strictMatchOff)) {
+          const reasons = [];
+          if (missingCrawlData) {
+            reasons.push('• 未提供爬取数据（爬取地址为空）');
+          }
+          if (strictMatchOff) {
+            reasons.push('• 未勾选「严格匹配番号」');
+          }
+          const message =
+            '当前整理将在缺少资料的情况下运行：\n\n' +
+            reasons.join('\n') +
+            '\n\n可能的代价：\n' +
+            '• 番号识别完全依赖文件名推断，命名混乱的文件可能误判或进入未命中清单；\n' +
+            '• 无法使用爬取数据中的磁力别名做 A/B 分集严格匹配；\n' +
+            '• 没有预期番号清单做交叉校验，整理结果需要人工复核。\n\n' +
+            '是否仍要开始执行？';
+          if (desktopApi && typeof desktopApi.showAlert === 'function') {
+            const riskResponse = await desktopApi.showAlert({
+              type: 'warning',
+              title: '缺少资料时的整理风险',
+              message,
+              buttons: ['仍要执行', '取消']
+            });
+            const riskSelection = String((riskResponse && riskResponse.selection) || '').trim();
+            if (!riskSelection.includes('仍要执行')) {
+              appendLogLine(elements.organizerLogView, 'warn', '用户取消操作（未确认缺少资料的整理风险）。');
+              return;
+            }
+          }
+        }
+
         if (!dryRun && settings.adFileAction === 'delete-directly') {
           let confirmMessage = '你已选择”直接删除广告文件”。此操作不可撤销，是否继续？';
 
@@ -715,68 +750,6 @@
       }
     }
 
-    async function runNameRescue() {
-      if (state.running) {
-        return;
-      }
-
-      const settings = getSettings(false);
-      validateSettings(settings);
-      const confirmed = globalThis.confirm(
-        '番号名称抢救只使用已加载的番号名单和现有改名前后报告。\n\n' +
-          '唯一命中的视频会按标准番号重新命名并移入“待整理”；无法唯一确认的会移入“未命中”。\n' +
-          '该功能不会删除文件。是否继续？'
-      );
-      if (!confirmed) {
-        return;
-      }
-
-      state.running = true;
-      state.activeTask = 'name-rescue';
-      setActionButtonState();
-      setStatus('running', '正在抢救番号名称...');
-      setSummaryMessage('正在读取番号名单、历史改名报告和视频路径。');
-      appendOrganizerLog('info', '开始抢救番号名称：严格限定为已加载番号名单，不进行自由猜测。');
-
-      try {
-        const result = await desktopApi.rescueOrganizerNames(settings);
-        const summary = {
-          scannedTotal: result && result.scannedTotal,
-          videoTotal: result && result.scannedTotal,
-          qualifiedVideo: result && result.matchedTotal,
-          movedToWaiting: result && result.matchedTotal,
-          movedToUnmatched: result && result.unmatchedTotal,
-          failedOperations: result && result.failedTotal
-        };
-        setSummaryCounts(summary);
-        const reportFiles = result && result.reportPath ? [result.reportPath] : [];
-        organizerReviewView.renderReportFiles(elements.organizerReportPaths, reportFiles, {
-          onBindOpenReport: bindOpenReport
-        });
-        setSummaryMessage(
-          `番号名称抢救完成：扫描 ${result.scannedTotal || 0}，恢复 ${result.matchedTotal || 0}，未命中 ${
-            result.unmatchedTotal || 0
-          }，失败 ${result.failedTotal || 0}。`
-        );
-        appendOrganizerLog(
-          result.failedTotal > 0 ? 'warn' : 'info',
-          `番号名称抢救完成：成功恢复 ${result.matchedTotal || 0} 个，移入未命中 ${result.unmatchedTotal || 0} 个，失败 ${
-            result.failedTotal || 0
-          } 个。`
-        );
-        setStatus(result.failedTotal > 0 ? 'error' : 'completed', result.failedTotal > 0 ? '抢救完成，存在失败' : '番号名称抢救完成');
-      } catch (error) {
-        const message = getErrorMessage(error);
-        appendOrganizerLog('error', message);
-        setSummaryMessage(message);
-        setStatus('error', '番号名称抢救失败');
-      } finally {
-        state.running = false;
-        state.activeTask = '';
-        setActionButtonState();
-      }
-    }
-
     function bindEvents() {
       // 本文件只绑定 organizer 页面上的跨域动作。
       // 更细的子域行为分别留在 dependency / learning / crawl-output 子控制器。
@@ -829,14 +802,13 @@
       bindOpenOrganizerPathButton(elements.organizerOpenDeleteButton, 'delete');
 
       bindAsyncClick(elements.organizerStartButton, async () => {
-        await runOrganizerTask(Boolean(elements.organizerDryRun && elements.organizerDryRun.checked));
+        await runOrganizerTask(false);
       });
 
       bindAsyncClick(elements.organizerPreviewButton, async () => {
         await runOrganizerTask(true);
       });
 
-      bindAsyncClick(elements.organizerRescueNamesButton, runNameRescue);
 
       if (elements.organizerClearLogButton) {
         elements.organizerClearLogButton.addEventListener('click', () => {
@@ -1054,9 +1026,6 @@
           }
           if (elements.organizerAdFileActionDelete) {
             elements.organizerAdFileActionDelete.checked = normalizedAdFileAction === 'delete-directly';
-          }
-          if (elements.organizerDryRun) {
-            elements.organizerDryRun.checked = Boolean(settings.organizerDryRun);
           }
           if (elements.organizerIncludeSubdirectories) {
             elements.organizerIncludeSubdirectories.checked = settings.organizerIncludeSubdirectories !== false;

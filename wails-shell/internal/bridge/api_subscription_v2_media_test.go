@@ -183,6 +183,25 @@ func TestActressAtlasWorkCoverProfileAllowsThreePagePrefetch(t *testing.T) {
 	}
 }
 
+func TestActressAtlasWorkAllowsConfiguredMirrorHosts(t *testing.T) {
+	for _, host := range []string{"www.javbus.com", "www.busjav.cyou", "fanbus.bond", "www.cdnbus.bond"} {
+		work := subscriptiontarget.ActressWork{
+			URL:      "https://" + host + "/TEST-001",
+			CoverURL: "https://pics.dmm.co.jp/digital/video/test/testpl.jpg",
+		}
+		if !isAllowedActressAtlasWork(work) {
+			t.Fatalf("expected configured mirror host to be accepted: %s", host)
+		}
+	}
+
+	if isAllowedActressAtlasWork(subscriptiontarget.ActressWork{
+		URL:      "https://www.javbus.com.evil.example/TEST-001",
+		CoverURL: "https://pics.dmm.co.jp/digital/video/test/testpl.jpg",
+	}) {
+		t.Fatal("untrusted lookalike host must not be accepted")
+	}
+}
+
 func TestDistinctAtlasProfileMediaRemovesDuplicateCachedImageBytes(t *testing.T) {
 	userData := t.TempDir()
 	mediaDir := filepath.Join(userData, "subscriptions-v2", "media", "atlas-test")

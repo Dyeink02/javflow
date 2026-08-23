@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"javflow/internal/appupdate"
 )
 
 //go:embed all:frontend
@@ -75,6 +76,14 @@ func resolveRepoRoot() (string, error) {
 }
 
 func main() {
+	if handled, helperErr := appupdate.RunUpdateHelper(os.Args[1:]); handled {
+		if helperErr != nil {
+			log.Printf("JavFlow 更新辅助进程失败：%v", helperErr)
+			os.Exit(1)
+		}
+		return
+	}
+
 	repoRoot, err := resolveRepoRoot()
 	if err != nil {
 		log.Fatal(err)

@@ -84,6 +84,7 @@ func (ctx *organizerRunContext) moveCandidatesToWaiting(candidates []Candidate) 
 				},
 				ctx.progressf,
 				func() error {
+					ctx.waitOrganizeInterval()
 					var moveErr error
 					movedPath, moveErr = moveWithUnique(candidate.Src, destinationPath)
 					return moveErr
@@ -145,6 +146,7 @@ func (ctx *organizerRunContext) moveUnmatchedCandidates(candidates []Candidate) 
 			continue
 		}
 		destinationPath := filepath.Join(ctx.paths.UnmatchedDir, filepath.Base(item.Src))
+		ctx.waitOrganizeInterval()
 		movedPath, err := moveWithUnique(item.Src, destinationPath)
 		if err != nil {
 			ctx.summary.FailedOperations++
@@ -193,12 +195,10 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 		}
 	}
 
-	// Directory-first delete/move keeps cloud-drive operations coarse-grained.
-	// Once qualified videos have already been moved out, the remaining ad/trash
-	// items under the same source folder should prefer one directory operation
-	// over many per-file operations, unless that folder is protected by a failed
-	// waiting move or is itself a managed/root directory.
-	if !ctx.dryRun && len(pendingDeleteMap) > 0 {
+	// Directory-first delete/move is reserved for the explicit batch-delete
+	// mode. Normal mode promises individual operations, which is important when
+	// a user wants the slower, inspectable move-to-delete behavior.
+	if !ctx.dryRun && ctx.batchDelete && len(pendingDeleteMap) > 0 {
 		pendingDeleteSet := makePendingDeletePathSet(ctx.normalizedRootPath, pendingDelete)
 		protectedPaths := normalizeProtectedPaths(waitingMoveFailedSources)
 		directoryCandidates := map[string]struct{}{}
@@ -261,6 +261,7 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 						if !ctx.batchDeleteDirectorySafe(sourceDir, pendingDeleteSet, protectedPaths) {
 							return fmt.Errorf("\u76ee\u5f55\u5728\u5220\u9664\u524d\u51fa\u73b0\u672a\u786e\u8ba4\u5185\u5bb9")
 						}
+						ctx.waitDeleteInterval()
 						return removeDirectoryWithRetry(sourceDir, 5)
 					},
 					ctx.logf,
@@ -287,6 +288,13 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 					},
 					ctx.progressf,
 					func() error {
+						ctx.waitOrganizeInterval()
+						// Recheck after the optional cloud-drive interval. A downloader can
+						// add an unclassified file after the planning scan but before the
+						// directory rename starts.
+						if !ctx.batchDeleteDirectorySafe(sourceDir, pendingDeleteSet, protectedPaths) {
+							return fmt.Errorf("目录在移入待删除前出现未确认内容")
+						}
 						var moveErr error
 						movedDir, moveErr = moveDirectoryWithUnique(sourceDir, destinationDir)
 						return moveErr
@@ -368,7 +376,10 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 					"adFileAction": ctx.adFileAction,
 				},
 				ctx.progressf,
-				func() error { return os.Remove(item.Src) },
+				func() error {
+					ctx.waitDeleteInterval()
+					return os.Remove(item.Src)
+				},
 				ctx.logf,
 			)
 			if err != nil {
@@ -381,7 +392,7 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 				}
 			}
 		} else {
-			destinationPath := resolveDeleteDestinationPath(ctx.paths, item.Src)
+			destinationPath := resolveDeleteFileDestinationPath(ctx.paths, item.Src)
 			movedPath := ""
 			err := runWithProgressHeartbeat(
 				"移入待删除",
@@ -395,6 +406,7 @@ func (ctx *organizerRunContext) processPendingDelete(pendingDelete []Candidate, 
 				},
 				ctx.progressf,
 				func() error {
+					ctx.waitOrganizeInterval()
 					var moveErr error
 					movedPath, moveErr = moveWithUnique(item.Src, destinationPath)
 					return moveErr

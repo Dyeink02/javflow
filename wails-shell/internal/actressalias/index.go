@@ -67,25 +67,29 @@ type Resolution struct {
 // state stays behind the mutex because ranking warmup and a manual search can
 // complete at the same time.
 type Index struct {
-	mu        sync.RWMutex
-	writeMu   sync.Mutex
-	cachePath string
-	records   map[string]Record
-	byAlias   map[string][]Candidate
+	mu             sync.RWMutex
+	writeMu        sync.Mutex
+	cachePath      string
+	bundledRecords map[string]Record
+	userRecords    map[string]Record
+	records        map[string]Record
+	byAlias        map[string][]Candidate
 }
 
 // New loads the small shipped pack, followed by the user cache. An unreadable
 // user cache is ignored: actor lookup must remain usable after a damaged cache.
 func New(userDataDir string) *Index {
 	index := &Index{
-		records: make(map[string]Record),
-		byAlias: make(map[string][]Candidate),
+		bundledRecords: make(map[string]Record),
+		userRecords:    make(map[string]Record),
+		records:        make(map[string]Record),
+		byAlias:        make(map[string][]Candidate),
 	}
 	if strings.TrimSpace(userDataDir) != "" {
 		index.cachePath = filepath.Join(userDataDir, "actress-aliases.user.json")
 	}
-	index.merge(loadBundledRecords())
-	index.merge(index.loadUserRecords())
+	index.mergeBundledRecords(loadBundledRecords())
+	index.mergeUserRecords(index.loadUserRecords())
 	return index
 }
 
@@ -155,22 +159,84 @@ func directoryName(value string) string {
 	).Replace(value)
 }
 
-func (i *Index) merge(records []Record) {
+func normalizeRecord(record Record) (Record, bool) {
+	canonical := strings.TrimSpace(record.Canonical)
+	if canonical == "" {
+		return Record{}, false
+	}
+	record.Canonical = canonical
+	record.Aliases = uniqueNames(append(record.Aliases, canonical))
+	return record, true
+}
+
+func (i *Index) mergeBundledRecords(records []Record) {
 	if i == nil {
 		return
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	for _, record := range records {
-		canonical := strings.TrimSpace(record.Canonical)
-		if canonical == "" {
+		normalized, ok := normalizeRecord(record)
+		if !ok {
 			continue
 		}
-		record.Canonical = canonical
-		record.Aliases = uniqueNames(append(record.Aliases, canonical))
-		i.records[canonical] = mergeRecord(i.records[canonical], record)
+		i.bundledRecords[normalized.Canonical] = mergeRecord(i.bundledRecords[normalized.Canonical], normalized)
 	}
 	i.rebuildLocked()
+}
+
+// mergeUserRecords keeps the cache logically separate from the shipped pack.
+// Earlier builds merged both first and then filtered by Source while saving.
+// A provider enrichment could change a bundled record's Source and make the
+// entire bundled catalog get written into each user's cache file.
+func (i *Index) mergeUserRecords(records []Record) {
+	if i == nil {
+		return
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for _, record := range records {
+		normalized, ok := i.normalizeUserRecordLocked(record)
+		if !ok {
+			continue
+		}
+		i.userRecords[normalized.Canonical] = mergeRecord(i.userRecords[normalized.Canonical], normalized)
+	}
+	i.rebuildLocked()
+}
+
+// normalizeUserRecordLocked drops aliases already supplied by the bundled
+// catalog. It also repairs cache files written by earlier builds that copied a
+// full bundled record into the per-user cache after a provider enrichment.
+func (i *Index) normalizeUserRecordLocked(record Record) (Record, bool) {
+	canonical := strings.TrimSpace(record.Canonical)
+	if canonical == "" {
+		return Record{}, false
+	}
+	record.Canonical = canonical
+	record.Aliases = uniqueNames(record.Aliases)
+	if bundled, exists := i.bundledRecords[canonical]; exists {
+		known := make(map[string]struct{}, len(bundled.Aliases)+1)
+		for _, alias := range append(append([]string{}, bundled.Aliases...), bundled.Canonical) {
+			if key := Normalize(alias); key != "" {
+				known[key] = struct{}{}
+			}
+		}
+		aliases := make([]string, 0, len(record.Aliases))
+		for _, alias := range record.Aliases {
+			if _, duplicate := known[Normalize(alias)]; !duplicate {
+				aliases = append(aliases, alias)
+			}
+		}
+		record.Aliases = aliases
+		if len(record.Aliases) == 0 {
+			return Record{}, false
+		}
+		return record, true
+	}
+
+	record.Aliases = uniqueNames(append(record.Aliases, canonical))
+	return record, true
 }
 
 func mergeRecord(current Record, incoming Record) Record {
@@ -191,6 +257,21 @@ func mergeRecord(current Record, incoming Record) Record {
 }
 
 func (i *Index) rebuildLocked() {
+	i.records = make(map[string]Record, len(i.bundledRecords)+len(i.userRecords))
+	for _, record := range i.bundledRecords {
+		normalized, ok := normalizeRecord(record)
+		if !ok {
+			continue
+		}
+		i.records[normalized.Canonical] = mergeRecord(i.records[normalized.Canonical], normalized)
+	}
+	for _, record := range i.userRecords {
+		normalized, ok := normalizeRecord(record)
+		if !ok {
+			continue
+		}
+		i.records[normalized.Canonical] = mergeRecord(i.records[normalized.Canonical], normalized)
+	}
 	i.byAlias = make(map[string][]Candidate)
 	for _, record := range i.records {
 		for _, alias := range record.Aliases {
@@ -293,7 +374,7 @@ func (i *Index) Remember(record Record) error {
 	// verified alias discovered by another request.
 	i.writeMu.Lock()
 	defer i.writeMu.Unlock()
-	i.merge([]Record{record})
+	i.mergeUserRecords([]Record{record})
 	return i.saveUserRecords()
 }
 
@@ -302,11 +383,9 @@ func (i *Index) saveUserRecords() error {
 		return nil
 	}
 	i.mu.RLock()
-	records := make([]Record, 0, len(i.records))
-	for _, record := range i.records {
-		if record.Source != "bundled" {
-			records = append(records, record)
-		}
+	records := make([]Record, 0, len(i.userRecords))
+	for _, record := range i.userRecords {
+		records = append(records, record)
 	}
 	i.mu.RUnlock()
 	sort.Slice(records, func(left, right int) bool { return records[left].Canonical < records[right].Canonical })

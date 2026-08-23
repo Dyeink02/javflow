@@ -16,6 +16,7 @@ import (
 	"javflow/internal/actressranking"
 	"javflow/internal/adlearning"
 	"javflow/internal/antiblock"
+	"javflow/internal/appupdate"
 	"javflow/internal/avsubscription"
 	"javflow/internal/avsubscriptionv2"
 	"javflow/internal/bridge"
@@ -67,6 +68,10 @@ func NewApp(repoRoot string) *App {
 		return app.ctx
 	})
 	store := settings.NewStore(paths)
+	appUpdateService := appupdate.NewService(appupdate.ServiceOptions{
+		CurrentVersion: appupdate.ProductVersion(),
+		Store:          store,
+	})
 	crawlFetchService := createCrawlFetchService(store)
 	avSubscriptionService := avsubscription.NewService(paths)
 	avSubscriptionV2Service := avsubscriptionv2.NewService(paths, crawlFetchService)
@@ -108,6 +113,7 @@ func NewApp(repoRoot string) *App {
 	registerTaskObserver(bus, crawlTaskService)
 	api := bridge.NewAPI(buildBridgeDependencies(
 		store,
+		appUpdateService,
 		paths,
 		avSubscriptionService,
 		dialogs,
@@ -293,6 +299,7 @@ func registerTaskObserver(bus *events.Bus, crawlTaskService *crawltask.Service) 
 // when one domain service needs to be added or removed later.
 func buildBridgeDependencies(
 	store *settings.Store,
+	appUpdateService *appupdate.Service,
 	paths runtimepaths.Paths,
 	avSubscriptions *avsubscription.Service,
 	dialogs *desktop.Service,
@@ -321,6 +328,7 @@ func buildBridgeDependencies(
 ) bridge.Dependencies {
 	return bridge.Dependencies{
 		Store:             store,
+		AppUpdate:         appUpdateService,
 		AVSubscriptions:   avSubscriptions,
 		Dialogs:           dialogs,
 		Manager:           manager,

@@ -38,7 +38,7 @@ var crawlerSettingFields = []crawlerSettingField{
 	{key: "actressCountFilterThreshold", defaultValue: 0},
 	{key: "filmCodeFilterThreshold", defaultValue: ""},
 	{key: "taskTemplate", defaultValue: ""},
-	{key: "cloudflare", defaultValue: false},
+	{key: "cloudflare", defaultValue: true},
 	{key: "secondValidation", defaultValue: true},
 	{key: "nomag", defaultValue: false},
 	{key: "allmag", defaultValue: false},

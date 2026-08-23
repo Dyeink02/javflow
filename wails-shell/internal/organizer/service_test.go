@@ -282,7 +282,7 @@ func TestRunOrganizerMovesIntroAdAfterWaitingRename(t *testing.T) {
 	}
 }
 
-func TestRunOrganizerMovesDeleteSourceFolderAsWholeDirectory(t *testing.T) {
+func TestRunOrganizerNonBatchMoveToDeleteMovesOnlyClassifiedFiles(t *testing.T) {
 	service := NewService()
 	rootDir := t.TempDir()
 	sourceDir := filepath.Join(rootDir, "MIRD-237")
@@ -320,11 +320,11 @@ func TestRunOrganizerMovesDeleteSourceFolderAsWholeDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rootDir, "待整理", "MIRD-237.mp4")); err != nil {
 		t.Fatalf("expected waiting video to exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(rootDir, "待删除", "MIRD-237")); err != nil {
-		t.Fatalf("expected whole source folder in 待删除: %v", err)
+	if _, err := os.Stat(filepath.Join(rootDir, "待删除", "promo.mp4")); err != nil {
+		t.Fatalf("expected classified ad file to move individually in non-batch mode: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(rootDir, "待删除", "MIRD-237", "promo.mp4")); err != nil {
-		t.Fatalf("expected ad file to stay inside moved source folder: %v", err)
+	if _, err := os.Stat(filepath.Join(rootDir, "待删除", "MIRD-237")); !os.IsNotExist(err) {
+		t.Fatalf("non-batch mode must not move the whole source folder, stat err=%v", err)
 	}
 	if _, err := os.Stat(sourceDir); !os.IsNotExist(err) {
 		t.Fatalf("expected original source folder to be moved away, stat err=%v", err)
@@ -529,58 +529,6 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	for _, record := range result.Preview.RenameRecords {
 		if record.FilmCode == "FSET-739" {
 			t.Fatalf("strictly unmatched video must not be organized: %+v", record)
-		}
-	}
-}
-
-func TestRescueNamesUsesRenameHistoryAndExpectedListWithoutGuessing(t *testing.T) {
-	service := NewService()
-	rootDir := t.TempDir()
-	paths := service.ResolvePaths(rootDir)
-	if err := os.MkdirAll(paths.WaitingDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	writeSparseFile(t, filepath.Join(paths.WaitingDir, "WRONG-999.mp4"), 1024)
-	writeSparseFile(t, filepath.Join(rootDir, "TL-00001-extra.mp4"), 1024)
-	writeSparseFile(t, filepath.Join(rootDir, "UNKNOWN.mp4"), 1024)
-	if err := appendRenameHistory(paths.RenameHistoryPath, []RenameRecord{{
-		OriginalName: "1818@tl1.mp4",
-		OriginalPath: `C:\old\1818@tl1.mp4`,
-		WaitingPath:  filepath.Join(paths.WaitingDir, "WRONG-999.mp4"),
-		NewName:      "WRONG-999.mp4",
-		FilmCode:     "WRONG-999",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := service.RescueNames(RunOptions{
-		RootPath:              rootDir,
-		VideoExtensions:       "mp4",
-		IncludeSubdirectories: true,
-		ExpectedCodes:         []string{"TL-001"},
-		Suffix:                "-A",
-	})
-	if err != nil {
-		t.Fatalf("RescueNames returned error: %v", err)
-	}
-	if result.ScannedTotal != 3 || result.MatchedTotal != 2 || result.UnmatchedTotal != 1 || result.FailedTotal != 0 {
-		t.Fatalf("unexpected rescue summary: %+v", result)
-	}
-	for _, name := range []string{"TL-001-A.mp4", "TL-001-B.mp4"} {
-		if _, err := os.Stat(filepath.Join(paths.WaitingDir, name)); err != nil {
-			t.Fatalf("expected rescued file %s: %v", name, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(paths.UnmatchedDir, "UNKNOWN.mp4")); err != nil {
-		t.Fatalf("expected unmatched file to be preserved for review: %v", err)
-	}
-	if _, err := os.Stat(result.ReportPath); err != nil {
-		t.Fatalf("expected rescue report: %v", err)
-	}
-	for _, record := range result.Records {
-		if record.FilmCode != "" && record.FilmCode != "TL-001" {
-			t.Fatalf("rescue invented a code outside the expected list: %+v", record)
 		}
 	}
 }

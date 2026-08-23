@@ -60,6 +60,16 @@ var (
 		"https://www.fanbus.bond",
 		"https://www.cdnbus.bond",
 	}
+	actressLookupMirrorHosts = map[string]struct{}{
+		"javbus.com":       {},
+		"www.javbus.com":   {},
+		"busjav.cyou":      {},
+		"www.busjav.cyou":  {},
+		"fanbus.bond":      {},
+		"www.fanbus.bond":  {},
+		"cdnbus.bond":      {},
+		"www.cdnbus.bond":  {},
+	}
 )
 
 // Service is a stateless coordinator that turns a name or target URL into a
@@ -200,6 +210,38 @@ func toOrigin(input string) string {
 		return fallback
 	}
 	return parsed.Scheme + "://" + parsed.Host
+}
+
+// IsAllowedActressLookupHost is the single allow-list for actor-directory
+// pages and their mirror hosts. Keep it aligned with defaultBaseOrigins so the
+// lazy work-page and cover-cache paths accept the same verified sources.
+func IsAllowedActressLookupHost(host string) bool {
+	normalized := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	_, allowed := actressLookupMirrorHosts[normalized]
+	return allowed
+}
+
+// IsAllowedActressLookupBaseURL accepts only HTTPS origins from the verified
+// actor-directory mirror set. The bridge uses it before a renderer payload can
+// influence a network request.
+func IsAllowedActressLookupBaseURL(rawURL string) bool {
+	parsed, err := neturl.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.User != nil || parsed.Port() != "" {
+		return false
+	}
+	return IsAllowedActressLookupHost(parsed.Hostname())
+}
+
+// IsAllowedActressLookupTargetURL further constrains a lazy work-page request
+// to one resolved /star/<slug> page. It prevents the bridge from becoming a
+// generic renderer-controlled fetch endpoint.
+func IsAllowedActressLookupTargetURL(rawURL string) bool {
+	parsed, err := neturl.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil || !IsAllowedActressLookupBaseURL(rawURL) || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	segments := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	return len(segments) == 2 && strings.EqualFold(segments[0], "star") && strings.TrimSpace(segments[1]) != ""
 }
 
 func uniqStrings(items ...string) []string {

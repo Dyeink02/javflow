@@ -112,6 +112,7 @@ func infrastructureNeutralPackages() []string {
 		"internal/actressranking",
 		"internal/adlearning",
 		"internal/antiblock",
+		"internal/appupdate",
 		"internal/crawloutput",
 		"internal/crawlqueue",
 		"internal/dependency",

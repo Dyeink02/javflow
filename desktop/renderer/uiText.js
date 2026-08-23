@@ -26,7 +26,7 @@
   const FALLBACK_SHARED_TEXT = {
     APP_INFO: {
       title: 'JavFlow',
-      version: '0.4.32',
+      version: '0.4.4',
       subtitle: '基于开源项目：raawaa',
       eyebrow: 'Windows EXE',
       defaultBaseUrl: 'https://www.javbus.com'
@@ -63,7 +63,7 @@
         delay: 2,
         timeout: 30000,
         itemsPerPage: 30,
-        cloudflare: false,
+        cloudflare: true,
         secondValidation: true
       },
       stable: {
@@ -118,7 +118,8 @@
       { version: '0.4.2', summary: '视频整理、媒体库刮削与 AV 订阅体验优化' },
       { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' },
       { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
-      { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' }
+      { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' },
+      { version: '0.4.4', summary: '流程减负、演员图鉴榜单与订阅稳定性提升' }
     ],
     UI_TEXT_SOURCE: {
       hero: {
@@ -226,6 +227,25 @@
         clearLog: '清空日志',
         openLogFolder: '打开日志目录'
       },
+      appUpdate: {
+        checkButton: '检查更新',
+        checking: '检测更新中...',
+        availablePrefix: '待更新 v',
+        downloadButton: '下载更新',
+        downloading: '正在下载更新...',
+        downloadedPrefix: '已下载 v',
+        applyButton: '立即更新',
+        applying: '正在准备重启...',
+        latest: '',
+        checkFailedPrefix: '更新检查失败：',
+        downloadFailedPrefix: '更新下载失败：',
+        applyFailedPrefix: '更新启动失败：',
+        dialogTitle: '更新 JavFlow',
+        dialogMessagePrefix: '新版本 v',
+        dialogMessageSuffix: ' 已下载，应用更新后软件会自动重启。现在重启吗？',
+        restartButton: '立即重启',
+        laterButton: '稍后'
+      },
       stats: {
         currentPage: '当前页数',
         queued: '已入队',
@@ -242,7 +262,7 @@
         failedLabel: '失败与重复',
         defaultMessage: '等待开始抓取。',
         ready: '准备就绪，等待开始。',
-        activeEmpty: '当前没有正在执行的项目。',
+        activeEmpty: '当前没有执行的番号。',
         unfinishedEmpty: '当前没有已定位未完成番号。',
         duplicateEmpty: '当前没有重复番号。',
         pageGapEmpty: '当前没有未定位分页缺口。',
@@ -466,7 +486,7 @@
   const UI_TEXT = deepMerge(
     {
       appTitle: appInfo.title || 'JAV自动化整理归纳视频软件',
-      version: appInfo.version || '0.4.32',
+      version: appInfo.version || '0.4.4',
       source: {
         href: appInfo.sourceUrl || 'https://www.javbus.com/star/okq',
         name: appInfo.sourceName || '三上悠亜'

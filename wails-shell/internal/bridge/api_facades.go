@@ -23,6 +23,7 @@ import (
 	"javflow/internal/actressranking"
 	"javflow/internal/adlearning"
 	"javflow/internal/antiblock"
+	"javflow/internal/appupdate"
 	"javflow/internal/avsubscription"
 	"javflow/internal/avsubscriptionv2"
 	"javflow/internal/crawlfetch"
@@ -59,6 +60,7 @@ type runtimeFacade struct {
 	proxyService *proxy.Service
 	runtimeState *runtimecache.State
 	paths        runtimepaths.Paths
+	appUpdate    *appupdate.Service
 }
 
 // lookupFacade groups actress lookup/ranking and subscription state together.
@@ -112,6 +114,7 @@ type crawlFacade struct {
 // still an internal bootstrap contract, not a product-domain API.
 type Dependencies struct {
 	Store             *settings.Store
+	AppUpdate         *appupdate.Service
 	AVSubscriptions   *avsubscription.Service
 	AVSubscriptionsV2 *avsubscriptionv2.Service
 	Dialogs           *desktop.Service
@@ -149,6 +152,7 @@ func (deps Dependencies) runtimeFacade() runtimeFacade {
 		proxyService: deps.ProxyService,
 		runtimeState: deps.RuntimeState,
 		paths:        deps.Paths,
+		appUpdate:    deps.AppUpdate,
 	}
 }
 

@@ -45,14 +45,6 @@ func (a *API) handleOrganizerCommand(command string, payload map[string]any) (st
 		result, err := marshalResult(runResult)
 		return result, true, err
 
-	case "app:rescue-organizer-names":
-		options := a.buildOrganizerRunOptions(payload)
-		rescueResult, err := a.organizer.organizerService.RescueNames(options)
-		if err != nil {
-			return "", true, err
-		}
-		result, err := marshalResult(rescueResult)
-		return result, true, err
 	}
 
 	return "", false, nil

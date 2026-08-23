@@ -135,7 +135,7 @@
 
           <div class="toggles">
             <label class="toggle-card">
-              <input id="cloudflare" type="checkbox" />
+              <input id="cloudflare" type="checkbox" checked />
               <span data-ui-text="toggles.cloudflareTitle"></span>
               <small data-ui-text="toggles.cloudflareHelp"></small>
             </label>
@@ -251,42 +251,36 @@
                     <span>输出目录</span>
                     <p id="crawl-result-output" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-output" class="inline-button" type="button" disabled>打开</button>
                 </div>
                 <div class="result-path-row">
                   <div class="result-path-copy">
                     <span>filmData.json</span>
                     <p id="crawl-result-film-data" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-film-data" class="inline-button" type="button" disabled>打开</button>
                 </div>
                 <div class="result-path-row">
                   <div class="result-path-copy">
                     <span>磁力文档</span>
                     <p id="crawl-result-magnet" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-magnet" class="inline-button" type="button" disabled>打开</button>
                 </div>
                 <div class="result-path-row">
                   <div class="result-path-copy">
                     <span>日志目录</span>
                     <p id="crawl-result-log-dir" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-log-dir" class="inline-button" type="button" disabled>打开</button>
                 </div>
                 <div class="result-path-row">
                   <div class="result-path-copy">
                     <span>latest-log.txt</span>
                     <p id="crawl-result-latest-log" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-latest-log" class="inline-button" type="button" disabled>打开</button>
                 </div>
                 <div class="result-path-row">
                   <div class="result-path-copy">
                     <span>复盘报告</span>
                     <p id="crawl-result-report" class="ops-path">尚未生成</p>
                   </div>
-                  <button id="crawl-result-open-report" class="inline-button" type="button" disabled>打开</button>
                 </div>
               </div>
             </article>
@@ -306,8 +300,7 @@
                   <span id="unfinished-total" class="state-card-count">0</span>
                 </div>
                 <div id="unfinished-items" class="state-card-body">
-                  <span class="state-chip chip-pending">ABP-123</span>
-                  <span class="state-chip chip-pending">SSIS-456</span>
+                  <span class="task-empty-chip">当前没有已定位未完成番号。</span>
                 </div>
               </div>
               <div id="current-box" class="state-card">
@@ -316,7 +309,7 @@
                   <span id="current-total" class="state-card-count" style="background:rgba(52,211,153,0.12);color:var(--accent-success);">0</span>
                 </div>
                 <div id="current-items" class="state-card-body">
-                  <span class="state-chip chip-done">IPX-789</span>
+                  <span class="task-empty-chip">当前没有执行的番号。</span>
                 </div>
               </div>
               <div id="failed-box" class="state-card">
@@ -325,7 +318,7 @@
                   <span id="failed-total" class="state-card-count" style="background:rgba(255,110,157,0.12);color:var(--accent-danger);">0</span>
                 </div>
                 <div id="failed-items" class="state-card-body">
-                  <span class="state-chip chip-missing">MIAA-001</span>
+                  <span class="task-empty-chip">当前没有失败详情页。</span>
                 </div>
                 <div id="duplicate-box" class="failed-subsection hidden">
                   <p class="message-label message-label-row">

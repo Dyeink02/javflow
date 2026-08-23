@@ -144,6 +144,40 @@ func (s *Store) Load() (map[string]any, error) {
 	return cloneMap(defaults), nil
 }
 
+// Mutate applies one settings update while holding the same lock that guards
+// disk persistence. Bridge commands use this instead of a separate Load then
+// Save sequence so concurrent workspace updates cannot overwrite each other.
+func (s *Store) Mutate(mutator func(map[string]any)) (map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current := s.defaultSettings()
+	filePath := s.settingsPath()
+	if contents, err := os.ReadFile(filePath); err == nil {
+		loaded := map[string]any{}
+		if json.Unmarshal(contents, &loaded) == nil {
+			for key, value := range loaded {
+				current[key] = value
+			}
+		}
+	}
+
+	if mutator != nil {
+		mutator(current)
+	}
+	delete(current, "resumeExisting")
+	delete(current, "exportCoverImages")
+
+	payload, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := common.WriteFileAtomic(filePath, payload, 0o644); err != nil {
+		return nil, err
+	}
+	return cloneMap(current), nil
+}
+
 // Save merges the incoming partial update onto the current settings snapshot and
 // writes one canonical desktop-settings.json file.
 func (s *Store) Save(next map[string]any) error {

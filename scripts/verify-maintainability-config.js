@@ -65,6 +65,7 @@ const RENDERER_ASSEMBLY_SNIPPETS = [
   'crawlRuntimeControllerFactory.createCrawlRuntimeController(',
   'rendererBootstrapControllerFactory.createRendererBootstrapController(',
   'heroBorderFlowControllerFactory.createHeroBorderFlowController(',
+  'appUpdateControllerFactory.createAppUpdateController(',
   'libraryMetadataControllerFactory.createLibraryMetadataController('
 ];
 const ORGANIZER_CONTROLLER_ASSEMBLY_SNIPPETS = [
@@ -198,6 +199,7 @@ function createControllerDomOwnershipGuardDefinitions() {
       'desktop/renderer/organizerCrawlOutputController.js',
       'desktop/renderer/subscriptionController.js',
       'desktop/renderer/rendererBootstrapController.js',
+      'desktop/renderer/appUpdateController.js',
       'desktop/renderer/crawlRuntimeController.js'
     ],
     forbiddenPatterns: [
@@ -241,6 +243,7 @@ function createFrontendDependencyOrderRules() {
     ['renderer/rendererElementDomains.js', 'renderer/rendererElements.js'],
     ['renderer/rendererElements.js', 'renderer/renderer.js'],
     ['renderer/rendererShellView.js', 'renderer/rendererShellController.js'],
+    ['renderer/appUpdateController.js', 'renderer/renderer.js'],
     ['common/rendererHelpers.js', 'renderer/organizerController.js'],
     ['common/rendererHelpers.js', 'renderer/subscriptionController.js'],
     ['common/rendererHelpers.js', 'renderer/rankingController.js'],
@@ -796,7 +799,10 @@ function createBridgeCommandOwnershipDefinition() {
       ['app:get-settings', 'runtimeBootstrap', 'case "app:get-settings":'],
       ['app:get-log-context', 'runtimeBootstrap', 'case "app:get-log-context":'],
       ['app:get-integration-context', 'runtimeBootstrap', 'case "app:get-integration-context":'],
-      ['app:validate-proxy', 'runtimeBootstrap', 'case "app:validate-proxy":']
+      ['app:validate-proxy', 'runtimeBootstrap', 'case "app:validate-proxy":'],
+      ['app:check-app-update', 'runtimeBootstrap', 'case "app:check-app-update":'],
+      ['app:download-app-update', 'runtimeBootstrap', 'case "app:download-app-update":'],
+      ['app:apply-app-update', 'runtimeBootstrap', 'case "app:apply-app-update":']
     ]
   };
 }
@@ -1144,6 +1150,7 @@ function createLegacyBoundaryMarkers(rootDir) {
   const rendererBoundaryEntries = [
     ['uiText.js', 'Renderer fallback text bootstrap for the current desktop UI.'],
     ['rendererShellController.js', 'Text ownership rule:'],
+    ['appUpdateController.js', 'Renderer controller for the portable JavFlow update affordance.'],
     ['subscriptionController.js', 'Subscription controller manages lightweight crawl seeds plus refresh results.'],
     ['index.template.html', 'Active desktop HTML template shell.'],
     ['renderer.js', 'Main renderer bootstrap for the current desktop UI.'],

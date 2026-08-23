@@ -483,6 +483,11 @@ func sortSubscriptions(items []Subscription) {
 }
 
 func normalizeSubscription(item Subscription, now string) Subscription {
+	// Older V2 records may have only counts (no per-film code arrays). Preserve
+	// those values during lazy normalization so opening the newer subscription
+	// page never makes an existing baseline or pending badge appear as zero.
+	persistedBaselineCount := maxInt(0, item.BaselineCount)
+	persistedPendingCount := maxInt(0, item.PendingCount)
 	item.ID = strings.TrimSpace(item.ID)
 	item.ActressName = strings.TrimSpace(item.ActressName)
 	item.CrawlURL = strings.TrimSpace(item.CrawlURL)
@@ -490,22 +495,27 @@ func normalizeSubscription(item Subscription, now string) Subscription {
 	item.SourceType = normalizeSourceType(item.SourceType)
 	item.BaselineCodes = normalizeCodes(item.BaselineCodes)
 	item.PendingCodes = normalizeCodes(item.PendingCodes)
-	item.BaselineCount = len(item.BaselineCodes)
+	if len(item.BaselineCodes) > 0 {
+		item.BaselineCount = len(item.BaselineCodes)
+	} else {
+		item.BaselineCount = persistedBaselineCount
+	}
 	item.PendingCodes = diffCodes(item.PendingCodes, item.BaselineCodes)
-	item.PendingCount = len(item.PendingCodes)
+	if len(item.PendingCodes) > 0 {
+		item.PendingCount = len(item.PendingCodes)
+	} else {
+		item.PendingCount = persistedPendingCount
+	}
 	item.ActressCountFilterThreshold = maxInt(0, item.ActressCountFilterThreshold)
 	item.ItemsPerPage = maxInt(defaultItemsPerPage, item.ItemsPerPage)
-	if item.SourceType == sourceTypeCrawlImport {
-		if item.CurrentObservedCount < item.BaselineCount {
-			item.CurrentObservedCount = item.BaselineCount
-		}
-		if item.CurrentObservedCount < item.BaselineCount+item.PendingCount {
-			item.CurrentObservedCount = item.BaselineCount + item.PendingCount
-		}
-	} else {
-		if item.ManualDeclaredTotal > 0 && item.CurrentObservedCount < item.ManualDeclaredTotal {
-			item.CurrentObservedCount = item.ManualDeclaredTotal
-		}
+	if item.CurrentObservedCount < item.BaselineCount {
+		item.CurrentObservedCount = item.BaselineCount
+	}
+	if item.CurrentObservedCount < item.BaselineCount+item.PendingCount {
+		item.CurrentObservedCount = item.BaselineCount + item.PendingCount
+	}
+	if item.ManualDeclaredTotal > 0 && item.CurrentObservedCount < item.ManualDeclaredTotal {
+		item.CurrentObservedCount = item.ManualDeclaredTotal
 	}
 	if item.CurrentTotal <= 0 {
 		if item.CurrentObservedCount > 0 {

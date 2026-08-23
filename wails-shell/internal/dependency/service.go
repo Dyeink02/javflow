@@ -405,7 +405,7 @@ func (s *Service) resolveLatestONNXDownloadURL(ctx context.Context) (string, str
 	if err != nil {
 		return "", "", err
 	}
-	request.Header.Set("User-Agent", "JavFlow/0.4.32")
+	request.Header.Set("User-Agent", "JavFlow/0.4.4")
 	request.Header.Set("Accept", "application/vnd.github+json")
 
 	response, err := s.client.Do(request)
@@ -440,7 +440,7 @@ func (s *Service) downloadToFile(ctx context.Context, sourceURL string, targetPa
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "JavFlow/0.4.32")
+	request.Header.Set("User-Agent", "JavFlow/0.4.4")
 
 	response, err := s.client.Do(request)
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"javflow/internal/actresslookup"
 	"javflow/internal/contracts/subscriptiontarget"
 )
 
@@ -193,7 +194,7 @@ func actressAtlasRemoteCoverURL(work subscriptiontarget.ActressWork) string {
 
 func isAllowedActressAtlasWork(work subscriptiontarget.ActressWork) bool {
 	workURL, err := url.Parse(strings.TrimSpace(work.URL))
-	if err != nil || workURL.Scheme != "https" || !isJAVBusHost(workURL.Hostname()) {
+	if err != nil || workURL.Scheme != "https" || !actresslookup.IsAllowedActressLookupHost(workURL.Hostname()) {
 		return false
 	}
 	coverURL, err := url.Parse(actressAtlasRemoteCoverURL(work))
@@ -203,14 +204,9 @@ func isAllowedActressAtlasWork(work subscriptiontarget.ActressWork) bool {
 	return true
 }
 
-func isJAVBusHost(host string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	return host == "javbus.com" || host == "www.javbus.com" || strings.HasSuffix(host, ".javbus.com")
-}
-
 func isAllowedActressAtlasCoverHost(host string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
-	return isJAVBusHost(host) || host == "pics.dmm.co.jp" || strings.HasSuffix(host, ".dmm.co.jp")
+	return actresslookup.IsAllowedActressLookupHost(host) || host == "pics.dmm.co.jp" || strings.HasSuffix(host, ".dmm.co.jp")
 }
 
 // A hash-based stem lets every work page coexist in the actor cache. The old

@@ -85,10 +85,12 @@
       completed: ''
     };
 
-    // 当抓取结束时，过滤/已完成面板应保留最后一次非空数据，而不是被清空为 0。
+    // 当抓取结束时，各复盘面板应保留最后一次非空数据，而不是被清空为 0。
     let preserveOnEmpty = false;
     let hasRenderedNonEmptyFiltered = false;
     let hasRenderedNonEmptyCompleted = false;
+    let hasRenderedNonEmptyFailed = false;
+    let hasRenderedNonEmptyDuplicate = false;
 
     function translateFailureCategory(category) {
       return failureCategoryLabels[String(category || '').toLowerCase()] || failureCategoryLabels.unknown || '未知异常';
@@ -111,8 +113,9 @@
       currentTotalView.textContent = String(safeTotal);
 
       if (visibleItems.length === 0) {
-        currentBox.classList.add('hidden');
-        replaceChildren(currentItemsView, []);
+        // 待机/刚打开软件时卡片保持可见并显示空态文案，而不是整卡隐藏。
+        currentBox.classList.remove('hidden');
+        replaceChildren(currentItemsView, [createEmptyChip(emptyTexts.active || '当前没有执行的番号。')]);
         return;
       }
 
@@ -162,6 +165,13 @@
 
       lastRenderSignature.duplicate = signature;
       if (!duplicateBox || !duplicateItemsView || !duplicateTotalView) {
+        return;
+      }
+
+      if (visibleItems.length > 0) {
+        hasRenderedNonEmptyDuplicate = true;
+      } else if (preserveOnEmpty && hasRenderedNonEmptyDuplicate) {
+        // 抓取结束时保留最后一次非空重复数据，避免子面板被收起清空。
         return;
       }
 
@@ -288,8 +298,12 @@
       if (!preserveOnEmpty) {
         lastRenderSignature.filtered = '';
         lastRenderSignature.completed = '';
+        lastRenderSignature.failed = '';
+        lastRenderSignature.duplicate = '';
         hasRenderedNonEmptyFiltered = false;
         hasRenderedNonEmptyCompleted = false;
+        hasRenderedNonEmptyFailed = false;
+        hasRenderedNonEmptyDuplicate = false;
       }
     }
 
@@ -312,6 +326,14 @@
       ].join('##');
 
       if (failedSignature === lastRenderSignature.failed) {
+        return;
+      }
+
+      if (visibleItems.length > 0 || safeTotal > 0) {
+        hasRenderedNonEmptyFailed = true;
+      } else if (preserveOnEmpty && hasRenderedNonEmptyFailed) {
+        // 抓取结束时保留最后一次非空失败数据：终态事件可能不携带失败明细，
+        // 不能让运行期正常显示的“失败与重复”在结束后被清空。
         return;
       }
 

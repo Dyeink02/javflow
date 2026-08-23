@@ -341,8 +341,9 @@ select:focus {
 }
 
 @keyframes progressFlow {
-  0% { background-position: 0% 0; }
-  100% { background-position: 200% 0; }
+  /* 从 200% 到 0%：让渐变图案随时间向右移动，视觉上从左往右流动。 */
+  0% { background-position: 200% 0; }
+  100% { background-position: 0% 0; }
 }
 
 /* 进度条发光 */

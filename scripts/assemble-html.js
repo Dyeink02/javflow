@@ -19,6 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
+  repoRoot,
   rendererDir,
   rendererGeneratedDir,
   rendererPartialsDir,
@@ -32,6 +33,17 @@ function ensureDirectory(targetPath) {
 function writeUtf8WithBom(filePath, content) {
   const utf8Bom = Buffer.from([0xef, 0xbb, 0xbf]);
   fs.writeFileSync(filePath, Buffer.concat([utf8Bom, Buffer.from(content, 'utf8')]));
+}
+
+function readBuildVersion() {
+  const packagePath = path.join(repoRoot, 'package.json');
+  const packageInfo = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  const packageVersion = String(packageInfo.version || '').trim();
+  const requestedVersion = String(process.env.JAVFLOW_BUILD_VERSION || packageVersion).trim();
+  if (!/^\d+\.\d+\.\d+$/.test(requestedVersion)) {
+    throw new Error(`JAVFLOW_BUILD_VERSION is invalid: ${requestedVersion || '(empty)'}`);
+  }
+  return requestedVersion;
 }
 
 function readPartial(name) {
@@ -57,6 +69,12 @@ const parts = {
 
 const templatePath = path.join(rendererDir, 'index.template.html');
 let html = fs.readFileSync(templatePath, 'utf-8');
+
+const buildVersion = readBuildVersion();
+if (!html.includes('__JAVFLOW_BUILD_VERSION_VALUE__')) {
+  throw new Error('index.template.html is missing the build-version value placeholder');
+}
+html = html.replaceAll('__JAVFLOW_BUILD_VERSION_VALUE__', JSON.stringify(buildVersion));
 
 for (const [placeholder, content] of Object.entries(parts)) {
   if (!html.includes(placeholder)) {

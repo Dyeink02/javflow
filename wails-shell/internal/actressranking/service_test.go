@@ -453,3 +453,12 @@ func TestSmartMonthlyAvailabilityMergesRealSourcePeriods(t *testing.T) {
 		t.Fatalf("unexpected merged months: %#v", months)
 	}
 }
+
+func TestOfficialMonthlyPageURLFollowsVerifiedPagination(t *testing.T) {
+	if got := officialMonthlyPageURL(1); got != officialMonthlyURL {
+		t.Fatalf("page 1 should stay on the base URL, got %s", got)
+	}
+	if got := officialMonthlyPageURL(3); got != "https://www.dmm.co.jp/mono/dvd/-/ranking/=/mode=actress/term=monthly/page=3/" {
+		t.Fatalf("unexpected page URL: %s", got)
+	}
+}

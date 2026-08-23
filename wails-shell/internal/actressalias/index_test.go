@@ -1,6 +1,7 @@
 package actressalias
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -112,6 +113,34 @@ func TestRememberPersistsOnlyUserRecords(t *testing.T) {
 	reloaded := New(dir).Resolve("测试别称")
 	if !reloaded.Unique || reloaded.Canonical != "测试演员" {
 		t.Fatalf("cache did not reload: %+v", reloaded)
+	}
+}
+
+func TestRememberDoesNotCopyBundledAliasesIntoUserCache(t *testing.T) {
+	dir := t.TempDir()
+	index := New(dir)
+	if err := index.Remember(Record{
+		Canonical:  "三上悠亜",
+		Aliases:    []string{"三上悠亚", "三上悠亚新别名"},
+		Source:     "provider",
+		Confidence: "verified",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(dir, "actress-aliases.user.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []Record
+	if err := json.Unmarshal(payload, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one user-only record, got %#v", records)
+	}
+	if len(records[0].Aliases) != 1 || records[0].Aliases[0] != "三上悠亚新别名" {
+		t.Fatalf("bundled aliases leaked into user cache: %#v", records[0])
 	}
 }
 

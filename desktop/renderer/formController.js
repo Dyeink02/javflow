@@ -606,7 +606,7 @@
         actressCountFilterThreshold: normalizeNonNegativeInteger(getElementValue(elements.actressCountFilterThreshold), 0),
         filmCodeFilterThreshold: getElementValue(elements.filmCodeFilterThreshold).trim(),
         taskTemplate: getElementValue(elements.taskTemplate),
-        cloudflare: getElementChecked(elements.cloudflare),
+        cloudflare: getElementChecked(elements.cloudflare, true),
         secondValidation: getElementChecked(elements.secondValidation),
         nomag: getElementChecked(elements.nomag),
         allmag: getElementChecked(elements.allmag),
@@ -701,6 +701,22 @@
       return settings;
     }
 
+    async function refreshAntiBlockBeforeCrawl(settings) {
+      try {
+        appendFormLog('info', UI_TEXT.messages.antiBlockUpdating);
+        const result = await desktopApi.updateAntiBlock(settings);
+        const count = Array.isArray(result && result.antiBlockUrls) ? result.antiBlockUrls.length : 0;
+        appendFormLog(
+          'info',
+          `${UI_TEXT.messages.antiBlockUpdatedPrefix}${count}${UI_TEXT.messages.antiBlockUpdatedSuffix}${(result && result.filePath) || '已保存到默认位置'}`
+        );
+      } catch (error) {
+        // Refresh failure should keep the saved fallback addresses available so
+        // the requested crawl can still start when the network is unstable.
+        appendFormLog('warn', `${UI_TEXT.messages.antiBlockUpdateFailedPrefix}${getErrorMessage(error)}`);
+      }
+    }
+
     async function prepareCrawlWithAntiBlock() {
       const settings = await prepareCrawlSettings();
       // Starting an update crawl should always take the recovery path first:
@@ -713,17 +729,7 @@
         persistCrawlerDraft();
       }
 
-      try {
-        appendFormLog('info', UI_TEXT.messages.antiBlockUpdating);
-        const result = await desktopApi.updateAntiBlock(settings);
-        appendFormLog(
-          'info',
-          `${UI_TEXT.messages.antiBlockUpdatedPrefix}${result.antiBlockUrls.length}${UI_TEXT.messages.antiBlockUpdatedSuffix}${result.filePath}`
-        );
-      } catch (error) {
-        appendFormLog('warn', `${UI_TEXT.messages.antiBlockUpdateFailedPrefix}${getErrorMessage(error)}`);
-      }
-
+      await refreshAntiBlockBeforeCrawl(settings);
       return settings;
     }
 
@@ -754,6 +760,7 @@
       validateSettings(settings);
       settings.magnetExcludeKeywords = await ensureMagnetExcludeKeywordsReady(settings.magnetExcludeKeywords);
       await ensureProxyReady(settings.proxy);
+      await refreshAntiBlockBeforeCrawl(settings);
       return settings;
     }
 
@@ -852,30 +859,6 @@
         pendingActressLookupPrefill = null;
         applyActressLookupResultNow(prefill.result, prefill.options);
       }
-    }
-
-    function bindResultPathButton(button, successPrefix) {
-      if (!button) {
-        return;
-      }
-
-      bindAsyncClick(
-        button,
-        async () => {
-          const targetPath = String(button.dataset.targetPath || '').trim();
-          if (!targetPath) {
-            return;
-          }
-
-          const opened = await desktopApi.openPath(targetPath);
-          if (opened) {
-            appendFormLog('info', `${successPrefix}${opened}`);
-          }
-        },
-        (error) => {
-          appendFormLog('warn', getErrorMessage(error));
-        }
-      );
     }
 
     function appendFormLog(level, message, timestamp = new Date().toISOString()) {
@@ -1091,26 +1074,6 @@
         appendFormLog('info', UI_TEXT.messages.backgroundReset);
       });
 
-      bindAsyncClick(elements.openOutputButton, async () => {
-        const opened = await desktopApi.openOutputDir(elements.output.value.trim());
-        if (opened) {
-          appendFormLog('info', `${UI_TEXT.messages.outputOpenedPrefix}${opened}`);
-        }
-      });
-
-      bindAsyncClick(
-        elements.openMagnetFileButton,
-        async () => {
-          const opened = await desktopApi.openMagnetFile(elements.output.value.trim());
-          if (opened) {
-            appendFormLog('info', `${UI_TEXT.messages.magnetOpenedPrefix}${opened}`);
-          }
-        },
-        (error) => {
-          appendFormLog('warn', getErrorMessage(error));
-        }
-      );
-
       bindAsyncClick(elements.openLogFolderButton, async () => {
         const opened = await desktopApi.openLogFolder();
         if (opened) {
@@ -1138,22 +1101,6 @@
         }
       );
 
-      bindResultPathButton(elements.crawlResultOpenOutputButton, '已打开抓取输出目录：');
-      bindResultPathButton(elements.crawlResultOpenFilmDataButton, '已打开 filmData.json：');
-      bindResultPathButton(elements.crawlResultOpenMagnetButton, '已打开磁力文档：');
-      bindResultPathButton(elements.crawlResultOpenLogDirButton, '已打开日志目录：');
-      bindResultPathButton(elements.crawlResultOpenLatestLogButton, '已打开 latest-log.txt：');
-      bindResultPathButton(elements.crawlResultOpenReportButton, '已打开复盘报告：');
-
-      bindAsyncClick(elements.updateAntiBlockButton, async () => {
-        const settings = getSettings();
-        appendFormLog('info', UI_TEXT.messages.antiBlockUpdating);
-        const result = await desktopApi.updateAntiBlock(settings);
-        appendFormLog(
-          'info',
-          `${UI_TEXT.messages.antiBlockUpdatedPrefix}${result.antiBlockUrls.length}${UI_TEXT.messages.antiBlockUpdatedSuffix}${result.filePath}`
-        );
-      });
 
       elements.clearLogButton.addEventListener('click', () => {
         logController.clearLogView();
@@ -1190,7 +1137,7 @@
         elements.parallel.value = String(initialSettings.parallel || TASK_TEMPLATES.balanced.parallel);
         elements.delay.value = String(initialSettings.delay || TASK_TEMPLATES.balanced.delay);
         elements.timeout.value = String(initialSettings.timeout || TASK_TEMPLATES.balanced.timeout);
-        elements.cloudflare.checked = Boolean(initialSettings.cloudflare);
+        elements.cloudflare.checked = Boolean(initialSettings.cloudflare ?? true);
         elements.secondValidation.checked = Boolean(initialSettings.secondValidation);
       }
 

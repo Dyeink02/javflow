@@ -85,7 +85,6 @@ var messages = struct {
 	LocalCacheMissing             string
 	RequestedMonthFallbackToCache string
 	SmartOfficialNotice           string
-	AVFanDirectRetryNotice        string
 	LocalMonthlyMissing           func(string) string
 	LocalAnnualMissing            func(int) string
 	FallbackTo                    func(string) string
@@ -95,7 +94,6 @@ var messages = struct {
 	LocalCacheMissing:             "本地历史暂无可用榜单缓存，请先成功抓取一次在线榜单。",
 	RequestedMonthFallbackToCache: "所选月份暂时无稳定在线源，已回退到本地缓存。",
 	SmartOfficialNotice:           "智能模式将优先使用官方当前月榜，不可用时自动回退。",
-	AVFanDirectRetryNotice:        "检测到当前代理无法访问 AVfan，已自动切换为直连模式继续获取榜单。",
 	LocalMonthlyMissing: func(key string) string {
 		return fmt.Sprintf("本地历史暂无 %s 的月榜缓存。", strings.TrimSpace(key))
 	},
@@ -1032,19 +1030,6 @@ func parseOfficialAnnualAvailableYears(root *html.Node) []int {
 func (s *Service) fetchLatestAVFanMonthlyRanking(proxyValue string) (Result, string, error) {
 	htmlSource, sourceURL, pageTitle, err := s.browser.fetchAVFanHTML(avfanMonthlyURL, proxyValue)
 	if err != nil {
-		if strings.TrimSpace(proxyValue) != "" && isBrowserProxyError(err) {
-			htmlSource, sourceURL, pageTitle, err = s.browser.fetchAVFanHTML(avfanMonthlyURL, "")
-			if err == nil {
-				if isAVFanVerificationPage(htmlSource, pageTitle) {
-					return Result{}, "", createRankingError("AVfan 当前返回 Cloudflare 验证页，未获得真实榜单。", "avfan_verification_required")
-				}
-				result, parseErr := parseAVFanRankingHTML(htmlSource, "monthly", sourceURL, 0)
-				if parseErr != nil {
-					return Result{}, "", parseErr
-				}
-				return result, messages.AVFanDirectRetryNotice, nil
-			}
-		}
 		return Result{}, "", err
 	}
 	if isAVFanVerificationPage(htmlSource, pageTitle) {
@@ -1063,15 +1048,7 @@ func (s *Service) fetchAVFanAnnualRanking(year int, proxyValue string) (Result, 
 	htmlSource, _, pageTitle, err := s.browser.fetchAVFanHTML(landingURL, proxyValue)
 	notice := ""
 	if err != nil {
-		if strings.TrimSpace(proxyValue) != "" && isBrowserProxyError(err) {
-			htmlSource, _, pageTitle, err = s.browser.fetchAVFanHTML(landingURL, "")
-			if err == nil {
-				notice = messages.AVFanDirectRetryNotice
-			}
-		}
-		if err != nil {
-			return Result{}, "", err
-		}
+		return Result{}, "", err
 	}
 	if isAVFanVerificationPage(htmlSource, pageTitle) {
 		return Result{}, notice, createRankingError("AVfan 当前返回 Cloudflare 验证页，未获得真实年榜。", "avfan_verification_required")
@@ -1139,8 +1116,18 @@ func (s *Service) fetchAVFanAnnualRanking(year int, proxyValue string) (Result, 
 	return Result{}, notice, createRankingError("未找到可用的 AVfan 年榜年份。", "avfan_annual_year_missing")
 }
 
+// officialMonthlyPageURL builds the DMM/FANZA monthly actress-ranking page
+// URL. The 100-position monthly ranking is split into five pages of 20 rows,
+// using the same page=N segment as the verified rental-annual pagination.
+func officialMonthlyPageURL(page int) string {
+	if page <= 1 {
+		return officialMonthlyURL
+	}
+	return fmt.Sprintf("https://www.dmm.co.jp/mono/dvd/-/ranking/=/mode=actress/term=monthly/page=%d/", page)
+}
+
 func (s *Service) fetchOfficialMonthlyRanking(proxyValue string, requestedChannel string) (Result, error) {
-	htmlSource, pageURL, title, err := s.browser.fetchOfficialMonthlyHTML(proxyValue)
+	htmlSource, pageURL, title, err := s.browser.fetchOfficialRankingHTML(officialMonthlyPageURL(1), proxyValue)
 	if err != nil {
 		return Result{}, createRankingError("官方榜单暂时不可用，请确认日本地区代理 / VPN 和网络连接状态。", "official_unavailable")
 	}
@@ -1151,7 +1138,56 @@ func (s *Service) fetchOfficialMonthlyRanking(proxyValue string, requestedChanne
 	if isAgeCheckPage(pageURL, htmlSource, title) {
 		return Result{}, createRankingError("当前线路未通过 DMM/FANZA 年龄验证，请确认已开启日本地区代理或 VPN。", "official_age_check_required")
 	}
-	return parseOfficialMonthlyRankingHTML(htmlSource, requestedChannel)
+
+	first, err := parseOfficialMonthlyRankingHTML(htmlSource, requestedChannel)
+	if err != nil {
+		return Result{}, err
+	}
+
+	// 月榜同样是 100 位分 5 页。第一页成功后继续取 21~100 位并按名次合并；
+	// 与租赁年榜一致，解析不足 100 位时按不完整榜单拒绝，避免把 Top 20
+	// 当作完整月榜写入缓存误导界面。
+	itemsByRank := map[int]RankingItem{}
+	for _, item := range first.Items {
+		itemsByRank[item.Rank] = item
+	}
+	for page := 2; page <= 5; page++ {
+		pageHTML, pageLocation, pageTitle, pageErr := s.browser.fetchOfficialRankingHTML(officialMonthlyPageURL(page), proxyValue)
+		if pageErr != nil {
+			return Result{}, createRankingError("官方榜单暂时不可用，请确认日本地区代理 / VPN 和网络连接状态。", "official_unavailable")
+		}
+		if strings.Contains(pageLocation, "not-available-in-your-region") {
+			return Result{}, createRankingError("当前线路被 DMM/FANZA 限制，请确认已开启日本地区代理或 VPN。", "official_region_blocked")
+		}
+		if isAgeCheckPage(pageLocation, pageHTML, pageTitle) {
+			return Result{}, createRankingError("当前线路未通过 DMM/FANZA 年龄验证，请确认已开启日本地区代理或 VPN。", "official_age_check_required")
+		}
+
+		parsed, parseErr := parseOfficialRankingHTML(pageHTML, requestedChannel, "monthly", officialMonthlyPageURL(page), first.PeriodYear, first.PeriodMonth)
+		if parseErr != nil {
+			return Result{}, parseErr
+		}
+		for _, item := range parsed.Items {
+			itemsByRank[item.Rank] = item
+		}
+	}
+
+	items := make([]RankingItem, 0, len(itemsByRank))
+	for _, item := range itemsByRank {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(left int, right int) bool {
+		return items[left].Rank < items[right].Rank
+	})
+	if len(items) != 100 {
+		return Result{}, createRankingError(fmt.Sprintf("官方月榜仅解析到 %d/100 位，未保存不完整榜单。", len(items)), "official_monthly_incomplete")
+	}
+
+	first.SourceURL = officialMonthlyPageURL(1)
+	first.Total = len(items)
+	first.Items = items
+	first.FetchedAt = time.Now().Format(time.RFC3339)
+	return first, nil
 }
 
 func officialRentalAnnualPageURL(year int, page int) string {
