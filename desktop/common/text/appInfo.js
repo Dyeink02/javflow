@@ -12,13 +12,15 @@
 // 2) shared output/log filename defaults
 // 3) exported app-info payload registry
 (function registerDesktopAppInfo(globalScope) {
-  const APP_VERSION = '0.4.32';
+  const APP_VERSION = '0.4.4';
+  const injectedVersion = String(globalScope.__JAVFLOW_BUILD_VERSION__ || '').trim();
+  const runtimeVersion = /^\d+\.\d+\.\d+$/.test(injectedVersion) ? injectedVersion : APP_VERSION;
   const APP_TITLE = 'JavFlow';
   const DEFAULT_BASE_URL = 'https://www.javbus.com';
 
   const APP_INFO = {
     title: APP_TITLE,
-    version: APP_VERSION,
+    version: runtimeVersion,
     subtitle: '基于开源项目：raawaa',
     eyebrow: 'Windows EXE',
     defaultBaseUrl: DEFAULT_BASE_URL,

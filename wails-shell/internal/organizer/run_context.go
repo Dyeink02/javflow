@@ -33,30 +33,65 @@ const organizerFinalizeUnits = 4
 // mutable summary. The phase files operate on this shared context so bugs can
 // be isolated by phase without re-threading a large parameter list.
 type organizerRunContext struct {
-	options                RunOptions
-	preloadedExpected      PreloadedExpectedCodes
-	normalizedRootPath     string
-	dryRun                 bool
-	minSizeMB              int
-	minSizeBytes           int64
-	adFileAction           string
-	batchDelete            bool // 是否启用批量删除模式
-	deleteIntervalMs       int  // 删除间隔（毫秒）
-	organizeIntervalMs     int  // 整理间隔（毫秒）
-	adDetectionEnabled     bool
-	adModelType            string
-	adThreshold            int
-	videoExtensionSet      map[string]struct{}
-	videoExtensionsText    string
-	suffixStrategy         conflictSuffixStrategy
-	paths                  Paths
-	logf                   func(string, string)
-	progressf              func(ProgressEntry)
-	codeSet                map[string]struct{}
-	tokenSet               map[string]struct{}
+	options              RunOptions
+	preloadedExpected    PreloadedExpectedCodes
+	normalizedRootPath   string
+	dryRun               bool
+	minSizeMB            int
+	minSizeBytes         int64
+	adFileAction         string
+	batchDelete          bool // 是否启用批量删除模式
+	deleteIntervalMs     int  // 删除间隔（毫秒）
+	organizeIntervalMs   int  // 整理间隔（毫秒）
+	lastDeleteOpAt       time.Time
+	lastOrganizeOpAt     time.Time
+	adDetectionEnabled   bool
+	adModelType          string
+	adThreshold          int
+	videoExtensionSet    map[string]struct{}
+	videoExtensionsText  string
+	suffixStrategy       conflictSuffixStrategy
+	paths                Paths
+	logf                 func(string, string)
+	progressf            func(ProgressEntry)
+	codeSet              map[string]struct{}
+	tokenSet             map[string]struct{}
 	expectedCodeAliasIndex expectedCodeAliasIndex
 	expectedCodeEntryMap   map[string][]MagnetEntry
-	summary                Summary
+	summary              Summary
+}
+
+// throttleFileOp spaces out per-item file operations with the user-configured
+// interval so cloud-drive mounts do not see one dense request burst. The
+// batch-delete path deliberately skips throttling (checked batch = delete in
+// bulk as fast as possible). Organizer phases run on one goroutine, so no
+// locking is needed. Returns nothing; callers should invoke it immediately
+// before the filesystem mutation, inside heartbeat closures when available so
+// progress keeps flowing while waiting.
+func (ctx *organizerRunContext) throttleFileOp(lastOpAt *time.Time, intervalMs int) {
+	if ctx.dryRun || intervalMs <= 0 {
+		return
+	}
+	now := time.Now()
+	if !lastOpAt.IsZero() {
+		if wait := time.Duration(intervalMs)*time.Millisecond - now.Sub(*lastOpAt); wait > 0 {
+			time.Sleep(wait)
+		}
+	}
+	*lastOpAt = time.Now()
+}
+
+// waitDeleteInterval throttles destructive operations (per-file or
+// per-directory removal) with the configured delete interval.
+func (ctx *organizerRunContext) waitDeleteInterval() {
+	ctx.throttleFileOp(&ctx.lastDeleteOpAt, ctx.deleteIntervalMs)
+}
+
+// waitOrganizeInterval throttles move/rename operations (waiting-area and
+// unmatched transfers, move-to-delete routing) with the configured organize
+// interval.
+func (ctx *organizerRunContext) waitOrganizeInterval() {
+	ctx.throttleFileOp(&ctx.lastOrganizeOpAt, ctx.organizeIntervalMs)
 }
 
 // scanPhaseResult is the pure classification output that later phases consume

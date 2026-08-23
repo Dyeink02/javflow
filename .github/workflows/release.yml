@@ -48,7 +48,10 @@ jobs:
 
       - name: Build Wails EXE
         working-directory: wails-shell
-        run: wails build
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          wails build -ldflags "-X javflow/internal/appupdate.BuildVersion=$version"
 
       - name: Prepare portable package
         shell: pwsh
@@ -66,6 +69,14 @@ jobs:
           }
           Copy-Item $exeSource "$staging\javflow.exe"
 
+          # Publish the raw portable EXE as a separate asset. The in-app
+          # updater replaces the currently running EXE and therefore cannot
+          # consume the ZIP as its replacement source.
+          $rawExePath = "release-staging\javflow.exe"
+          Copy-Item $exeSource $rawExePath
+          $exeHash = (Get-FileHash $rawExePath -Algorithm SHA256).Hash
+          "$exeHash  javflow.exe" | Out-File -Encoding ascii "release-staging\javflow.exe.sha256"
+
           # Copy frontend assets alongside the EXE so users can inspect or
           # replace them without unpacking the Wails-embedded copy.
           $frontendDir = "wails-shell\frontend\desktop"
@@ -82,6 +93,8 @@ jobs:
           "$hash  $zipName" | Out-File -Encoding ascii "release-staging\$zipName.sha256"
 
           Write-Output "EXE path: $exeSource"
+          Write-Output "Raw EXE: $rawExePath"
+          Write-Output "EXE SHA256: $exeHash"
           Write-Output "ZIP: release-staging\$zipName"
           Write-Output "SHA256: $hash"
 
@@ -89,8 +102,10 @@ jobs:
         uses: softprops/action-gh-release@c062c2e988f29b1b8737d5fbc8be0cf3be7b6dd1  # v2.2.1
         with:
           files: |
+            release-staging/javflow.exe
+            release-staging/javflow.exe.sha256
             release-staging/*.zip
-            release-staging/*.sha256
+            release-staging/*.zip.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

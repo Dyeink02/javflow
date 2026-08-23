@@ -73,6 +73,7 @@
     };
     let eventsBound = false;
     let bootstrapCompleted = false;
+    let bootstrapPromise = null;
     let hydrationPromise = null;
     let subscriptionSearchResolveTimerId = null;
 
@@ -150,7 +151,8 @@
     }
 
     function normalizeCount(value, fallback = 0) {
-      return Math.max(0, toSafeInteger(value, fallback));
+      const parsed = toSafeInteger(value, fallback);
+      return parsed < 0 ? fallback : Math.max(0, parsed);
     }
 
     function normalizeActressFilterThreshold(value) {
@@ -471,6 +473,21 @@
       return resolved;
     }
 
+    function applyGlobalSubscriptionProxy(settings) {
+      const previousGlobalProxy = normalizeText(state.globalProxy);
+      state.globalProxy = normalizeText(settings && settings.proxy);
+      if (elements.subscriptionCrawlerProxy) {
+        const currentValue = normalizeText(elements.subscriptionCrawlerProxy.value);
+        // Preserve an explicit per-module override. Empty values and values
+        // inherited from the previous global setting track the latest crawler
+        // proxy automatically.
+        if (!currentValue || currentValue === previousGlobalProxy) {
+          elements.subscriptionCrawlerProxy.value = state.globalProxy;
+        }
+      }
+      return resolveSubscriptionProxyValue();
+    }
+
     function resolveSubscriptionProxyValue() {
       return normalizeText(elements.subscriptionCrawlerProxy && elements.subscriptionCrawlerProxy.value) || normalizeText(state.globalProxy);
     }
@@ -486,8 +503,7 @@
       }
       try {
         const settings = await desktopApi.getSettings();
-        state.globalProxy = normalizeText(settings && settings.proxy);
-        return applyDefaultSubscriptionProxy();
+        return applyGlobalSubscriptionProxy(settings);
       } catch (error) {
         appendLog('warn', `读取已保存代理失败：${getErrorMessage(error)}`);
         return resolveSubscriptionProxyValue();
@@ -653,10 +669,14 @@
     }
 
     async function ensureSubscriptionProxyReady() {
-      const proxyValue = applyDefaultSubscriptionProxy();
+      const proxyValue = await loadGlobalSubscriptionProxy();
+      if (!proxyValue) {
+        setSubscriptionProxyStatus('empty');
+        return '';
+      }
       const result = await validateSubscriptionProxyValue(proxyValue);
       if (!result || result.status !== 'valid') {
-        throw new Error('当前订阅代理检测失败，请修正后再启动抓取。');
+        throw new Error('当前订阅代理检测失败，请修正后再继续联网操作。');
       }
       return proxyValue;
     }
@@ -764,6 +784,7 @@
     }
 
     async function loadRecentCrawlOptionsFromHistory() {
+      attachSnapshotHistoryManager();
       let snapshotItems = [];
       if (desktopApi && typeof desktopApi.listCrawlCacheSnapshots === 'function') {
         try {
@@ -790,6 +811,35 @@
       }
 
       renderRecentCrawlOptions();
+    }
+
+    // 快照下拉改为带逐条删除按钮的自定义组件；订阅下拉是索引取值，选中走专用映射。
+    function attachSnapshotHistoryManager() {
+      const manager = globalScope.desktopSnapshotHistoryManager;
+      if (!manager || !elements.subscriptionRecentCrawlSelect) {
+        return;
+      }
+      const select = elements.subscriptionRecentCrawlSelect;
+      manager.attach({
+        select,
+        desktopApi: () => desktopApi,
+        reload: loadRecentCrawlOptionsFromHistory,
+        log: appendLog,
+        errorMessage: getErrorMessage,
+        onSelectItem: (item) => {
+          const artifactInput = String(
+            (item && (item.crawlProfilePath || item.filmDataPath || item.outputDir)) || ''
+          ).trim();
+          const options = Array.isArray(state.recentCrawlOptions) ? state.recentCrawlOptions : [];
+          const matchedIndex = options.findIndex(
+            (entry) => String((entry && entry.artifactInput) || '').trim() === artifactInput
+          );
+          if (matchedIndex >= 0) {
+            select.value = String(matchedIndex);
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      });
     }
 
     function renderRecentCrawlOptions() {
@@ -1453,6 +1503,7 @@
         throw new Error(`subscription not found: ${id}`);
       }
 
+      await ensureSubscriptionProxyReady();
       appendLog('info', `开始检测更新：${target.actressName || '未命名订阅'}。`);
       updateSubscriptionState(state.subscriptions.map((item) => item.id === target.id ? { ...item, status: 'running', lastError: '' } : item));
       const payload = buildSubscriptionRuntimePayload({ id: target.id });
@@ -1518,6 +1569,7 @@
         return;
       }
 
+      await ensureSubscriptionProxyReady();
       appendLog('info', `开始批量检测 ${items.length} 条订阅。`);
       updateSubscriptionState(state.subscriptions.map((item) => ({ ...item, status: 'running', lastError: '' })));
       const payload = buildSubscriptionRuntimePayload();
@@ -2458,7 +2510,13 @@
 
     function bootstrap() {
       if (bootstrapCompleted) {
-        return Promise.resolve();
+        if (proxyValidationState.autoValidationStopped) {
+          proxyValidationState.autoValidationStopped = false;
+          void loadGlobalSubscriptionProxy()
+            .then((proxyValue) => validateSubscriptionProxyValue(proxyValue))
+            .then(() => scheduleSubscriptionProxyAutoValidation());
+        }
+        return bootstrapPromise || Promise.resolve();
       }
       bootstrapCompleted = true;
       publishActiveSubscriptionCrawlSession(null);
@@ -2481,17 +2539,20 @@
       setSubscriptionProxyStatus('checking');
       setSummaryMessage('等待检测订阅更新。');
       appendLog('info', 'AV 订阅模块已就绪。');
-      void loadGlobalSubscriptionProxy().then((proxyValue) => validateSubscriptionProxyValue(proxyValue)).then(() => {
-        scheduleSubscriptionProxyAutoValidation();
-      });
+      const proxyInitialization = loadGlobalSubscriptionProxy()
+        .then((proxyValue) => validateSubscriptionProxyValue(proxyValue))
+        .then(() => {
+          scheduleSubscriptionProxyAutoValidation();
+        });
       bindSubcrawlEvents();
       bootstrapPromise = loadRecentCrawlOptionsFromHistory()
         .then(() => loadSubscriptions())
+        .then(() => proxyInitialization)
         .catch((error) => {
           appendLog('error', getErrorMessage(error));
           setSummaryMessage('订阅列表加载失败，请稍后重试。');
         });
-      return Promise.resolve();
+      return bootstrapPromise;
     }
 
     function dispose() {

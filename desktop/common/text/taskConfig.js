@@ -42,7 +42,7 @@
       delay: 2,
       timeout: 30000,
       itemsPerPage: 30,
-      cloudflare: false,
+      cloudflare: true,
       secondValidation: true
     },
     stable: {

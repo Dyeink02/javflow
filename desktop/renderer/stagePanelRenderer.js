@@ -97,8 +97,11 @@
         statusLabels
       );
 
+      const stageProgressPercent = computeStageProgressPercent(panel);
       if (crawlStageProgress) {
-        crawlStageProgress.textContent = String(panel.phaseProgressText || '阶段 1/10').trim();
+        // 与视频整理一致的总进度百分比，直接拼在阶段计数后面。
+        const phaseText = String(panel.phaseProgressText || '阶段 1/10').trim();
+        crawlStageProgress.textContent = `${phaseText} · ${stageProgressPercent}%`;
       }
       if (crawlStageTitle) {
         crawlStageTitle.textContent = String(panel.phaseTitle || '等待开始抓取').trim();
@@ -114,7 +117,6 @@
         crawlStageOutput.title = String(panel.outputDir || '').trim();
       }
 
-      const stageProgressPercent = computeStageProgressPercent(panel);
       if (crawlStageBarFill) {
         crawlStageBarFill.style.width = `${stageProgressPercent}%`;
       }

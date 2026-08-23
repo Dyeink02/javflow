@@ -1,7 +1,7 @@
 {
   "//": "Compatibility note: this package.json remains for Node-side build helpers and sidecar compatibility only. The main desktop app now lives in wails-shell/ (Wails + Go). Node dependencies are retained for compatibility and fallback paths, not as the primary application runtime.",
   "name": "javflow",
-  "version": "0.4.32",
+  "version": "0.4.4",
   "type": "commonjs",
   "description": "JavFlow - JAV media library automation workflow (Wails + Go desktop app)",
   "dependencies": {

@@ -24,6 +24,7 @@
     const {
       shellController,
       heroBorderFlowController,
+      appUpdateController,
       crawlRuntimeController,
       formController,
       actressAtlasController,
@@ -85,6 +86,7 @@
         Promise.resolve().then(() => subscriptionController.bootstrap()),
         Promise.resolve().then(() => organizerController.bootstrap()),
         Promise.resolve().then(() => libraryMetadataController.bootstrap()),
+        Promise.resolve().then(() => appUpdateController && appUpdateController.bootstrap()),
         Promise.resolve().then(() => crawlRuntimeController.bootstrapPanels())
       ]);
     }

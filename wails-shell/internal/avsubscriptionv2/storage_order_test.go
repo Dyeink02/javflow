@@ -75,6 +75,43 @@ func TestListPreservesUnreadableStateInsteadOfTreatingItAsEmpty(t *testing.T) {
 	}
 }
 
+func TestListPreservesLegacyCountOnlySubscription(t *testing.T) {
+	userData := t.TempDir()
+	service := NewService(runtimepaths.Paths{UserData: userData}, nil)
+	storagePath := filepath.Join(userData, storageDirName, storageFileName)
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyPayload := []byte(`[
+  {
+    "id": "legacy-count-only",
+    "actressName": "旧订阅女优",
+    "crawlUrl": "https://www.javbus.com/star/legacy",
+    "sourceType": "crawl-import",
+    "baselineCount": 120,
+    "currentObservedCount": 126,
+    "currentTotal": 126,
+    "pendingCount": 6,
+    "itemsPerPage": 30,
+    "totalPages": 5
+  }
+]`)
+	if err := os.WriteFile(storagePath, legacyPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := service.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one legacy subscription, got %#v", items)
+	}
+	if items[0].BaselineCount != 120 || items[0].CurrentObservedCount != 126 || items[0].PendingCount != 6 {
+		t.Fatalf("legacy count-only subscription was reset: %+v", items[0])
+	}
+}
+
 func TestReorderPersistsAcrossLaterSubscriptionUpdates(t *testing.T) {
 	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
 	created := make([]Subscription, 0, 3)

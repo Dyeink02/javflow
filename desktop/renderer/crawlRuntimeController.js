@@ -98,13 +98,45 @@
       }
     }
 
+    // 质量摘要使用 ok/warning 等分析状态，而生命周期状态使用 completed/
+    // stopped 等运行状态。这里统一成弹窗需要的生命周期状态，避免摘要
+    // 已完成但被误判为“不是完成态”。
+    function normalizeCompletionStatus(status, details = {}) {
+      const normalizedStatus = String(status || '').trim().toLowerCase();
+      if (
+        ['ok', 'success', 'successful'].includes(normalizedStatus) ||
+        (['warning', 'warn'].includes(normalizedStatus) && details.completed === true)
+      ) {
+        return 'completed';
+      }
+      return normalizedStatus;
+    }
+
+    function resolveNotificationIdentity(details = {}) {
+      return String(
+        details.runId ||
+          details.taskId ||
+          details.sessionLogPath ||
+          details.latestLogPath ||
+          details.reportPath ||
+          details.completedAt ||
+          details.outputDir ||
+          details.currentTaskOutputDir ||
+          details.lastTaskOutputDir ||
+          ''
+      ).trim();
+    }
+
     // 抓取完成时通过弹窗强提醒用户，避免只依赖日志/状态 pill 的弱反馈。
     async function notifyCrawlCompletion(status, message, details = {}) {
-      const normalizedStatus = String(status || '').trim().toLowerCase();
+      const normalizedStatus = normalizeCompletionStatus(status, details);
       if (!['completed', 'error', 'stopped', 'incomplete'].includes(normalizedStatus)) {
         return;
       }
-      const signature = `${normalizedStatus}##${String(message || '').trim()}`;
+      const notificationIdentity = resolveNotificationIdentity(details);
+      const signature = notificationIdentity
+        ? `${normalizedStatus}##${notificationIdentity}`
+        : `${normalizedStatus}##${String(message || '').trim()}`;
       if (signature === lastNotificationSignature) {
         return;
       }
@@ -118,30 +150,59 @@
       };
       const title = titleMap[normalizedStatus] || '抓取结束';
       const body = String(message || `${title}，请查看运行日志了解详情。`).trim();
-      const magnetPath = String(
+      let magnetTarget = String(
         (details && details.magnetPath) ||
+          (details && details.preferredMagnetPath) ||
           (details && details.outputDir) ||
+          (details && details.currentTaskOutputDir) ||
+          (details && details.lastTaskOutputDir) ||
           (lastResultPanel && (lastResultPanel.magnetPath || lastResultPanel.outputDir)) ||
           ''
       ).trim();
 
       if (desktopApi && typeof desktopApi.showAlert === 'function') {
         try {
-          const response = await desktopApi.showAlert({
+          await desktopApi.showAlert({
             type: normalizedStatus === 'completed' ? 'success' : 'warning',
             title,
-            message: normalizedStatus === 'completed' && magnetPath ? `${body}\n\n是否打开磁力链接？` : body,
-            buttons: normalizedStatus === 'completed' && magnetPath ? ['打开磁力链接', '否'] : ['知道了']
+            message: body,
+            buttons: ['确定']
           });
-          const selection = String(response && response.selection ? response.selection : '').trim();
-          if (
-            normalizedStatus === 'completed' &&
-            magnetPath &&
-            selection.includes('打开') &&
-            desktopApi &&
-            typeof desktopApi.openMagnetFile === 'function'
-          ) {
-            await desktopApi.openMagnetFile(magnetPath);
+
+          if (normalizedStatus === 'completed' || normalizedStatus === 'incomplete') {
+            // 质量摘要和生命周期事件可能先于结果面板到达。即使此时还没有
+            // 磁力路径，也必须显示询问；打开动作会由 Go 桥接按当前运行目录
+            // 再次解析，不能让路径暂时为空吞掉第二次弹窗。
+            // incomplete（存在失败项/分页缺口的运行）同样已产出磁力文件，
+            // 完成提示后也应询问是否打开，否则真实抓取几乎永远看不到询问。
+            if (!magnetTarget && typeof desktopApi.getCrawlRunContext === 'function') {
+              try {
+                const runContext = await desktopApi.getCrawlRunContext();
+                magnetTarget = String(
+                  (runContext && runContext.preferredMagnetPath) ||
+                    (runContext && runContext.preferredOutputDir) ||
+                    ''
+                ).trim();
+              } catch (_) {
+                // 打开询问仍需显示，路径解析失败交给打开动作统一反馈。
+              }
+            }
+
+            const magnetResponse = await desktopApi.showAlert({
+              type: 'question',
+              title: '打开磁力链接文件',
+              message: '是否打开磁力链接文件？',
+              buttons: ['打开磁力链接文件', '关闭']
+            });
+            const magnetSelection = String(
+              magnetResponse && magnetResponse.selection ? magnetResponse.selection : ''
+            ).trim();
+            if (
+              magnetSelection.includes('打开') &&
+              typeof desktopApi.openMagnetFile === 'function'
+            ) {
+              await desktopApi.openMagnetFile(magnetTarget);
+            }
           }
         } catch (_) {
           // 完成提示失败不能影响抓取结果回收。
@@ -518,7 +579,7 @@
           if (outputDir) {
             autoRefreshWorkspacesOnCrawlCompleted(outputDir);
           }
-          if (summary && summary.status) {
+          if (summary && (summary.status || summary.completed === true)) {
             void notifyCrawlCompletion(summary.status, summary.summaryLine || summary.message, summary);
           }
         }));
@@ -528,6 +589,11 @@
     function consumeLegacyStateFallback(state) {
       // 每次新的抓取运行时重置自动刷新标记，确保同一输出目录的后续完成仍能刷新。
       const currentStatus = String((state && state.status) || '').toLowerCase();
+      if (['starting', 'running'].includes(currentStatus)) {
+        // 同一输出目录可以被重新爬取。新任务开始时清除上一轮通知标记，
+        // 但仍保留同一轮事件源之间的去重能力。
+        lastNotificationSignature = '';
+      }
       if (currentStatus !== 'completed') {
         lastAutoRefreshSignature = '';
       }
@@ -536,7 +602,11 @@
       const terminalStatuses = ['completed', 'error', 'stopped', 'incomplete'];
       const wasRunning = ['starting', 'running'].includes(previousCrawlStatus);
       if (wasRunning && terminalStatuses.includes(currentStatus)) {
-        void notifyCrawlCompletion(currentStatus, state && state.message, lastResultPanel || {});
+        void notifyCrawlCompletion(
+          currentStatus,
+          state && state.message,
+          Object.assign({}, lastResultPanel || {}, state || {})
+        );
       }
       previousCrawlStatus = currentStatus;
 

@@ -33,14 +33,29 @@ function assertAssetDir() {
   }
 }
 
+function readProductVersion() {
+  const packagePath = path.join(repoRoot, 'package.json');
+  const packageInfo = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  const version = String(process.env.JAVFLOW_BUILD_VERSION || packageInfo.version || '').trim();
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(`JAVFLOW_BUILD_VERSION/package.json version is invalid: ${version || '(empty)'}`);
+  }
+  return version;
+}
+
 function main() {
   assertAssetDir();
+  const productVersion = readProductVersion();
   const npmBinary = resolveNpmBinary();
   const wailsBinary = resolveWailsBinary();
   runCommand(npmBinary, ['run', 'build'], { cwd: repoRoot });
   runCommand(npmBinary, ['run', 'build:desktop-frontend'], { cwd: repoRoot });
   runCommand(npmBinary, ['run', 'sync:wails-frontend'], { cwd: repoRoot });
-  runCommand(wailsBinary, ['build'], { cwd: wailsDir });
+  runCommand(wailsBinary, [
+    'build',
+    '-ldflags',
+    `-X javflow/internal/appupdate.BuildVersion=${productVersion}`
+  ], { cwd: wailsDir });
   const releaseResult = copyBuildExeToRelease();
   runCommand('node', [path.join(repoRoot, 'scripts', 'patch-exe-metadata.mjs')], { cwd: repoRoot });
   console.log(`Wails build completed: ${releaseResult.actualPath}`);

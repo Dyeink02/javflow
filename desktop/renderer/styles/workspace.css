@@ -37,9 +37,21 @@
   white-space: nowrap;
 }
 
+.workspace-update-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.workspace-update-controls.hidden {
+  display: none;
+}
+
 .workspace-topbar .workspace-topbar-version {
   flex: 0 0 auto;
-  margin-left: -8px;
+  margin-left: 0;
   padding: 5px 8px;
   border-color: rgba(255, 76, 134, 0.48);
   background: rgba(255, 76, 134, 0.12);
@@ -49,6 +61,57 @@
 
 .workspace-topbar .workspace-topbar-version.hidden {
   display: none;
+}
+
+.workspace-update-status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-update-status.is-checking {
+  color: var(--muted);
+}
+
+.workspace-update-status.is-available {
+  color: #ffd08a;
+}
+
+.workspace-update-status.is-ready {
+  color: #a8e8bf;
+}
+
+.workspace-update-status.is-error {
+  color: #ffaaa6;
+}
+
+.workspace-update-button {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(86, 224, 255, 0.32);
+  background: rgba(86, 224, 255, 0.08);
+  color: #dff8ff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.workspace-update-button:hover:not(:disabled) {
+  border-color: rgba(86, 224, 255, 0.68);
+  background: rgba(86, 224, 255, 0.16);
+}
+
+.workspace-update-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .workspace-topbar-tabs {
@@ -489,4 +552,10 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* AI 依赖环境暂不启用：与上方 learning-box 相同的强制隐藏规则，
+   防止 .organizer-dependency-box 的 display:grid 覆盖 hidden 属性。 */
+.organizer-dependency-box[hidden] {
+  display: none !important;
 }

@@ -575,6 +575,7 @@
     }
 
     async function loadCrawlHistory() {
+      attachSnapshotHistoryManager();
       if (!desktopApi || typeof desktopApi.listCrawlCacheSnapshots !== 'function') {
         return;
       }
@@ -584,6 +585,23 @@
       } catch (error) {
         appendOrganizerLog('warn', `读取历史抓取快照失败：${getErrorMessage(error)}`);
       }
+    }
+
+    // 快照下拉改为带逐条删除按钮的自定义组件；隐藏的原生 select 仍是取值载体。
+    function attachSnapshotHistoryManager() {
+      const manager = globalScope.desktopSnapshotHistoryManager;
+      if (!manager || !elements.organizerCrawlOutputHistory) {
+        return;
+      }
+      manager.attach({
+        select: elements.organizerCrawlOutputHistory,
+        desktopApi: () => desktopApi,
+        reload: loadCrawlHistory,
+        log: appendOrganizerLog,
+        errorMessage: getErrorMessage,
+        itemValue: (item) =>
+          String((item && (item.organizerCodesPath || item.filmDataPath || item.outputDir)) || '')
+      });
     }
 
     // Read-only fallback for legacy libraries: identify unambiguous codes from

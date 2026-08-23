@@ -13,20 +13,22 @@ const packageJsonPath = path.join(repoRoot, 'package.json');
 // with the UI and Wails manifest after the next internal version bump.
 const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const packageVersion = String(packageInfo.version || '').trim();
-if (!/^\d+\.\d+\.\d+$/.test(packageVersion)) {
-  throw new Error(`package.json version is invalid: ${packageVersion || '(empty)'}`);
+const metadataVersion = String(process.env.JAVFLOW_BUILD_VERSION || packageVersion).trim();
+if (!/^\d+\.\d+\.\d+$/.test(metadataVersion)) {
+  throw new Error(`JAVFLOW_BUILD_VERSION/package.json version is invalid: ${metadataVersion || '(empty)'}`);
 }
 
 const iconPath = path.join(repoRoot, 'build', 'icon.ico');
-const fallbackExes = fs.existsSync(releaseDir)
-  ? fs.readdirSync(releaseDir)
-      .filter(name => /^javflow-\d{8}-\d{6}\.exe$/i.test(name))
-      .map(name => path.join(releaseDir, name))
-  : [];
+// Timestamped EXEs are historical handoff artifacts. They must keep the
+// metadata they had when produced, so a new build only patches its active
+// build output and the stable release handoff path below.
+const configuredReleasePath = String(process.env.JAVFLOW_RELEASE_EXE_PATH || '').trim();
+const activeReleasePath = configuredReleasePath
+  ? (path.isAbsolute(configuredReleasePath) ? path.normalize(configuredReleasePath) : path.resolve(repoRoot, configuredReleasePath))
+  : path.join(releaseDir, 'javflow.exe');
 const exePaths = [
   path.join(repoRoot, 'wails-shell', 'build', 'bin', 'javflow.exe'),
-  path.join(releaseDir, 'javflow.exe'),
-  ...fallbackExes
+  activeReleasePath
 ];
 
 const options = {
@@ -37,8 +39,8 @@ const options = {
     LegalCopyright: 'Based on raawaa/jav-scrapy',
     Comments: 'JavFlow - JAV media library automation workflow'
   },
-  'file-version': packageVersion,
-  'product-version': packageVersion,
+  'file-version': metadataVersion,
+  'product-version': metadataVersion,
   icon: iconPath
 };
 

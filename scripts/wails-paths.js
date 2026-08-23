@@ -148,22 +148,33 @@ function runCommand(command, args, options = {}) {
   }
 }
 
+function resolveReleaseExePath() {
+  const configuredPath = String(process.env.JAVFLOW_RELEASE_EXE_PATH || '').trim();
+  if (!configuredPath) {
+    return releaseExePath;
+  }
+  return path.isAbsolute(configuredPath)
+    ? path.normalize(configuredPath)
+    : path.resolve(repoRoot, configuredPath);
+}
+
 function copyBuildExeToRelease() {
   if (!fileExists(buildExePath)) {
     throw new Error(`Wails build artifact not found: ${buildExePath}`);
   }
 
-  ensureDirectory(path.dirname(releaseExePath));
+  const targetPath = resolveReleaseExePath();
+  ensureDirectory(path.dirname(targetPath));
   try {
-    fs.copyFileSync(buildExePath, releaseExePath);
+    fs.copyFileSync(buildExePath, targetPath);
     const buildSize = fs.statSync(buildExePath).size;
-    const copiedSize = fs.statSync(releaseExePath).size;
+    const copiedSize = fs.statSync(targetPath).size;
     if (buildSize !== copiedSize) {
       throw new Error(`Copied Wails EXE size mismatch: ${buildSize} != ${copiedSize}`);
     }
     return {
-      primaryPath: releaseExePath,
-      actualPath: releaseExePath,
+      primaryPath: targetPath,
+      actualPath: targetPath,
       fallbackUsed: false
     };
   } catch (error) {
@@ -176,7 +187,7 @@ function copyBuildExeToRelease() {
       .replace(/[-:]/g, '')
       .replace(/\..+$/, '')
       .replace('T', '-');
-    const fallbackExePath = path.join(releaseDir, `javflow-${timestamp}.exe`);
+    const fallbackExePath = path.join(path.dirname(targetPath), `javflow-${timestamp}.exe`);
     fs.copyFileSync(buildExePath, fallbackExePath);
 
     const buildSize = fs.statSync(buildExePath).size;
@@ -186,7 +197,7 @@ function copyBuildExeToRelease() {
     }
 
     return {
-      primaryPath: releaseExePath,
+      primaryPath: targetPath,
       actualPath: fallbackExePath,
       fallbackUsed: true
     };
@@ -217,5 +228,6 @@ module.exports = {
   resolveWailsBinary,
   runCommand,
   copyBuildExeToRelease,
-  resolveJavFlowExe
+  resolveJavFlowExe,
+  resolveReleaseExePath
 };

@@ -38,6 +38,7 @@
     let rankingRequest = 0;
     let detailRequest = 0;
     let proxyValue = '';
+    const proxyValidationState = { value: '', status: 'empty' };
     let bootstrapped = false;
     let eventsBound = false;
     let logs = [];
@@ -130,7 +131,11 @@
       let saved = String(readStorage(PROXY_KEY, '') || '').trim();
       try {
         const settings = await desktopApi.getSettings();
-        saved = String(settings && settings.proxy || saved).trim();
+        // An explicitly saved empty value clears stale local Atlas state and
+        // leaves the user in direct/system-proxy mode.
+        if (settings && Object.prototype.hasOwnProperty.call(settings, 'proxy')) {
+          saved = String(settings.proxy || '').trim();
+        }
       } catch (_) {
         // Retain the last local value until the settings bridge becomes ready.
       }
@@ -138,19 +143,24 @@
       if (elements.atlasProxy) elements.atlasProxy.value = saved;
       if (!saved) {
         setProxyStatus('empty');
-        return;
+        proxyValidationState.value = '';
+        proxyValidationState.status = 'empty';
+        return { status: 'empty' };
       }
       // Settings are restored before the first ranking request so a new launch
       // reflects the real connection state instead of pretending the saved URL
       // is usable.
-      void validateProxy(saved, true);
+      return validateProxy(saved, true);
     }
 
     async function saveProxy() {
       proxyValue = inputValue(elements.atlasProxy);
       writeStorage(PROXY_KEY, proxyValue);
       try {
-        await desktopApi.saveActressAtlasProxy({ proxy: proxyValue });
+        const saveGlobalProxy = desktopApi && (desktopApi.saveGlobalProxy || desktopApi.saveActressAtlasProxy);
+        if (typeof saveGlobalProxy === 'function') {
+          await saveGlobalProxy({ proxy: proxyValue });
+        }
       } catch (_) {
         // Ranking lookup still carries the explicit value in this request.
       }
@@ -160,11 +170,14 @@
 
     async function validateProxy(value, usingGlobalProxy = false) {
       const proxy = String(value || '').trim();
+      proxyValidationState.value = proxy;
       if (!proxy) {
+        proxyValidationState.status = 'empty';
         setProxyStatus('empty');
         return { status: 'empty' };
       }
       if (!desktopApi || typeof desktopApi.validateProxy !== 'function') {
+        proxyValidationState.status = 'invalid';
         setProxyStatus('invalid', '当前版本未提供代理检测能力。');
         return { status: 'invalid' };
       }
@@ -172,16 +185,37 @@
       try {
         const result = await desktopApi.validateProxy(proxy, { targetUrl: 'https://www.javbus.com/' });
         if (result && result.status === 'valid') {
+          proxyValidationState.status = 'valid';
           setProxyStatus(usingGlobalProxy ? 'global' : 'valid', usingGlobalProxy ? '' : result.detail || '检测通过，榜单和演员资料会使用当前代理。');
           return result;
         }
+        proxyValidationState.status = 'invalid';
         setProxyStatus('invalid', result && result.detail);
         return result || { status: 'invalid' };
       } catch (error) {
         const message = error && error.message ? error.message : String(error || '代理检测失败。');
+        proxyValidationState.status = 'invalid';
         setProxyStatus('invalid', message);
         return { status: 'invalid', detail: message };
       }
+    }
+
+    // An empty proxy intentionally means direct/system-proxy mode. Only a
+    // configured-but-invalid proxy blocks further Atlas network requests.
+    async function ensureAtlasProxyReady(actionLabel) {
+      const proxy = String(proxyValue || '').trim();
+      if (!proxy) {
+        return true;
+      }
+      if (proxyValidationState.value === proxy && proxyValidationState.status === 'valid') {
+        return true;
+      }
+      const result = await validateProxy(proxy, true);
+      if (result && result.status === 'valid') {
+        return true;
+      }
+      appendLog(`${String(actionLabel || '联网操作').trim()}已取消：当前填写的代理未通过检测。`, 'error');
+      return false;
     }
 
     function rankingMode() {
@@ -272,6 +306,10 @@
     // bundled or last successful cache useful when a source is rate-limited.
     async function loadRankings(forceRefresh = false) {
       if (!desktopApi || typeof desktopApi.getActressRankings !== 'function') return;
+      if (!(await ensureAtlasProxyReady('加载榜单'))) {
+        nodeText(elements.atlasRankingNotice, '当前代理检测失败，已保留已有榜单。');
+        return;
+      }
       const request = ++rankingRequest;
       nodeText(elements.atlasRankingNotice, '正在加载最新榜单，预加载内容仍保留。');
       try {
@@ -319,6 +357,7 @@
     // before the N+1/N+2/N+3 background prefetch begins.
     async function cacheWorkCoverPages(token, firstPage, pageCount = 3, purpose = '预加载') {
       if (!desktopApi.cacheActressWorkCovers || token !== detailRequest) return;
+      if (!(await ensureAtlasProxyReady(`${purpose}作品封面`))) return;
       const start = Math.max(0, Number(firstPage) || 0) * UI_PAGE_SIZE;
       const visible = works.slice(start, start + Math.max(1, pageCount) * UI_PAGE_SIZE);
       if (!visible.length) return;
@@ -359,6 +398,7 @@
       const sourcePage = Math.floor(workPage * UI_PAGE_SIZE / SOURCE_PAGE_SIZE) + 1;
       const token = detailRequest;
       if (!loadedSourcePages.has(sourcePage)) {
+        if (!(await ensureAtlasProxyReady('加载作品'))) return;
         loadedSourcePages.add(sourcePage);
         try {
           const response = await desktopApi.loadActressWorksPage({
@@ -389,6 +429,7 @@
 
     async function retryWorkCovers(candidates, label) {
       if (!desktopApi.cacheActressWorkCovers || !selected) return;
+      if (!(await ensureAtlasProxyReady(`重新加载${label || '作品封面'}`))) return;
       const token = detailRequest;
       const retryWorks = (candidates || []).filter((work) => work && workIdentity(work)).slice(0, UI_PAGE_SIZE);
       if (!retryWorks.length) {
@@ -466,6 +507,10 @@
       renderSelectedState(selected, initialProfile);
       appendLog(`已选择演员：${selected.actressName || '未知演员'}。`);
 
+      if (!(await ensureAtlasProxyReady('读取演员资料'))) {
+        return;
+      }
+
       // Lookup and optional media cache are independent. A profile response is
       // valid by itself; image-provider failure must never erase measurements
       // or the JAVBus work list.
@@ -507,6 +552,10 @@
       setEnabled(elements.atlasSearchButton, false);
       nodeText(elements.atlasSearchSummary, `正在查询 ${query} 的完整演员目录…`);
       try {
+        if (!(await ensureAtlasProxyReady('演员搜索'))) {
+          nodeText(elements.atlasSearchSummary, '当前代理检测失败，请修正后再搜索。');
+          return;
+        }
         let lookupName = query;
         let aliasRecord = null;
         if (desktopApi.resolveActressAlias) {
@@ -591,10 +640,14 @@
       });
       elements.atlasFillCrawler && elements.atlasFillCrawler.addEventListener('click', async () => {
         if (!selected) return;
-        const profile = selected.lookupProfile || await desktopApi.inspectActressTarget({
-          actressName: selected.actressName,
-          ...lookupOptions({ includeProfile: true })
-        });
+        let profile = selected.lookupProfile || null;
+        if (!profile || !profile.resolvedActressName) {
+          if (!(await ensureAtlasProxyReady('读取演员资料'))) return;
+          profile = await desktopApi.inspectActressTarget({
+            actressName: selected.actressName,
+            ...lookupOptions({ includeProfile: true })
+          });
+        }
         const actressName = String(profile.resolvedActressName || selected.actressName || '').trim();
         if (!actressName) {
           appendLog('无法识别演员名称，未填充 JAV 爬虫。', 'error');
@@ -649,12 +702,18 @@
     }
 
     async function ensureProxyNotice() {
-      if (!proxyValue && desktopApi && desktopApi.showAlert) {
-        await desktopApi.showAlert({ title: '演员图鉴需要代理', message: '请先填写可用代理地址。' });
-      }
+      // Empty means direct/system-proxy mode; do not present it as an error.
+      return true;
     }
 
-    return { bootstrap, refresh: () => loadRankings(false), ensureProxyNotice };
+    return {
+      bootstrap,
+      refresh: async () => {
+        await loadProxy();
+        return loadRankings(false);
+      },
+      ensureProxyNotice
+    };
   }
 
   globalScope.desktopActressAtlasController = { createActressAtlasController };

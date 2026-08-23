@@ -67,7 +67,11 @@
         -->
         <nav class="workspace-topbar">
           <span class="workspace-topbar-brand">JavFlow</span>
-          <span id="crawler-topbar-version" class="workspace-topbar-version version-badge hidden">v0.4.32</span>
+          <div id="crawler-update-controls" class="workspace-update-controls">
+            <span id="crawler-topbar-version" class="workspace-topbar-version version-badge">v0.4.4</span>
+            <span id="crawler-update-status" class="workspace-update-status" aria-live="polite" hidden></span>
+            <button id="crawler-check-update" class="workspace-update-button" type="button">检查更新</button>
+          </div>
           <div class="workspace-topbar-tabs">
 	            <button id="nav-actressatlas" class="workspace-nav-button" type="button">演员图鉴</button>
             <button id="nav-crawler" class="workspace-nav-button is-active" type="button">JAV 爬虫</button>
@@ -109,6 +113,9 @@
     </div>
 
     <!-- 单个入口：所有JS已合并到 bundle.js (18个源文件) -->
+    <script>
+      window.__JAVFLOW_BUILD_VERSION__ = __JAVFLOW_BUILD_VERSION_VALUE__;
+    </script>
     <script src="./bundle.js"></script>
   </body>
 </html>

@@ -29,7 +29,7 @@ import (
 // 3) page settle, cookie, and session bootstrap helpers
 
 const (
-	defaultBrowserTimeout = 70 * time.Second
+	defaultBrowserTimeout = 180 * time.Second
 	defaultSettleDelay    = 1500 * time.Millisecond
 	defaultUserAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 	defaultAcceptLanguage = "ja-JP,ja;q=0.9,zh-CN;q=0.8,en;q=0.7"
@@ -280,24 +280,6 @@ func (b *browserService) fetchOfficialRankingHTML(targetURL string, proxyValue s
 	}
 
 	return htmlSource, pageURL, pageTitle, nil
-}
-
-func (b *browserService) fetchOfficialMonthlyHTML(proxyValue string) (string, string, string, error) {
-	return b.fetchOfficialRankingHTML(officialMonthlyURL, proxyValue)
-}
-
-func isBrowserProxyError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(message, "err_proxy_connection_failed") ||
-		strings.Contains(message, "proxy connection failed") ||
-		strings.Contains(message, "proxy") ||
-		strings.Contains(message, "tunnel connection failed") ||
-		strings.Contains(message, "socks") ||
-		strings.Contains(message, "econnrefused")
 }
 
 func normalizeBrowserPath(value string) string {

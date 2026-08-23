@@ -651,3 +651,107 @@
 .chip-done { background: rgba(52, 211, 153, 0.14); color: #a7f3d0; }
 .chip-missing { background: rgba(255, 110, 157, 0.14); color: #ffd2e4; }
 .chip-filtered { background: rgba(125, 211, 252, 0.14); color: #d7f3ff; }
+
+/* ============================================================
+   紧凑化覆盖：抓取阶段面板 + 状态说明
+   用户反馈两块内容过大、一眼不直观——整体收窄字号/内边距/间距。
+   ============================================================ */
+.stage-ops-card {
+  padding: 12px 14px;
+  gap: 8px;
+  border-radius: 16px;
+}
+
+.stage-ops-card .ops-card-head strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.stage-ops-card .message-label {
+  font-size: 11px;
+}
+
+.stage-ops-card .mini-status,
+.stage-ops-card .ops-chip {
+  min-height: 22px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.stage-ops-card .ops-description,
+.stage-ops-card .ops-summary {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stage-ops-card .ops-metric-grid {
+  gap: 8px;
+}
+
+.stage-ops-card .ops-metric {
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.stage-ops-card .ops-metric span {
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.stage-ops-card .ops-metric strong {
+  font-size: 15px;
+}
+
+.stage-ops-card .ops-path-label,
+.stage-ops-card .ops-path {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.state-section {
+  margin-top: 14px;
+}
+
+.state-section::before {
+  margin-bottom: 10px;
+}
+
+.state-section-header {
+  margin-bottom: 8px;
+}
+
+.state-section #state-message {
+  margin-bottom: 10px !important;
+  font-size: 12px !important;
+}
+
+.state-grid {
+  gap: 10px;
+}
+
+.state-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.state-card-header {
+  margin-bottom: 6px;
+}
+
+.state-card-title {
+  font-size: 12px;
+}
+
+.state-card-count {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.state-card-body {
+  max-height: 72px;
+}
+
+.state-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+}

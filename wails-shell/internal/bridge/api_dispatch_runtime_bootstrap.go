@@ -21,6 +21,15 @@ func (a *API) handleRuntimeBootstrapCommand(command string, payload map[string]a
 	case "app:get-settings":
 		return a.handleGetSettingsCommand()
 
+	case "app:check-app-update":
+		return a.handleCheckAppUpdateCommand()
+
+	case "app:download-app-update":
+		return a.handleDownloadAppUpdateCommand(payload)
+
+	case "app:apply-app-update":
+		return a.handleApplyAppUpdateCommand()
+
 	case "app:get-log-context":
 		return a.handleGetLogContextCommand()
 
@@ -38,8 +47,8 @@ func (a *API) handleRuntimeBootstrapCommand(command string, payload map[string]a
 	case "app:validate-proxy":
 		return a.handleValidateProxyCommand(payload)
 
-	case "app:save-actress-atlas-proxy":
-		return a.handleSaveActressAtlasProxyCommand(payload)
+	case "app:save-global-proxy", "app:save-actress-atlas-proxy":
+		return a.handleSaveGlobalProxyCommand(payload)
 
 	case "app:save-workspace-preferences":
 		return a.handleSaveWorkspacePreferencesCommand(payload)
@@ -97,10 +106,10 @@ func (a *API) handleValidateProxyCommand(payload map[string]any) (string, bool, 
 	return result, true, err
 }
 
-// handleSaveActressAtlasProxyCommand persists the Actor Atlas proxy through
-// the shared settings store. The crawler, rankings and actress details then
-// recover the same value after an application restart.
-func (a *API) handleSaveActressAtlasProxyCommand(payload map[string]any) (string, bool, error) {
+// handleSaveGlobalProxyCommand persists the one shared desktop proxy setting.
+// The legacy Atlas-named bridge route is still accepted by the dispatcher so
+// older renderer bundles can update in place without losing this setting.
+func (a *API) handleSaveGlobalProxyCommand(payload map[string]any) (string, bool, error) {
 	proxyValue := nonEmptyString(payload["proxy"])
 	settings, err := a.mutateBridgeSettings(func(current map[string]any) {
 		current["proxy"] = proxyValue
@@ -165,4 +174,11 @@ func (a *API) handleSaveWorkspacePreferencesCommand(payload map[string]any) (str
 		"organizerAutoSubscribeFromOutput": boolValue(settings["organizerAutoSubscribeFromOutput"], false),
 	})
 	return result, true, err
+}
+
+// handleSaveActressAtlasProxyCommand remains for direct callers compiled
+// against the pre-0.4.4 helper name. New code should use the neutral global
+// proxy command above.
+func (a *API) handleSaveActressAtlasProxyCommand(payload map[string]any) (string, bool, error) {
+	return a.handleSaveGlobalProxyCommand(payload)
 }

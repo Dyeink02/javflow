@@ -146,25 +146,6 @@ type RunResult struct {
 	MissingDownload   MissingDownloadInfo `json:"missingDownload"`
 }
 
-type NameRescueRecord struct {
-	OriginalPath string `json:"originalPath"`
-	TargetPath   string `json:"targetPath,omitempty"`
-	FilmCode     string `json:"filmCode,omitempty"`
-	Status       string `json:"status"`
-	Reason       string `json:"reason,omitempty"`
-}
-
-type NameRescueResult struct {
-	ScannedTotal   int                `json:"scannedTotal"`
-	MatchedTotal   int                `json:"matchedTotal"`
-	UnmatchedTotal int                `json:"unmatchedTotal"`
-	FailedTotal    int                `json:"failedTotal"`
-	WaitingDir     string             `json:"waitingDir"`
-	UnmatchedDir   string             `json:"unmatchedDir"`
-	ReportPath     string             `json:"reportPath"`
-	Records        []NameRescueRecord `json:"records"`
-}
-
 type PreviewResult struct {
 	RenameRecords    []RenameRecord    `json:"renameRecords"`
 	UnmatchedRecords []UnmatchedRecord `json:"unmatchedRecords"`

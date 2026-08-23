@@ -46,7 +46,8 @@
     { version: '0.4.2', summary: '视频整理、媒体库刮削与 AV 订阅体验优化' },
     { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' },
     { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
-    { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' }
+    { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' },
+    { version: '0.4.4', summary: '流程减负、演员图鉴榜单与订阅稳定性提升' }
   ];
 
   const payload = { VERSION_HISTORY };

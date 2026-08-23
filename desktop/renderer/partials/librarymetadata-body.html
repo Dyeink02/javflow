@@ -39,13 +39,6 @@
           <small>逗号分隔，决定哪些文件会被识别为影片；STRM 文件无需真实视频即可生成旁挂元数据。</small>
         </label>
 
-        <label class="field span-2">
-          <span>刮削源优先级</span>
-          <select id="metadataSourcePriority">
-            <option value="">默认（自动选择最佳结果）</option>
-          </select>
-          <small>选择优先使用的刮削源；选择“默认”时使用所有可用源并自动择优。</small>
-        </label>
 
         <label class="field">
           <span>刮削并发量</span>
@@ -125,11 +118,6 @@
 
       <div class="actions">
         <button id="scanLibrary" class="primary-button" type="button">扫描库</button>
-        <button id="filterComplete" class="secondary-button" type="button">只看已完整</button>
-        <button id="filterMissing" class="secondary-button" type="button">只看缺失</button>
-        <button id="filterFailed" class="secondary-button librarymetadata-filter-failed" type="button">只看刮削失败</button>
-        <button id="exportIndex" class="ghost-button" type="button">导出索引</button>
-        <button id="toggleLibraryLayout" class="ghost-button" type="button">切换紧凑布局</button>
       </div>
     </section>
 
@@ -147,6 +135,13 @@
             aria-pressed="true"
             title="当前仅显示本地已下载并可刮削的影片"
           >仅显示刮削内容</button>
+          <button
+            id="toggleLibraryResultFailed"
+            class="ghost-button librarymetadata-scope-toggle"
+            type="button"
+            aria-pressed="false"
+            title="仅显示刮削失败的影片"
+          >仅显示刮削失败</button>
           <div id="library-progress-pill" class="status-pill idle">等待扫描</div>
         </div>
       </div>

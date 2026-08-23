@@ -38,7 +38,7 @@
       localScanResults: [],
       missingScanResults: [],
       resultScope: 'local',
-      resultFilter: 'all',
+      resultFailedOnly: false,
       selectedIds: new Set(),
       autoSubscriptionSources: new Set(),
       busy: false,
@@ -241,28 +241,6 @@
       }
     }
 
-    function applyLayoutMode() {
-      const layout = elements.libraryMetadataLayout;
-      const button = elements.toggleLibraryLayoutButton;
-      if (!layout) {
-        return;
-      }
-
-      if (state.compactLayout) {
-        layout.classList.add('compact-layout');
-        if (button) {
-          button.textContent = '切换全宽布局';
-          button.title = '当前为紧凑并排布局，点击恢复全宽';
-        }
-      } else {
-        layout.classList.remove('compact-layout');
-        if (button) {
-          button.textContent = '切换紧凑布局';
-          button.title = '当前为全宽布局，点击恢复配置与清单并排显示';
-        }
-      }
-    }
-
     function hasSavedWorkspacePreferences(settings) {
       return Number(settings && settings.libraryWorkspacePreferencesVersion) >= 1;
     }
@@ -274,33 +252,20 @@
       void desktopApi.saveWorkspacePreferences(preferences).catch(() => {});
     }
 
-    function toggleLayoutMode() {
-      state.compactLayout = !state.compactLayout;
+    // 紧凑布局切换按钮已按需求移除：媒体库始终使用全宽布局。这里同时
+    // 移除历史保存的紧凑标记，避免旧配置在无按钮可切换的情况下卡在紧凑态。
+    function restoreLayoutMode() {
+      state.compactLayout = false;
+      if (elements.libraryMetadataLayout) {
+        elements.libraryMetadataLayout.classList.remove('compact-layout');
+      }
       try {
-        if (globalScope.localStorage && typeof globalScope.localStorage.setItem === 'function') {
-          globalScope.localStorage.setItem(COMPACT_LAYOUT_STORAGE_KEY, state.compactLayout ? '1' : '0');
+        if (globalScope.localStorage && typeof globalScope.localStorage.removeItem === 'function') {
+          globalScope.localStorage.removeItem(COMPACT_LAYOUT_STORAGE_KEY);
         }
       } catch (storageError) {
-        // 写入失败不影响界面切换
+        // 清理失败不影响布局
       }
-      persistWorkspacePreferences({ libraryCompactLayout: state.compactLayout });
-      applyLayoutMode();
-      appendLog('info', state.compactLayout ? '已切换为紧凑并排布局' : '已切换为全宽布局');
-    }
-
-    function restoreLayoutMode(settings) {
-      let saved = '';
-      try {
-        if (globalScope.localStorage && typeof globalScope.localStorage.getItem === 'function') {
-          saved = globalScope.localStorage.getItem(COMPACT_LAYOUT_STORAGE_KEY) || '';
-        }
-      } catch (storageError) {
-        // 读取失败时使用默认全宽布局
-      }
-      state.compactLayout = hasSavedWorkspacePreferences(settings)
-        ? Boolean(settings.libraryCompactLayout)
-        : saved === '1';
-      applyLayoutMode();
     }
 
     function normalizeScrapeConcurrency(value) {
@@ -369,7 +334,7 @@
     }
 
     function getLibraryProxy() {
-      return normalizeText(elements.libraryProxyUrl && elements.libraryProxyUrl.value);
+      return normalizeText(elements.libraryProxyUrl && elements.libraryProxyUrl.value) || normalizeText(state.globalProxy);
     }
 
     function isUsingGlobalLibraryProxy(proxyValue) {
@@ -388,14 +353,41 @@
     }
 
     function applyGlobalLibraryProxy(settings) {
+      const previousGlobalProxy = normalizeText(state.globalProxy);
       state.globalProxy = normalizeText(settings && settings.proxy);
-      if (!elements.libraryProxyUrl || !state.globalProxy) {
+      if (elements.libraryProxyUrl) {
+        const currentValue = normalizeText(elements.libraryProxyUrl.value);
+        // Keep a one-off override, but make an empty or previously inherited
+        // value follow the proxy the user most recently saved in JAV crawler.
+        if (!currentValue || currentValue === previousGlobalProxy) {
+          elements.libraryProxyUrl.value = state.globalProxy;
+        }
+      }
+      return getLibraryProxy();
+    }
+
+    async function refreshGlobalLibraryProxy() {
+      if (desktopApi && typeof desktopApi.getSettings === 'function') {
+        try {
+          return applyGlobalLibraryProxy(await desktopApi.getSettings());
+        } catch (error) {
+          appendLog('warn', `读取已保存代理失败：${getErrorMessage(error)}`);
+        }
+      }
+      return getLibraryProxy();
+    }
+
+    async function ensureLibraryProxyReady() {
+      const proxyValue = await refreshGlobalLibraryProxy();
+      if (!proxyValue) {
+        setProxyStatus('empty');
         return '';
       }
-      if (!normalizeText(elements.libraryProxyUrl.value)) {
-        elements.libraryProxyUrl.value = state.globalProxy;
+      const result = await validateProxyValue(proxyValue);
+      if (result && result.status === 'valid') {
+        return proxyValue;
       }
-      return state.globalProxy;
+      throw new Error('当前媒体库代理检测失败，请修正后再继续联网刮削。');
     }
 
     async function initLibraryLog(rootPath) {
@@ -663,38 +655,9 @@
       try {
         const response = await desktopApi.getLibraryMetadataProviders();
         state.providers = Array.isArray(response && response.providers) ? response.providers : [];
-        populateSourcePrioritySelect(state.providers);
         appendLog('info', `已加载 ${state.providers.length} 个刮削源：${state.providers.join(', ') || '无'}`);
       } catch (error) {
         appendLog('error', `加载刮削源失败：${getErrorMessage(error)}`);
-      }
-    }
-
-    function populateSourcePrioritySelect(providers) {
-      const select = elements.metadataSourcePriority;
-      if (!select) {
-        return;
-      }
-
-      const previousValue = select.value;
-      clearChildren(select);
-
-      const defaultOption = document.createElement('option');
-      defaultOption.value = '';
-      defaultOption.textContent = '默认（自动选择最佳结果）';
-      select.appendChild(defaultOption);
-
-      (providers || []).forEach((provider) => {
-        const option = document.createElement('option');
-        option.value = String(provider);
-        option.textContent = String(provider);
-        select.appendChild(option);
-      });
-
-      if (previousValue && Array.from(select.options).some((opt) => opt.value === previousValue)) {
-        select.value = previousValue;
-      } else {
-        select.value = '';
       }
     }
 
@@ -723,6 +686,7 @@
     }
 
     async function loadCrawlSources(preloadedResponse) {
+      attachSnapshotHistoryManager();
       if (!preloadedResponse && (!desktopApi || typeof desktopApi.getLibraryMetadataCrawlSources !== 'function')) {
         appendLog('warn', '历史快照 API 尚未就绪');
         return;
@@ -777,17 +741,40 @@
       }
     }
 
+    // 快照下拉改为带逐条删除按钮的自定义组件；隐藏的原生 select 仍是取值载体。
+    function attachSnapshotHistoryManager() {
+      const manager = globalScope.desktopSnapshotHistoryManager;
+      if (!manager || !elements.crawlSourceSnapshot) {
+        return;
+      }
+      manager.attach({
+        select: elements.crawlSourceSnapshot,
+        desktopApi: () => desktopApi,
+        reload: () => loadCrawlSources(),
+        log: appendLog,
+        errorMessage: getErrorMessage,
+        itemValue: (item) => String((item && item.outputDir) || ''),
+        formatItem: (item) => {
+          const label = String(
+            (item && (item.label || item.displayName || item.actressName || item.cacheKey)) ||
+              '未命名快照'
+          );
+          const updatedAt = String((item && item.updatedAt) || '').replace('T', ' ').slice(0, 16);
+          return updatedAt ? `${label} ${updatedAt}` : label;
+        }
+      });
+    }
+
     async function hydrateLibraryMetadataData() {
       if (desktopApi && typeof desktopApi.getSettings === 'function') {
         try {
           const settings = await desktopApi.getSettings();
           const appliedGlobalProxy = applyGlobalLibraryProxy(settings);
-          restoreLayoutMode(settings);
+          restoreLayoutMode();
           restoreScrapePreferences(settings);
           restoreShowHiddenFilesPreference(settings);
           if (!hasSavedWorkspacePreferences(settings)) {
             persistWorkspacePreferences({
-              libraryCompactLayout: state.compactLayout,
               libraryShowHiddenFiles: isShowHiddenFilesEnabled(),
               libraryScrapeConcurrency: getScrapeConcurrency(),
               libraryAutoSubscribeFromOutput: Boolean(
@@ -806,8 +793,7 @@
         try {
           const response = await desktopApi.getLibraryMetadataBootstrap({ roots: collectKnownCrawlSourceRoots() });
           state.providers = Array.isArray(response && response.providers) ? response.providers : [];
-          populateSourcePrioritySelect(state.providers);
-          appendLog('info', `已加载 ${state.providers.length} 个刮削源`);
+            appendLog('info', `已加载 ${state.providers.length} 个刮削源`);
           await loadCrawlSources(response);
           return;
         } catch (error) {
@@ -902,13 +888,12 @@
         appendLog('info', '未输入番号，使用默认测试番号：BBAN-452');
       }
 
-      const provider = normalizeText(elements.metadataSourcePriority && elements.metadataSourcePriority.value);
-      appendLog('info', `正在测试刮削：${code}${provider ? `（源：${provider}）` : ''}`);
+      const provider = '';
+      appendLog('info', `正在测试刮削：${code}`);
       setStatus('running', '刮削中...');
 
-      const proxy = getLibraryProxy();
-
       try {
+        const proxy = await ensureLibraryProxyReady();
         const result = await desktopApi.scrapeLibraryMetadata({
           number: code,
           provider: provider,
@@ -1028,9 +1013,9 @@
         return;
       }
 
-      const provider = normalizeText(elements.metadataSourcePriority && elements.metadataSourcePriority.value);
+      const provider = '';
       const crawlOutputDir = normalizeText(elements.crawlArtifactPath && elements.crawlArtifactPath.value);
-      const proxy = getLibraryProxy();
+      const proxy = await ensureLibraryProxyReady();
       const root = normalizeText(elements.libraryRootPath && elements.libraryRootPath.value);
       await initLibraryLog(root);
       state.busy = true;
@@ -1581,42 +1566,30 @@
         : '当前显示所选 JSON 中的全部番号';
     }
 
-    function matchesResultFilter(item) {
-      if (state.resultFilter === 'complete') {
-        return item && item.status === '已完整';
-      }
-      if (state.resultFilter === 'missing') {
-        return item && !item.failed && item.status !== '已完整';
-      }
-      if (state.resultFilter === 'failed') {
-        return Boolean(item && item.failed);
-      }
-      return true;
+    // 仅显示刮削失败：作用于当前清单范围（与“仅显示刮削内容”叠加），
+    // 失败项高亮可见，方便用户直接定位需要重刮的番号。
+    function matchesFailedOnly(item) {
+      return !state.resultFailedOnly || Boolean(item && item.failed);
     }
 
-    function updateResultFilterButtons() {
-      const buttonFilters = [
-        [elements.filterCompleteButton, 'complete'],
-        [elements.filterMissingButton, 'missing'],
-        [elements.filterFailedButton, 'failed']
-      ];
-      buttonFilters.forEach(([button, filter]) => {
-        if (!button) {
-          return;
-        }
-        const active = state.resultFilter === filter;
-        button.classList.toggle('active', active);
-        button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
+    function updateResultFailedOnlyButton() {
+      const button = elements.toggleLibraryResultFailedButton;
+      if (!button) {
+        return;
+      }
+      button.classList.toggle('active', state.resultFailedOnly);
+      button.setAttribute('aria-pressed', state.resultFailedOnly ? 'true' : 'false');
+      button.title = state.resultFailedOnly
+        ? '当前仅显示刮削失败的影片，点击恢复'
+        : '仅显示刮削失败的影片';
     }
 
-    function setResultFilter(filter) {
-      const normalized = ['all', 'complete', 'missing', 'failed'].includes(filter) ? filter : 'all';
+    function toggleResultFailedOnly() {
       if (state.busy) {
         appendLog('warn', '刮削进行中，任务结束后再切换影片筛选');
         return;
       }
-      state.resultFilter = state.resultFilter === normalized ? 'all' : normalized;
+      state.resultFailedOnly = !state.resultFailedOnly;
       renderCurrentResultScope();
     }
 
@@ -1624,9 +1597,9 @@
       const scopedResults = state.resultScope === 'all'
         ? [...state.localScanResults, ...state.missingScanResults]
         : state.localScanResults;
-      renderResultList(scopedResults.filter(matchesResultFilter));
+      renderResultList(scopedResults.filter(matchesFailedOnly));
       updateResultScopeButton();
-      updateResultFilterButtons();
+      updateResultFailedOnlyButton();
     }
 
     function renderResultList(mergedResults) {
@@ -1857,7 +1830,7 @@
         const missingItems = Array.isArray(result && result.missingItems) ? result.missingItems : [];
         state.localScanResults = items;
         state.missingScanResults = missingItems;
-        state.resultFilter = 'all';
+        state.resultFailedOnly = false;
         renderCurrentResultScope();
         const missingCount = missingItems.length;
         const logMessage = missingCount > 0
@@ -1966,10 +1939,6 @@
         });
       }
 
-      if (elements.toggleLibraryLayoutButton) {
-        bindAsyncButton(elements.toggleLibraryLayoutButton, toggleLayoutMode);
-      }
-
       bindAsyncButton(elements.testScrapeButton, handleTestScrape);
       bindAsyncButton(elements.rehydrateCodeButton, handleRehydrateCode);
       bindAsyncButton(elements.generateNfoOnlyButton, handleGenerateNfoOnly);
@@ -1983,14 +1952,8 @@
         await performScan();
       });
 
-      if (elements.filterCompleteButton) {
-        elements.filterCompleteButton.addEventListener('click', () => setResultFilter('complete'));
-      }
-      if (elements.filterMissingButton) {
-        elements.filterMissingButton.addEventListener('click', () => setResultFilter('missing'));
-      }
-      if (elements.filterFailedButton) {
-        elements.filterFailedButton.addEventListener('click', () => setResultFilter('failed'));
+      if (elements.toggleLibraryResultFailedButton) {
+        elements.toggleLibraryResultFailedButton.addEventListener('click', toggleResultFailedOnly);
       }
 
       if (elements.openLibraryLogButton) {

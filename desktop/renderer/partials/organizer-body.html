@@ -132,17 +132,12 @@
                 </label>
               </div>
 
+              <!-- .toggles 自带两列网格：移除预览模式勾选后，剩余四项自动形成 2×2 布局。 -->
               <div class="toggles">
                   <label class="toggle-card">
                     <input id="organizer-include-subdirectories" type="checkbox" checked />
                     <span>扫描子目录</span>
                     <small>开启后会递归扫描根目录下所有子目录。</small>
-                  </label>
-
-                  <label class="toggle-card">
-                    <input id="organizer-dry-run" type="checkbox" />
-                    <span>开始按钮使用预览模式</span>
-                    <small>开启后点击"执行整理"也只做扫描，不移动文件。</small>
                   </label>
 
                   <label class="toggle-card">
@@ -255,7 +250,8 @@
                   <small id="organizer-learning-summary" class="organizer-learning-summary">尚未加载学习模型。</small>
                 </section>
 
-                <div class="organizer-dependency-box">
+                <!-- AI 依赖环境暂不启用：整体隐藏，代码保留待后期启用（hidden 属性 + workspace.css 的 [hidden] 规则强制隐藏）。 -->
+                <div class="organizer-dependency-box" hidden>
                   <div class="organizer-dependency-head">
                     <p class="message-label">AI 依赖环境</p>
                     <button id="organizer-refresh-dependency" class="ghost-button" type="button">刷新依赖状态</button>
@@ -293,7 +289,6 @@
                 <div class="actions">
                   <button id="organizer-start" class="primary-button" type="button">执行整理</button>
                   <button id="organizer-preview" class="secondary-button" type="button">预览扫描</button>
-                  <button id="organizer-rescue-names" class="secondary-button" type="button">抢救番号名称</button>
                   <button id="organizer-clear-log" class="ghost-button" type="button">清空整理日志</button>
                 </div>
               </section>

@@ -25,6 +25,7 @@
           ? platformBridge.createDesktopApi()
           : null,
       uiText: scope.desktopUiText,
+      appUpdateControllerFactory: scope.desktopAppUpdateController,
       logControllerFactory: scope.desktopLogController,
       heroBorderFlowControllerFactory: scope.desktopHeroBorderFlowController || null,
       rendererElementsFactory: scope.desktopRendererElements || null,
@@ -47,6 +48,7 @@
     const required = {
       desktopApi: deps.desktopApi,
       uiText: deps.uiText,
+      appUpdateControllerFactory: deps.appUpdateControllerFactory,
       logControllerFactory: deps.logControllerFactory,
       heroBorderFlowControllerFactory: deps.heroBorderFlowControllerFactory,
       rendererElementsFactory: deps.rendererElementsFactory,
@@ -75,6 +77,7 @@
     return {
       desktopApi: deps.desktopApi,
       uiText: deps.uiText,
+      appUpdateControllerFactory: deps.appUpdateControllerFactory,
       logControllerFactory: deps.logControllerFactory,
       heroBorderFlowControllerFactory: deps.heroBorderFlowControllerFactory,
       rendererElementsFactory: deps.rendererElementsFactory,
@@ -190,6 +193,7 @@
   function buildBootstrapControllerOptions(
     rendererShellController,
     heroBorderFlowController,
+    appUpdateController,
     crawlRuntimeController,
     formController,
     actressAtlasController,
@@ -204,6 +208,7 @@
     return {
       shellController: rendererShellController,
       heroBorderFlowController,
+      appUpdateController,
       crawlRuntimeController,
       formController,
       actressAtlasController,
@@ -366,6 +371,7 @@
     platformBridge,
     desktopApi,
     uiText,
+    appUpdateControllerFactory,
     logControllerFactory,
     heroBorderFlowControllerFactory,
     rendererElementsFactory,
@@ -414,6 +420,11 @@
 
   const elements = rendererElementsFactory.collectRendererElements(document);
   const heroBorderFlowController = heroBorderFlowControllerFactory.createHeroBorderFlowController();
+  const appUpdateController = appUpdateControllerFactory.createAppUpdateController({
+    elements,
+    desktopApi,
+    uiText
+  });
 
   applyStaticText(document);
 
@@ -513,6 +524,7 @@
     buildBootstrapControllerOptions(
       rendererShellController,
       heroBorderFlowController,
+      appUpdateController,
       crawlRuntimeController,
       formController,
       actressAtlasController,

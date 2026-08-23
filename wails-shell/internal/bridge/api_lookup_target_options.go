@@ -22,10 +22,19 @@ import (
 func (a *API) buildActressLookupOptions(payload map[string]any) actresslookup.ResolveOptions {
 	currentSettings := a.loadBridgeSettingsSnapshot()
 
+	// Renderer payloads may carry a previously resolved profile URL. Keep that
+	// convenience, but never let an arbitrary address become an actor lookup
+	// source through this bridge path.
 	targetURL := nonEmptyString(payload["targetUrl"])
+	if !actresslookup.IsAllowedActressLookupTargetURL(targetURL) {
+		targetURL = ""
+	}
 	preferredBase := nonEmptyString(payload["preferredBase"])
 	if preferredBase == "" {
 		preferredBase = nonEmptyString(currentSettings["base"])
+	}
+	if !actresslookup.IsAllowedActressLookupBaseURL(preferredBase) {
+		preferredBase = ""
 	}
 
 	proxyValue := nonEmptyString(payload["proxy"])

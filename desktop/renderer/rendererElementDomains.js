@@ -18,7 +18,10 @@
   function collectShellElements(scope) {
     return {
 	      navActressAtlasButton: scope.getElementById('nav-actressatlas'),
+      crawlerUpdateControls: scope.getElementById('crawler-update-controls'),
       crawlerTopbarVersion: scope.getElementById('crawler-topbar-version'),
+      crawlerUpdateStatus: scope.getElementById('crawler-update-status'),
+      crawlerCheckUpdateButton: scope.getElementById('crawler-check-update'),
       navCrawlerButton: scope.getElementById('nav-crawler'),
       navOrganizerButton: scope.getElementById('nav-organizer'),
       navSubscriptionButton: scope.getElementById('nav-subscription'),
@@ -85,12 +88,9 @@
       chooseBackgroundButton: scope.getElementById('choose-background'),
       resetBackgroundButton: scope.getElementById('reset-background'),
       browseOutputButton: scope.getElementById('browse-output'),
-      openOutputButton: scope.getElementById('open-output'),
-      openMagnetFileButton: scope.getElementById('open-magnet-file'),
       openLogFolderButton: scope.getElementById('open-log-folder'),
       openLogOutputButton: scope.getElementById('open-log-output'),
       openLogMagnetButton: scope.getElementById('open-log-magnet'),
-      updateAntiBlockButton: scope.getElementById('update-antiblock'),
       clearLogButton: scope.getElementById('clear-log'),
       useSuggestedPagesButton: scope.getElementById('use-suggested-pages'),
       statusPill: scope.getElementById('status-pill'),
@@ -187,7 +187,6 @@
       organizerRateLimitGrid: scope.getElementById('organizer-rate-limit-grid'),
       organizerDeleteInterval: scope.getElementById('organizer-delete-interval'),
       organizerOrganizeInterval: scope.getElementById('organizer-organize-interval'),
-      organizerDryRun: scope.getElementById('organizer-dry-run'),
       organizerIncludeSubdirectories: scope.getElementById('organizer-include-subdirectories'),
       organizerStrictCodeMatch: scope.getElementById('organizer-strict-code-match'),
       organizerRetryMissingMagnets: scope.getElementById('organizer-retry-missing-magnets'),
@@ -220,7 +219,6 @@
       organizerAlistUrl: scope.getElementById('organizer-alist-url'),
       organizerStartButton: scope.getElementById('organizer-start'),
       organizerPreviewButton: scope.getElementById('organizer-preview'),
-      organizerRescueNamesButton: scope.getElementById('organizer-rescue-names'),
       organizerOpenWaitingButton: scope.getElementById('organizer-open-waiting'),
       organizerOpenOrganizedButton: scope.getElementById('organizer-open-organized'),
       organizerOpenUnmatchedButton: scope.getElementById('organizer-open-unmatched'),
@@ -326,7 +324,6 @@
       rehydrateCodeButton: scope.getElementById('rehydrateCode'),
       testScrapeButton: scope.getElementById('testScrape'),
       scanFileTypes: scope.getElementById('scanFileTypes'),
-      metadataSourcePriority: scope.getElementById('metadataSourcePriority'),
       libraryScrapeConcurrency: scope.getElementById('libraryScrapeConcurrency'),
       libraryAutoSubscribeLeadActor: scope.getElementById('libraryAutoSubscribeLeadActor'),
       libraryProxyUrl: scope.getElementById('libraryProxyUrl'),
@@ -336,12 +333,9 @@
       browseHiddenArtifactsButton: scope.getElementById('browseHiddenArtifacts'),
       showHiddenFilesCheckbox: scope.getElementById('showHiddenFiles'),
       scanLibraryButton: scope.getElementById('scanLibrary'),
-      filterCompleteButton: scope.getElementById('filterComplete'),
-      filterMissingButton: scope.getElementById('filterMissing'),
-      filterFailedButton: scope.getElementById('filterFailed'),
-      exportIndexButton: scope.getElementById('exportIndex'),
       libraryResultList: scope.getElementById('libraryResultList'),
       toggleLibraryResultScopeButton: scope.getElementById('toggleLibraryResultScope'),
+      toggleLibraryResultFailedButton: scope.getElementById('toggleLibraryResultFailed'),
       libraryStatusPill: scope.getElementById('library-status-pill'),
       libraryProgressPill: scope.getElementById('library-progress-pill'),
       openLibraryLogButton: scope.getElementById('openLibraryLog'),
@@ -351,8 +345,7 @@
       generateNfoOnlyButton: scope.getElementById('generateNfoOnly'),
       downloadImagesOnlyButton: scope.getElementById('downloadImagesOnly'),
       scrapeUnfinishedButton: scope.getElementById('scrapeUnfinished'),
-      stopLibraryScrapeButton: scope.getElementById('stopLibraryScrape'),
-      toggleLibraryLayoutButton: scope.getElementById('toggleLibraryLayout')
+      stopLibraryScrapeButton: scope.getElementById('stopLibraryScrape')
     };
   }
 

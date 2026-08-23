@@ -245,6 +245,9 @@
   function buildDesktopCommandApi() {
     return {
       getSettings: noPayloadCommand('app:get-settings'),
+      checkAppUpdate: noPayloadCommand('app:check-app-update'),
+      downloadAppUpdate: optionsCommand('app:download-app-update'),
+      applyAppUpdate: noPayloadCommand('app:apply-app-update'),
       getCrawlRunContext: noPayloadCommand('app:get-crawl-run-context'),
       getCrawlStagePanel: noPayloadCommand('app:get-crawl-stage-panel'),
       getCrawlResultPanel: noPayloadCommand('app:get-crawl-result-panel'),
@@ -253,6 +256,10 @@
       getLogContext: noPayloadCommand('app:get-log-context'),
       showAlert: optionsCommand('app:show-alert'),
       validateProxy: twoValueCommand('app:validate-proxy', 'proxyValue', 'options'),
+	      // One persisted proxy setting is shared by crawler, Actor Atlas,
+	      // subscriptions, and library metadata. Keep the old Atlas-named route
+	      // below for older renderer bundles during an in-place update.
+	      saveGlobalProxy: optionsCommand('app:save-global-proxy'),
 	      saveActressAtlasProxy: optionsCommand('app:save-actress-atlas-proxy'),
 	      saveWorkspacePreferences: optionsCommand('app:save-workspace-preferences'),
       listCrawlCacheSnapshots: noPayloadCommand('app:list-crawl-cache-snapshots'),
@@ -312,7 +319,6 @@
 	      cacheActressWorkCovers: optionsCommand('app:cache-actress-work-covers'),
 	      loadActressWorksPage: optionsCommand('app:load-actress-works-page'),
       runOrganizer: optionsCommand('app:run-organizer'),
-      rescueOrganizerNames: optionsCommand('app:rescue-organizer-names'),
       startCrawl: optionsCommand('app:start-crawl'),
       restartCrawl: optionsCommand('app:restart-crawl'),
       stopCrawl: noPayloadCommand('app:stop-crawl'),

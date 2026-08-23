@@ -37,8 +37,12 @@ func (s *Service) FetchWorksPage(ctx context.Context, targetURL string, page int
 	if s == nil {
 		return WorksPage{}, fmt.Errorf("actress lookup service is not initialized")
 	}
+	targetURL = strings.TrimSpace(targetURL)
+	if !IsAllowedActressLookupTargetURL(targetURL) {
+		return WorksPage{}, fmt.Errorf("actress works page must use a verified JAVBus actress URL")
+	}
 	page = maxInt(page, 1)
-	pageURL := crawlindex.BuildIndexPageURL(strings.TrimSpace(targetURL), "", "", page)
+	pageURL := crawlindex.BuildIndexPageURL(targetURL, "", "", page)
 	if pageURL == "" {
 		return WorksPage{}, fmt.Errorf("actress target URL is empty")
 	}

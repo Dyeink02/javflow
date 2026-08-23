@@ -53,22 +53,14 @@ func (a *API) loadBridgeSettingsSnapshotStrict() (map[string]any, error) {
 	return a.runtime.store.Load()
 }
 
-// mutateBridgeSettings centralizes the common Load -> mutate -> Save flow used
-// by bridge commands that persist desktop settings. Keeping this in one place
-// reduces the chance that different commands drift into slightly different
-// save semantics during later maintenance.
+// mutateBridgeSettings centralizes the common atomic settings mutation used by
+// bridge commands. The store lock spans the read, mutation, and replacement so
+// two workspace commands cannot save stale full-map snapshots over each other.
 func (a *API) mutateBridgeSettings(mutator func(map[string]any)) (map[string]any, error) {
-	currentSettings, err := a.loadBridgeSettingsSnapshotStrict()
-	if err != nil {
-		return nil, err
+	if a == nil || a.runtime.store == nil {
+		return nil, fmt.Errorf("settings store is not initialized")
 	}
-	if mutator != nil {
-		mutator(currentSettings)
-	}
-	if err := a.runtime.store.Save(currentSettings); err != nil {
-		return nil, err
-	}
-	return currentSettings, nil
+	return a.runtime.store.Mutate(mutator)
 }
 
 // normalizeAdModelType keeps ad-model selection on the supported bridge values.

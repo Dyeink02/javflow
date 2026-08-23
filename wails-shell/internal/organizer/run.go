@@ -223,6 +223,14 @@ func resolveDeleteDestinationPath(paths Paths, sourcePath string) string {
 	return filepath.Join(paths.ToDeleteDir, filepath.Base(sourcePath))
 }
 
+// resolveDeleteFileDestinationPath keeps non-batch cleanup truly file-based.
+// Batch moves retain the source-relative hierarchy, while an individual file
+// goes directly into the visible pending-delete folder. moveWithUnique handles
+// same-name files there without reintroducing the source directory.
+func resolveDeleteFileDestinationPath(paths Paths, sourcePath string) string {
+	return filepath.Join(paths.ToDeleteDir, filepath.Base(sourcePath))
+}
+
 func resolveIntroAdDestinationPath(paths Paths, sourcePath string) string {
 	if relativePath, ok := safeRelativePath(paths.WaitingDir, sourcePath); ok {
 		return filepath.Join(paths.IntroAdDir, relativePath)
