@@ -89,8 +89,27 @@ func (s *Service) ShowAlert(options map[string]any) (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"selection": result,
+		// Windows MessageBox returns the fixed semantic values "Yes" and
+		// "No" even when the UI displays localized text. Map them back to
+		// the caller's labels so renderer code can compare its own buttons.
+		"selection": normalizeDialogSelection(result, buttons),
 	}, nil
+}
+
+func normalizeDialogSelection(result string, buttons []string) string {
+	selection := strings.TrimSpace(result)
+	if len(buttons) < 2 {
+		return selection
+	}
+
+	switch strings.ToLower(selection) {
+	case "yes", "ok", "确定", "是", "是(y)":
+		return buttons[0]
+	case "no", "cancel", "否", "否(n)":
+		return buttons[len(buttons)-1]
+	default:
+		return selection
+	}
 }
 
 func dialogButtons(value any) []string {

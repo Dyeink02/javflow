@@ -83,8 +83,10 @@ type githubAsset struct {
 }
 
 type pendingUpdate struct {
-	Info           UpdateInfo
-	DownloadedPath string
-	TargetPath     string
-	SHA256         string
+	Info            UpdateInfo
+	DownloadedPath  string
+	StagedDirectory string
+	TargetPath      string
+	SHA256          string
+	PackageSHA256   string
 }
