@@ -53,6 +53,13 @@ jobs:
           $version = '${{ github.ref_name }}' -replace '^v', ''
           wails build -ldflags "-X javflow/internal/appupdate.BuildVersion=$version"
 
+      - name: Apply JavFlow icon and EXE metadata
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          $env:JAVFLOW_BUILD_VERSION = $version
+          node scripts/patch-exe-metadata.mjs
+
       - name: Prepare portable package
         shell: pwsh
         run: |
@@ -69,19 +76,27 @@ jobs:
           }
           Copy-Item $exeSource "$staging\javflow.exe"
 
-          # Publish the raw portable EXE as a separate asset. The in-app
-          # updater replaces the currently running EXE and therefore cannot
-          # consume the ZIP as its replacement source.
-          $rawExePath = "release-staging\javflow.exe"
-          Copy-Item $exeSource $rawExePath
-          $exeHash = (Get-FileHash $rawExePath -Algorithm SHA256).Hash
-          "$exeHash  javflow.exe" | Out-File -Encoding ascii "release-staging\javflow.exe.sha256"
+          # The Wails renderer is embedded in the EXE. The files below are
+          # still required by the retained Node compatibility lane, including
+          # the Cloudflare/age-verification path. Keep them in the portable
+          # package so an in-place ZIP update does not produce a partial app.
+          Copy-Item -Recurse "desktop" "$staging\desktop"
+          Copy-Item -Recurse "dist" "$staging\dist"
+          Copy-Item "package.json" "$staging\package.json"
+          Copy-Item "package-lock.json" "$staging\package-lock.json"
 
-          # Copy frontend assets alongside the EXE so users can inspect or
-          # replace them without unpacking the Wails-embedded copy.
-          $frontendDir = "wails-shell\frontend\desktop"
-          if (Test-Path $frontendDir) {
-            Copy-Item -Recurse $frontendDir "$staging\frontend"
+          $nodePath = (Get-Command node -ErrorAction Stop).Source
+          New-Item -ItemType Directory -Force -Path "$staging\runtime\node" | Out-Null
+          Copy-Item $nodePath "$staging\runtime\node\node.exe"
+
+          Push-Location $staging
+          try {
+            npm ci --omit=dev --ignore-scripts
+            if ($LASTEXITCODE -ne 0) {
+              throw "无法为便携包安装生产依赖，退出码：$LASTEXITCODE"
+            }
+          } finally {
+            Pop-Location
           }
 
           # Create ZIP
@@ -93,8 +108,6 @@ jobs:
           "$hash  $zipName" | Out-File -Encoding ascii "release-staging\$zipName.sha256"
 
           Write-Output "EXE path: $exeSource"
-          Write-Output "Raw EXE: $rawExePath"
-          Write-Output "EXE SHA256: $exeHash"
           Write-Output "ZIP: release-staging\$zipName"
           Write-Output "SHA256: $hash"
 
@@ -102,8 +115,6 @@ jobs:
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda  # v2.2.1
         with:
           files: |
-            release-staging/javflow.exe
-            release-staging/javflow.exe.sha256
             release-staging/*.zip
             release-staging/*.zip.sha256
           generate_release_notes: true

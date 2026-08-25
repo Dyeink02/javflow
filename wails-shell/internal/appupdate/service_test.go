@@ -1,6 +1,7 @@
 package appupdate
 
 import (
+	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,17 +14,19 @@ import (
 )
 
 func TestCheckAndDownloadReleaseWithAssetDigest(t *testing.T) {
-	payload := []byte("MZ-javflow-test-executable")
+	payload := buildPortableZip(t, map[string][]byte{
+		"javflow.exe": []byte("MZ-javflow-test-executable"),
+	})
 	digest := sha256Hex(payload)
 	server := newReleaseServer(t, releaseFixture{
 		tag: "v0.4.40",
 		assets: []githubAsset{{
-			Name:               "javflow.exe",
-			BrowserDownloadURL: "/download/javflow.exe",
+			Name:               "JavFlow-Portable-0.4.40.zip",
+			BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip",
 			Digest:             "sha256:" + digest,
 			Size:               int64(len(payload)),
 		}},
-		downloadPath: "/download/javflow.exe",
+		downloadPath: "/download/JavFlow-Portable-0.4.40.zip",
 		downloadBody: payload,
 	})
 	defer server.Close()
@@ -58,31 +61,33 @@ func TestCheckAndDownloadReleaseWithAssetDigest(t *testing.T) {
 	if _, err := os.Stat(downloaded.DownloadedPath); err != nil {
 		t.Fatalf("downloaded file missing: %v", err)
 	}
-	if err := os.Remove(downloaded.DownloadedPath); err != nil {
+	if err := os.RemoveAll(downloaded.DownloadedPath); err != nil {
 		t.Fatalf("cleanup downloaded file: %v", err)
 	}
 }
 
 func TestDownloadReadsSha256SidecarWhenAssetDigestMissing(t *testing.T) {
-	payload := []byte("MZ-sidecar-test-executable")
+	payload := buildPortableZip(t, map[string][]byte{
+		"javflow.exe": []byte("MZ-sidecar-test-executable"),
+	})
 	digest := sha256Hex(payload)
 	server := newReleaseServer(t, releaseFixture{
 		tag: "v0.4.40",
 		assets: []githubAsset{
 			{
-				Name:               "javflow.exe",
-				BrowserDownloadURL: "/download/javflow.exe",
+				Name:               "JavFlow-Portable-0.4.40.zip",
+				BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip",
 				Size:               int64(len(payload)),
 			},
 			{
-				Name:               "javflow.exe.sha256",
-				BrowserDownloadURL: "/download/javflow.exe.sha256",
+				Name:               "JavFlow-Portable-0.4.40.zip.sha256",
+				BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip.sha256",
 			},
 		},
-		downloadPath: "/download/javflow.exe",
+		downloadPath: "/download/JavFlow-Portable-0.4.40.zip",
 		downloadBody: payload,
-		checksumPath: "/download/javflow.exe.sha256",
-		checksumBody: []byte(digest + "  *javflow.exe\n"),
+		checksumPath: "/download/JavFlow-Portable-0.4.40.zip.sha256",
+		checksumBody: []byte(digest + "  *JavFlow-Portable-0.4.40.zip\n"),
 	})
 	defer server.Close()
 
@@ -104,20 +109,22 @@ func TestDownloadReadsSha256SidecarWhenAssetDigestMissing(t *testing.T) {
 	if result.SHA256 != digest {
 		t.Fatalf("sidecar digest = %q, want %q", result.SHA256, digest)
 	}
-	_ = os.Remove(result.DownloadedPath)
+	_ = os.RemoveAll(result.DownloadedPath)
 }
 
 func TestDownloadRejectsChecksumMismatch(t *testing.T) {
-	payload := []byte("MZ-mismatch-test-executable")
+	payload := buildPortableZip(t, map[string][]byte{
+		"javflow.exe": []byte("MZ-mismatch-test-executable"),
+	})
 	server := newReleaseServer(t, releaseFixture{
 		tag: "v0.4.40",
 		assets: []githubAsset{{
-			Name:               "javflow.exe",
-			BrowserDownloadURL: "/download/javflow.exe",
+			Name:               "JavFlow-Portable-0.4.40.zip",
+			BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip",
 			Digest:             strings.Repeat("0", sha256.Size*2),
 			Size:               int64(len(payload)),
 		}},
-		downloadPath: "/download/javflow.exe",
+		downloadPath: "/download/JavFlow-Portable-0.4.40.zip",
 		downloadBody: payload,
 	})
 	defer server.Close()
@@ -138,13 +145,15 @@ func TestDownloadRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestDownloadDoesNotUseChecksumForUnrelatedZipAsset(t *testing.T) {
-	payload := []byte("MZ-executable-without-a-matching-checksum")
+	payload := buildPortableZip(t, map[string][]byte{
+		"javflow.exe": []byte("MZ-executable-without-a-matching-checksum"),
+	})
 	server := newReleaseServer(t, releaseFixture{
 		tag: "v0.4.40",
 		assets: []githubAsset{
 			{
-				Name:               "javflow.exe",
-				BrowserDownloadURL: "/download/javflow.exe",
+				Name:               "JavFlow-Portable-0.4.40.zip",
+				BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip",
 				Size:               int64(len(payload)),
 			},
 			{
@@ -152,7 +161,7 @@ func TestDownloadDoesNotUseChecksumForUnrelatedZipAsset(t *testing.T) {
 				BrowserDownloadURL: "/download/JavFlow-Portable-0.4.40.zip.sha256",
 			},
 		},
-		downloadPath: "/download/javflow.exe",
+		downloadPath: "/download/JavFlow-Portable-0.4.40.zip",
 		downloadBody: payload,
 		checksumPath: "/download/JavFlow-Portable-0.4.40.zip.sha256",
 		checksumBody: []byte(sha256Hex([]byte("zip-content")) + "  JavFlow-Portable-0.4.40.zip\n"),
@@ -177,19 +186,32 @@ func TestDownloadDoesNotUseChecksumForUnrelatedZipAsset(t *testing.T) {
 func TestReplaceExecutableKeepsBackup(t *testing.T) {
 	directory := t.TempDir()
 	sourcePath := filepath.Join(directory, "javflow.exe")
-	replacementPath := filepath.Join(directory, "javflow-update.exe")
+	stagedDirectory := filepath.Join(directory, "staged")
 	backupPath := filepath.Join(directory, "javflow.previous.exe")
 	sourcePayload := []byte("MZ-old-executable")
 	replacementPayload := []byte("MZ-new-executable")
+	if err := os.MkdirAll(filepath.Join(stagedDirectory, "frontend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(sourcePath, sourcePayload, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(replacementPath, replacementPayload, 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(stagedDirectory, "javflow.exe"), replacementPayload, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagedDirectory, "frontend", "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "user-data.json"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expectedSHA, err := packageTreeSHA256(stagedDirectory)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := replaceExecutable(sourcePath, replacementPath, backupPath, sha256Hex(replacementPayload)); err != nil {
-		t.Fatalf("replaceExecutable failed: %v", err)
+	if err := replacePortablePackage(sourcePath, stagedDirectory, backupPath, expectedSHA); err != nil {
+		t.Fatalf("replacePortablePackage failed: %v", err)
 	}
 	if actual, err := os.ReadFile(sourcePath); err != nil || string(actual) != string(replacementPayload) {
 		t.Fatalf("source after replacement = %q, err=%v", actual, err)
@@ -197,6 +219,77 @@ func TestReplaceExecutableKeepsBackup(t *testing.T) {
 	if actual, err := os.ReadFile(backupPath); err != nil || string(actual) != string(sourcePayload) {
 		t.Fatalf("backup after replacement = %q, err=%v", actual, err)
 	}
+	if actual, err := os.ReadFile(filepath.Join(directory, "frontend", "new.txt")); err != nil || string(actual) != "new" {
+		t.Fatalf("new package file = %q, err=%v", actual, err)
+	}
+	if actual, err := os.ReadFile(filepath.Join(directory, "user-data.json")); err != nil || string(actual) != "keep" {
+		t.Fatalf("user data after replacement = %q, err=%v", actual, err)
+	}
+}
+
+func TestExtractPortableArchiveRejectsTraversalAndRequiresRootExecutable(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string][]byte
+		want  string
+	}{
+		{
+			name:  "path traversal",
+			files: map[string][]byte{"../outside.txt": []byte("unsafe")},
+			want:  "路径越界",
+		},
+		{
+			name:  "missing executable",
+			files: map[string][]byte{"frontend/index.html": []byte("html")},
+			want:  "缺少根目录 javflow.exe",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			archivePath := filepath.Join(t.TempDir(), "update.zip")
+			if err := os.WriteFile(archivePath, buildPortableZip(t, test.files), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			targetDirectory := filepath.Join(t.TempDir(), "staged")
+			if err := os.MkdirAll(targetDirectory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err := extractPortableArchive(archivePath, targetDirectory)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("extractPortableArchive error = %v, want text %q", err, test.want)
+			}
+		})
+	}
+}
+
+func buildPortableZip(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	pathValue := filepath.Join(t.TempDir(), "portable.zip")
+	file, err := os.Create(pathValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for name, contents := range files {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(contents); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(pathValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contents
 }
 
 type releaseFixture struct {

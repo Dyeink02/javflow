@@ -3,7 +3,7 @@
 //
 // Ownership summary:
 // 1) query the configured GitHub release and compare product versions
-// 2) download only the JavFlow EXE and verify its SHA-256/PE signature
+// 2) download and verify the portable ZIP package
 // 3) keep proxy selection and file staging separate from the Wails bridge
 //
 // File map for maintainers:
@@ -17,6 +17,7 @@
 package appupdate
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,7 +27,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -121,9 +124,9 @@ func (s *Service) checkRelease(ctx context.Context) (UpdateInfo, githubRelease, 
 		return info, release, githubAsset{}, nil
 	}
 
-	asset, ok := selectExecutableAsset(release.Assets)
+	asset, ok := selectPortableAsset(release.Assets)
 	if !ok {
-		return UpdateInfo{}, githubRelease{}, githubAsset{}, fmt.Errorf("Release %s 未找到 JavFlow EXE 资产", release.TagName)
+		return UpdateInfo{}, githubRelease{}, githubAsset{}, fmt.Errorf("Release %s 未找到 JavFlow 便携包 ZIP 资产", release.TagName)
 	}
 	info.UpdateAvailable = true
 	info.AssetName = asset.Name
@@ -197,7 +200,7 @@ func (s *Service) Download(ctx context.Context, requestedVersion string) (Update
 		return UpdateInfo{}, fmt.Errorf("更新文件超过大小限制，已拒绝下载")
 	}
 
-	temporaryFile, err := os.CreateTemp(targetDirectory, ".javflow-update-*.part")
+	temporaryFile, err := os.CreateTemp(targetDirectory, ".javflow-update-*.zip.part")
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("无法在 EXE 目录创建更新临时文件：%w", err)
 	}
@@ -233,24 +236,35 @@ func (s *Service) Download(ctx context.Context, requestedVersion string) (Update
 	if !strings.EqualFold(actualChecksum, checksum) {
 		return UpdateInfo{}, fmt.Errorf("更新文件 SHA-256 校验失败，文件可能已损坏或被替换")
 	}
-	if err := validatePortableExecutable(temporaryPath); err != nil {
+	stagedDirectory, err := os.MkdirTemp(targetDirectory, ".javflow-update-staging-*")
+	if err != nil {
+		return UpdateInfo{}, fmt.Errorf("无法创建便携包临时目录：%w", err)
+	}
+	if err := extractPortableArchive(temporaryPath, stagedDirectory); err != nil {
+		_ = os.RemoveAll(stagedDirectory)
+		return UpdateInfo{}, err
+	}
+	_ = os.Remove(temporaryPath)
+	packageSHA256, err := packageTreeSHA256(stagedDirectory)
+	if err != nil {
+		_ = os.RemoveAll(stagedDirectory)
+		return UpdateInfo{}, fmt.Errorf("无法校验解压后的便携包：%w", err)
+	}
+	if err := validatePortableExecutable(filepath.Join(stagedDirectory, "javflow.exe")); err != nil {
+		_ = os.RemoveAll(stagedDirectory)
 		return UpdateInfo{}, err
 	}
 
-	finalPath := filepath.Join(targetDirectory, fmt.Sprintf("javflow-update-%d.exe", time.Now().UnixNano()))
-	if err := os.Rename(temporaryPath, finalPath); err != nil {
-		return UpdateInfo{}, fmt.Errorf("无法保存已校验的更新文件：%w", err)
-	}
-	keepTemporary = true
-
-	info.DownloadedPath = finalPath
+	info.DownloadedPath = stagedDirectory
 	info.DownloadReady = true
 	s.mu.Lock()
 	s.pending = &pendingUpdate{
-		Info:           info,
-		DownloadedPath: finalPath,
-		TargetPath:     targetPath,
-		SHA256:         checksum,
+		Info:            info,
+		DownloadedPath:  stagedDirectory,
+		StagedDirectory: stagedDirectory,
+		TargetPath:      targetPath,
+		SHA256:          checksum,
+		PackageSHA256:   packageSHA256,
 	}
 	s.mu.Unlock()
 	return info, nil
@@ -287,13 +301,13 @@ func (s *Service) fetchLatestRelease(ctx context.Context) (githubRelease, error)
 	return release, nil
 }
 
-func (s *Service) resolveExpectedChecksum(ctx context.Context, release githubRelease, executable githubAsset) (string, error) {
-	if checksum := normalizeSHA256(executable.Digest); checksum != "" {
+func (s *Service) resolveExpectedChecksum(ctx context.Context, release githubRelease, packageAsset githubAsset) (string, error) {
+	if checksum := normalizeSHA256(packageAsset.Digest); checksum != "" {
 		return checksum, nil
 	}
 
 	for _, asset := range release.Assets {
-		if !isChecksumAssetForExecutable(asset.Name, executable.Name) {
+		if !isChecksumAssetForAsset(asset.Name, packageAsset.Name) {
 			continue
 		}
 		assetURL, err := s.assetURL(asset)
@@ -318,12 +332,12 @@ func (s *Service) resolveExpectedChecksum(ctx context.Context, release githubRel
 		if readErr != nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 			continue
 		}
-		if checksum := parseChecksumText(string(body), executable.Name); checksum != "" {
+		if checksum := parseChecksumText(string(body), packageAsset.Name); checksum != "" {
 			return checksum, nil
 		}
 	}
 
-	return "", fmt.Errorf("Release 未提供 javflow.exe 的 SHA-256 校验值，请上传 digest 或 .sha256 校验文件")
+	return "", fmt.Errorf("Release 未提供便携包的 SHA-256 校验值，请上传 digest 或 .sha256 校验文件")
 }
 
 func (s *Service) assetURL(asset githubAsset) (string, error) {
@@ -424,15 +438,10 @@ func responseError(response *http.Response) error {
 	return fmt.Errorf("远程更新服务返回异常：%s", detail)
 }
 
-func selectExecutableAsset(assets []githubAsset) (githubAsset, bool) {
-	for _, asset := range assets {
-		if strings.EqualFold(strings.TrimSpace(asset.Name), "javflow.exe") {
-			return asset, true
-		}
-	}
+func selectPortableAsset(assets []githubAsset) (githubAsset, bool) {
 	for _, asset := range assets {
 		name := strings.ToLower(strings.TrimSpace(asset.Name))
-		if strings.HasSuffix(name, ".exe") && strings.Contains(name, "javflow") {
+		if strings.HasPrefix(name, "javflow-portable-") && strings.HasSuffix(name, ".zip") {
 			return asset, true
 		}
 	}
@@ -444,14 +453,14 @@ func isChecksumAsset(name string) bool {
 	return strings.Contains(lower, "sha256") || strings.Contains(lower, "checksum")
 }
 
-func isChecksumAssetForExecutable(checksumName string, executableName string) bool {
+func isChecksumAssetForAsset(checksumName string, assetName string) bool {
 	if !isChecksumAsset(checksumName) {
 		return false
 	}
 
 	checksumBase := strings.ToLower(filepath.Base(strings.TrimSpace(checksumName)))
-	executableBase := strings.ToLower(filepath.Base(strings.TrimSpace(executableName)))
-	if executableBase != "" && strings.Contains(checksumBase, executableBase) {
+	assetBase := strings.ToLower(filepath.Base(strings.TrimSpace(assetName)))
+	if assetBase != "" && strings.Contains(checksumBase, assetBase) {
 		return true
 	}
 
@@ -515,6 +524,149 @@ func validatePortableExecutable(pathValue string) error {
 		return fmt.Errorf("更新文件不是有效的 Windows EXE")
 	}
 	return nil
+}
+
+func extractPortableArchive(archivePath string, targetDirectory string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return fmt.Errorf("更新文件不是有效的便携包 ZIP：%w", err)
+	}
+	defer reader.Close()
+
+	seen := make(map[string]struct{}, len(reader.File))
+	var extractedBytes int64
+	for _, entry := range reader.File {
+		relativePath, isDirectory, err := portableArchivePath(entry.Name)
+		if err != nil {
+			return err
+		}
+		if relativePath == "" {
+			continue
+		}
+		if _, duplicate := seen[relativePath]; duplicate {
+			return fmt.Errorf("便携包包含重复文件：%s", entry.Name)
+		}
+		seen[relativePath] = struct{}{}
+		absolutePath := filepath.Join(targetDirectory, filepath.FromSlash(relativePath))
+		if !pathWithinDirectory(targetDirectory, absolutePath) {
+			return fmt.Errorf("便携包路径越界：%s", entry.Name)
+		}
+		if isDirectory {
+			if err := os.MkdirAll(absolutePath, 0o755); err != nil {
+				return fmt.Errorf("无法创建便携包目录：%w", err)
+			}
+			continue
+		}
+		if entry.FileInfo().Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("便携包不允许包含符号链接：%s", entry.Name)
+		}
+		if entry.UncompressedSize64 > uint64(maxAssetBytes) || extractedBytes+int64(entry.UncompressedSize64) > maxAssetBytes {
+			return fmt.Errorf("便携包解压后超过大小限制，已拒绝处理")
+		}
+		if err := os.MkdirAll(filepath.Dir(absolutePath), 0o755); err != nil {
+			return fmt.Errorf("无法创建便携包文件目录：%w", err)
+		}
+		input, err := entry.Open()
+		if err != nil {
+			return fmt.Errorf("无法读取便携包文件 %s：%w", entry.Name, err)
+		}
+		output, err := os.OpenFile(absolutePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, portableFileMode(relativePath))
+		if err != nil {
+			input.Close()
+			return fmt.Errorf("无法写入便携包文件 %s：%w", entry.Name, err)
+		}
+		written, copyErr := io.Copy(output, io.LimitReader(input, maxAssetBytes+1))
+		closeInputErr := input.Close()
+		closeOutputErr := output.Close()
+		if copyErr != nil || closeInputErr != nil || closeOutputErr != nil || written != int64(entry.UncompressedSize64) {
+			return fmt.Errorf("便携包文件写入校验失败：%s", entry.Name)
+		}
+		extractedBytes += written
+	}
+
+	if _, err := os.Stat(filepath.Join(targetDirectory, "javflow.exe")); err != nil {
+		return fmt.Errorf("便携包缺少根目录 javflow.exe")
+	}
+	return nil
+}
+
+func portableArchivePath(rawPath string) (string, bool, error) {
+	cleaned := strings.ReplaceAll(strings.TrimSpace(rawPath), "\\", "/")
+	if cleaned == "" {
+		return "", false, nil
+	}
+	if strings.HasPrefix(cleaned, "/") || strings.Contains(cleaned, ":") {
+		return "", false, fmt.Errorf("便携包路径无效：%s", rawPath)
+	}
+	normalized := path.Clean(cleaned)
+	if normalized == "." || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", false, fmt.Errorf("便携包路径越界：%s", rawPath)
+	}
+	return normalized, strings.HasSuffix(cleaned, "/"), nil
+}
+
+func portableFileMode(relativePath string) os.FileMode {
+	if strings.EqualFold(filepath.Base(filepath.FromSlash(relativePath)), "javflow.exe") {
+		return 0o755
+	}
+	return 0o644
+}
+
+func pathWithinDirectory(directory string, candidate string) bool {
+	root, err := filepath.Abs(directory)
+	if err != nil {
+		return false
+	}
+	target, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(root, target)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func packageTreeSHA256(directory string) (string, error) {
+	files := make([]string, 0)
+	err := filepath.WalkDir(directory, func(pathValue string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("便携包临时目录不允许包含符号链接：%s", pathValue)
+		}
+		relative, err := filepath.Rel(directory, pathValue)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(files)
+	hasher := sha256.New()
+	for _, relative := range files {
+		if _, err := io.WriteString(hasher, relative+"\x00"); err != nil {
+			return "", err
+		}
+		file, err := os.Open(filepath.Join(directory, filepath.FromSlash(relative)))
+		if err != nil {
+			return "", err
+		}
+		_, copyErr := io.Copy(hasher, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func fileSHA256(pathValue string) (string, error) {
