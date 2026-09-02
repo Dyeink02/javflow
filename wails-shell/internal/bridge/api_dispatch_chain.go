@@ -39,7 +39,6 @@ func (a *API) dispatchChain() []dispatchStep {
 		{name: "lookup", handler: a.handleLookupCommand},
 		{name: "dialog", handler: a.handleDialogCommand},
 		{name: "subscription-v2", handler: a.handleSubscriptionV2Command},
-		{name: "subscription", handler: a.handleSubscriptionCommand},
 		{name: "organizer", handler: a.handleOrganizerCommand},
 		{name: "librarymetadata", handler: a.handleLibraryMetadataCommand},
 	}

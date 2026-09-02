@@ -26,7 +26,7 @@
   const FALLBACK_SHARED_TEXT = {
     APP_INFO: {
       title: 'JavFlow',
-      version: '0.4.4',
+      version: '0.4.41',
       subtitle: '基于开源项目：raawaa',
       eyebrow: 'Windows EXE',
       defaultBaseUrl: 'https://www.javbus.com'
@@ -116,11 +116,12 @@
       { version: '0.4.0', summary: '品牌升级为 JavFlow，发布日期过滤、反封锁增强、媒体库刮削修复、UI 与交互优化' },
       { version: '0.4.1', summary: '视频整理磁力别名严格匹配、媒体库刮削修复、A/B 分集共享元数据' },
       { version: '0.4.2', summary: '视频整理、媒体库刮削与 AV 订阅体验优化' },
-      { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' },
-      { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
-      { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' },
-      { version: '0.4.4', summary: '流程减负、演员图鉴榜单与订阅稳定性提升' }
-    ],
+    { version: '0.4.3', summary: '演员图鉴上线：真实榜单、演员资料、作品浏览与爬虫联动' },
+    { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
+    { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' },
+    { version: '0.4.40', summary: '流程减负、演员图鉴榜单与订阅稳定性提升' },
+    { version: '0.4.41', summary: '安装与升级体系重构，日志保护与清理性能优化' }
+  ],
     UI_TEXT_SOURCE: {
       hero: {
         eyebrow: 'Windows EXE',
@@ -207,8 +208,8 @@
         nomagHelp: '没有磁力链接的影片将不写入结果。',
         allmagTitle: '磁力全部爬取',
         allmagHelp: '默认只保留最大磁力，开启后保存全部磁力。',
-        magnetContentValidationTitle: '磁力内容校验（广告过滤）',
-        magnetContentValidationHelp: '会尝试读取磁力内部文件列表，发现广告包或杂文件包时自动跳过并切换下一条候选磁力；开启后速度会稍慢。',
+        magnetContentValidationTitle: '磁力内容严格校验（广告与合集）',
+        magnetContentValidationHelp: '默认关闭：开启后读取候选 torrent 内部文件列表，仅保留已验证的单番号影片；发现广告、杂文件、多个不同番号或读取失败时自动跳过并尝试下一条。',
         nopicTitle: '跳过图片下载',
         nopicHelp: '仅抓取影片信息和磁力，不下载图片。',
         metadataOnlyTitle: '仅抓取影片信息（不获取磁力）',
@@ -236,7 +237,8 @@
         downloadedPrefix: '已下载 v',
         applyButton: '立即更新',
         applying: '正在准备重启...',
-        latest: '',
+        latest: '当前已是最新版本',
+        portableMessage: '便携版暂不支持在线升级，请前往 GitHub Release 页面下载最新便携包。',
         checkFailedPrefix: '更新检查失败：',
         downloadFailedPrefix: '更新下载失败：',
         applyFailedPrefix: '更新启动失败：',
@@ -486,7 +488,7 @@
   const UI_TEXT = deepMerge(
     {
       appTitle: appInfo.title || 'JAV自动化整理归纳视频软件',
-      version: appInfo.version || '0.4.4',
+      version: appInfo.version || '0.4.41',
       source: {
         href: appInfo.sourceUrl || 'https://www.javbus.com/star/okq',
         name: appInfo.sourceName || '三上悠亜'
@@ -588,16 +590,6 @@
     const crawlerTopbarVersion = root.getElementById('crawler-topbar-version');
     if (crawlerTopbarVersion) {
       crawlerTopbarVersion.textContent = `v${UI_TEXT.version}`;
-    }
-
-    const organizerVersionBadge = root.getElementById('organizer-version-badge');
-    if (organizerVersionBadge) {
-      organizerVersionBadge.textContent = `v${UI_TEXT.version}`;
-    }
-
-    const subscriptionVersionBadge = root.getElementById('subscription-version-badge');
-    if (subscriptionVersionBadge) {
-      subscriptionVersionBadge.textContent = `v${UI_TEXT.version}`;
     }
 
     const sourceLink = root.getElementById('source-link');

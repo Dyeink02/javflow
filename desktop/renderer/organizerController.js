@@ -800,6 +800,7 @@
       bindOpenOrganizerPathButton(elements.organizerOpenOrganizedButton, 'root');
       bindOpenOrganizerPathButton(elements.organizerOpenUnmatchedButton, 'unmatched');
       bindOpenOrganizerPathButton(elements.organizerOpenDeleteButton, 'delete');
+      bindOpenOrganizerPathButton(elements.organizerOpenLogFolderButton, 'logs');
 
       bindAsyncClick(elements.organizerStartButton, async () => {
         await runOrganizerTask(false);

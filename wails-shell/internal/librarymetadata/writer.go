@@ -17,7 +17,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"javflow/internal/netguard"
 	"javflow/internal/proxy"
 )
 
@@ -92,10 +92,13 @@ func WriteMetadataContext(parent context.Context, options WriteOptions) WriteRes
 
 	proxyURL := proxy.NormalizeProxyValue(options.Proxy)
 
-	transport := &http.Transport{}
+	transport := netguard.NewPublicTransport()
 	if proxyURL != "" {
 		parsedProxy, err := url.Parse(proxyURL)
 		if err == nil {
+			// A user-selected proxy owns the outbound connection. Requests still
+			// validate their public URL and every redirect before being sent.
+			transport.DialContext = nil
 			transport.Proxy = http.ProxyURL(parsedProxy)
 		}
 	}
@@ -103,6 +106,7 @@ func WriteMetadataContext(parent context.Context, options WriteOptions) WriteRes
 		Timeout:   30 * time.Second,
 		Transport: transport,
 	}
+	netguard.ApplyRedirectPolicy(imageClient)
 
 	if !options.SkipNfo {
 		// 在生成 NFO 之前先下载演员封面图，这样 NFO 里可以引用本地相对路径。
@@ -189,13 +193,11 @@ func WriteMetadataContext(parent context.Context, options WriteOptions) WriteRes
 
 	for _, task := range tasks {
 		if len(task.urls) == 0 || task.destPath == "" {
-			fmt.Printf("[DEBUG] skip task %s: urls=%d destPath=%q\n", task.kind, len(task.urls), task.destPath)
 			continue
 		}
 		wg.Add(1)
 		go func(t imageTask) {
 			defer wg.Done()
-			fmt.Printf("[DEBUG] task %s useFetcher=%v fetcherNil=%v urls=%v\n", t.kind, t.useFetcher, options.ImageFetcher == nil, t.urls)
 			if t.useFetcher && options.ImageFetcher != nil {
 				if err := downloadImageWithEngineFallback(ctx, options.ImageFetcher, t.urls, t.destPath, t.providerName); err == nil {
 					mu.Lock()
@@ -269,20 +271,6 @@ func stripLeadingMovieCode(title, code string) string {
 	return title
 }
 
-func isForbiddenImageHost(host string) bool {
-	host = strings.TrimSpace(strings.ToLower(host))
-	if host == "" {
-		return true
-	}
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
-	}
-	return false
-}
-
 func writeNFO(destPath string, info *MovieInfo) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return err
@@ -306,25 +294,28 @@ func downloadImageWithEngineFallback(ctx context.Context, fetcher func(string, s
 
 	var lastErr error
 	for _, imageURL := range urls {
-		fmt.Printf("[DEBUG] engine fetcher url=%s provider=%s\n", imageURL, providerName)
-		data, err := fetcher(imageURL, providerName)
-		if err != nil {
-			fmt.Printf("[DEBUG] engine fetcher error: %v\n", err)
+		parsedURL, parseErr := url.Parse(strings.TrimSpace(imageURL))
+		if parseErr != nil {
+			lastErr = fmt.Errorf("图片 URL 格式无效：%w", parseErr)
+			continue
+		}
+		if err := validateRemoteImageURL(ctx, parsedURL); err != nil {
 			lastErr = err
 			continue
 		}
-		fmt.Printf("[DEBUG] engine fetcher got data len=%d\n", len(data))
+		data, err := fetcher(imageURL, providerName)
+		if err != nil {
+			lastErr = err
+			continue
+		}
 		if err := validateImageBytes(data); err != nil {
-			fmt.Printf("[DEBUG] validate error: %v\n", err)
 			lastErr = err
 			continue
 		}
 		if err := writeImageData(destPath, data); err != nil {
-			fmt.Printf("[DEBUG] write error: %v\n", err)
 			lastErr = err
 			continue
 		}
-		fmt.Printf("[DEBUG] engine fetcher success\n")
 		return nil
 	}
 	return lastErr
@@ -375,12 +366,7 @@ func downloadImage(ctx context.Context, client *http.Client, imageURL, destPath 
 	}
 
 	clientCopy := *client
-	clientCopy.CheckRedirect = func(redirectReq *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return fmt.Errorf("重定向次数过多")
-		}
-		return validateRemoteImageURL(redirectReq.Context(), redirectReq.URL)
-	}
+	netguard.ApplyRedirectPolicy(&clientCopy)
 	resp, err := clientCopy.Do(req)
 	if err != nil {
 		return err
@@ -443,22 +429,8 @@ func downloadImage(ctx context.Context, client *http.Client, imageURL, destPath 
 }
 
 func validateRemoteImageURL(ctx context.Context, parsedURL *url.URL) error {
-	if parsedURL == nil || (!strings.EqualFold(parsedURL.Scheme, "http") && !strings.EqualFold(parsedURL.Scheme, "https")) {
-		return fmt.Errorf("不支持的图片协议")
-	}
-	if isForbiddenImageHost(parsedURL.Hostname()) {
-		return fmt.Errorf("图片 URL 不允许指向本机或私有网络")
-	}
-	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	addresses, err := net.DefaultResolver.LookupIPAddr(lookupCtx, parsedURL.Hostname())
-	if err != nil {
-		return fmt.Errorf("图片域名解析失败：%w", err)
-	}
-	for _, address := range addresses {
-		if address.IP.IsLoopback() || address.IP.IsPrivate() || address.IP.IsLinkLocalUnicast() || address.IP.IsLinkLocalMulticast() {
-			return fmt.Errorf("图片域名解析到本机或私有网络")
-		}
+	if err := netguard.ValidatePublicURL(ctx, parsedURL); err != nil {
+		return fmt.Errorf("图片 URL 不允许指向本机或私有网络：%w", err)
 	}
 	return nil
 }

@@ -42,7 +42,8 @@ var (
 		"BLURAY": {}, "UHD": {}, "FHD": {}, "HD": {}, "SD": {},
 		"MP4": {}, "MKV": {}, "TS": {}, "AVI": {}, "MOV": {}, "M4V": {},
 	}
-	defaultVideoExtensions = []string{".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".ts", ".m4v", ".iso"}
+	defaultVideoExtensions        = []string{".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".ts", ".m4v", ".iso"}
+	invalidWindowsFilenamePattern = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
 )
 
 // This file owns organizer-side code extraction and normalization rules.
@@ -400,6 +401,47 @@ func extractAdvancedFilmCode(value string) string {
 		return normalizeFilmID(strings.ReplaceAll(matches[1], "_", "-"))
 	}
 	return ""
+}
+
+// normalizeTargetFilmCode is the final safety gate before a recognized code is
+// used as a Windows filename. Scan candidates should already be canonical, but
+// imported snapshots and older state can retain title fragments such as
+// "DRDZ-002.mp4**". Never allow those fragments into the target-name plan.
+func normalizeTargetFilmCode(value string) string {
+	if extracted := extractFilmID(value); extracted != "" {
+		return extracted
+	}
+	return extractAdvancedFilmCode(value)
+}
+
+// sanitizeOutputFileName is the final filename boundary for every organizer
+// move, including candidates that have no recognized film code. Imported
+// states and ISO release names can contain shell globs such as "*.iso";
+// passing those through would fail on Windows or create misleading paths.
+func sanitizeOutputFileName(value string, fallback string) string {
+	name := strings.TrimSpace(filepath.Base(value))
+	name = invalidWindowsFilenamePattern.ReplaceAllString(name, "_")
+	name = strings.TrimRight(name, ". ")
+	if name == "" || name == "." || name == ".." {
+		name = strings.TrimSpace(fallback)
+	}
+	if name == "" {
+		name = "UNNAMED"
+	}
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	switch strings.ToUpper(base) {
+	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		name = "_" + name
+	}
+	return name
+}
+
+func normalizedSourceExtension(sourcePath string) string {
+	ext := strings.ToLower(filepath.Ext(filepath.Base(strings.TrimSpace(sourcePath))))
+	if ext == "" || len(ext) > 10 || !regexp.MustCompile(`^\.[a-z0-9]+$`).MatchString(ext) {
+		return ""
+	}
+	return ext
 }
 
 // extractFilmCodeFromFile is organizer's one filename-to-code classifier.

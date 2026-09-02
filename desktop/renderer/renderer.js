@@ -492,9 +492,11 @@
     )
   );
   subscriptionCrawlSessionBridge.getSession = () =>
-    subscriptionController && typeof subscriptionController.getActiveCrawlSession === 'function'
-      ? subscriptionController.getActiveCrawlSession()
-      : null;
+    subscriptionController && typeof subscriptionController.getBridgeCrawlSession === 'function'
+      ? subscriptionController.getBridgeCrawlSession()
+      : subscriptionController && typeof subscriptionController.getActiveCrawlSession === 'function'
+        ? subscriptionController.getActiveCrawlSession()
+        : null;
 
   const libraryMetadataController = libraryMetadataControllerFactory.createLibraryMetadataController(
     buildLibraryMetadataControllerOptions(elements, desktopApi, uiText, rendererShellController)

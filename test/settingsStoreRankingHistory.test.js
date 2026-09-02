@@ -10,6 +10,23 @@ describe('settingsStore ranking-history scaffolds', () => {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'jav-settings-store-'));
   }
 
+  it('defaults magnet content validation to disabled', () => {
+    const root = createTempAppRoot();
+    const store = createSettingsStore({
+      app: {
+        getPath(name) {
+          return path.join(root, name);
+        }
+      },
+      fs,
+      path,
+      appInfo: {},
+      magnetFilename: 'magnet-links.txt'
+    });
+
+    assert.strictEqual(store.getDefaultSettings().magnetContentValidation, false);
+  });
+
   it('writes utf8 ranking-history guide and example templates in the current single-file format', () => {
     const root = createTempAppRoot();
     const userData = path.join(root, 'userData');

@@ -19,6 +19,30 @@ func TestAttachBackgroundURLUsesBundledDefault(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsMagnetContentValidationToDisabledAndPreservesSavedChoice(t *testing.T) {
+	tempDir := t.TempDir()
+	store := NewStore(runtimepaths.Paths{UserData: tempDir, Documents: tempDir})
+
+	defaults, err := store.Load()
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	if got := defaults["magnetContentValidation"]; got != false {
+		t.Fatalf("default magnetContentValidation = %v, want false", got)
+	}
+
+	if err := store.Save(map[string]any{"magnetContentValidation": true}); err != nil {
+		t.Fatalf("save explicit setting: %v", err)
+	}
+	preserved, err := store.Load()
+	if err != nil {
+		t.Fatalf("load saved setting: %v", err)
+	}
+	if got := preserved["magnetContentValidation"]; got != true {
+		t.Fatalf("saved magnetContentValidation = %v, want true", got)
+	}
+}
+
 func TestAttachBackgroundURLUsesCustomImageWhenAvailable(t *testing.T) {
 	store := NewStore(runtimepaths.Paths{UserData: t.TempDir()})
 	imagePath := filepath.Join(t.TempDir(), "custom.png")

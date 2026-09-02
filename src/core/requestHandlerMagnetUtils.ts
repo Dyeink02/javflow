@@ -2,6 +2,34 @@
 import type { ParsedMagnetCandidate } from './requestHandlerTypes';
 import type { MagnetResult } from '../types/interfaces';
 
+// Aggregate magnets are unsafe defaults for a single-film crawl: their
+// display name can contain dozens of unrelated film codes and their size
+// therefore wins the normal largest-magnet ranking. Keep this policy local to
+// magnet candidate handling so it is applied before any size selection.
+const FILM_CODE_TOKEN_PATTERN = /\b[A-Z]{2,12}-?\d{1,8}[A-Z]*\b/gi;
+const COLLECTION_MARKER_PATTERN = /(?:合集|大合集|全集|全套|全系列|collection|complete\s*(?:series|collection)|best\s*of|box\s*set|pack)/i;
+
+function normalizeFilmCode(value: string): string {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+export function isCollectionMagnetCandidate(candidate: ParsedMagnetCandidate): boolean {
+  const displayName = String(candidate.displayName || getMagnetDisplayName(candidate.magnetLink) || '').trim();
+  if (!displayName) {
+    return false;
+  }
+  if (COLLECTION_MARKER_PATTERN.test(displayName)) {
+    return true;
+  }
+
+  const codes = new Set(
+    Array.from(displayName.matchAll(FILM_CODE_TOKEN_PATTERN))
+      .map((match) => normalizeFilmCode(match[0]))
+      .filter(Boolean)
+  );
+  return codes.size >= 2;
+}
+
 export function getMagnetExcludeKeywords(rawValue: string | undefined): string[] {
   const normalized = String(rawValue || '').trim();
   if (!normalized) {
@@ -53,7 +81,7 @@ export function applyMagnetExcludeFilter(
   rawKeywords: string | undefined
 ): ParsedMagnetCandidate[] {
   const keywords = getMagnetExcludeKeywords(rawKeywords);
-  if (keywords.length === 0 || candidates.length === 0) {
+  if (candidates.length === 0) {
     return candidates;
   }
 
@@ -61,11 +89,16 @@ export function applyMagnetExcludeFilter(
   const retainedCandidates: ParsedMagnetCandidate[] = [];
 
   for (const candidate of candidates) {
+    if (isCollectionMagnetCandidate(candidate)) {
+      filteredOut.push({ candidate, keyword: '内置大合集规则' });
+      continue;
+    }
+
     const displayName = candidate.displayName.toLowerCase();
     const magnetText = candidate.magnetLink.toLowerCase();
-    const matchedKeyword = keywords.find(
-      (keyword) => displayName.includes(keyword) || magnetText.includes(keyword)
-    );
+    const matchedKeyword = keywords.length > 0
+      ? keywords.find((keyword) => displayName.includes(keyword) || magnetText.includes(keyword))
+      : undefined;
 
     if (matchedKeyword) {
       filteredOut.push({ candidate, keyword: matchedKeyword });
@@ -77,7 +110,7 @@ export function applyMagnetExcludeFilter(
 
   if (filteredOut.length > 0) {
     logger.info(
-      `fetchMagnet: ${title} 命中过滤词并跳过 ${filteredOut.length} 条磁力，保留 ${retainedCandidates.length} 条。`
+      `fetchMagnet: ${title} 跳过 ${filteredOut.length} 条磁力（含内置大合集/用户过滤词），保留 ${retainedCandidates.length} 条。`
     );
     filteredOut.slice(0, 5).forEach(({ candidate, keyword }, index) => {
       const preview = candidate.displayName || candidate.magnetLink;

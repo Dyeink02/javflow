@@ -6,7 +6,7 @@
 //
 // Practical scope:
 // 1) organizer should stay on persisted crawl artifacts and local file rules
-// 2) avsubscription should stay on persisted artifacts and lightweight target
+// 2) avsubscriptionv2 should stay on persisted artifacts and lightweight target
 //    contracts
 // 3) crawl execution packages should not drift back into organizer/subscription
 //    business domains

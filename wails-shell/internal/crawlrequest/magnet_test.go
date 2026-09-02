@@ -56,6 +56,39 @@ func TestApplyMagnetExcludeFilter(t *testing.T) {
 	}
 }
 
+func TestApplyMagnetExcludeFilterRemovesCollectionCandidatesByDefault(t *testing.T) {
+	collection := ParsedMagnetCandidate{
+		MagnetLink:  "magnet:?xt=urn:btih:COLLECTION&dn=%5Bls%5D%2ABF-271%2CBF-272%2CDGL-041%2CSNIS-009%2CSNIS-010.FHD",
+		DisplayName: "[ls]*BF-271,BF-272,DGL-041,SNIS-009,SNIS-010.FHD",
+		Size:        75786,
+	}
+	regular := ParsedMagnetCandidate{
+		MagnetLink:  "magnet:?xt=urn:btih:REGULAR&dn=SNIS-009",
+		DisplayName: "SNIS-009",
+		Size:        5200,
+	}
+
+	if !IsCollectionMagnetCandidate(collection) {
+		t.Fatalf("expected aggregate candidate to be detected: %#v", collection)
+	}
+	if IsCollectionMagnetCandidate(regular) {
+		t.Fatalf("regular single-film candidate was misclassified: %#v", regular)
+	}
+
+	filtered := ApplyMagnetExcludeFilter([]ParsedMagnetCandidate{collection, regular}, "")
+	if len(filtered) != 1 || filtered[0].DisplayName != regular.DisplayName {
+		t.Fatalf("expected only regular candidate after built-in collection filtering: %#v", filtered)
+	}
+}
+
+func TestIsCollectionMagnetCandidateRecognizesExplicitMarkers(t *testing.T) {
+	for _, name := range []string{"SNIS-009 大合集", "SNIS-009 complete collection", "SNIS-009 box set"} {
+		if !IsCollectionMagnetCandidate(ParsedMagnetCandidate{DisplayName: name}) {
+			t.Fatalf("expected collection marker to be detected in %q", name)
+		}
+	}
+}
+
 func TestExtractMagnetLinksAcceptsMagnetWithoutDN(t *testing.T) {
 	html := `<a href="magnet:?xt=urn:btih:1347598F03862100454B828CA065654DEB27A001">plain</a>`
 	links := ExtractMagnetLinks(html)

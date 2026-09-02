@@ -57,7 +57,18 @@
     let lastQualitySummarySignature = '';
     let lastResultPanel = null;
     let lastAutoRefreshSignature = '';
-    let lastNotificationSignature = '';
+    // 完成通知属于窗口级别的 UI 状态，而不是某一个控制器实例的状态。
+    // 在热重载、重复 bootstrap 或事件流同时存在时，多个控制器可能共享
+    // 同一组 Wails 事件；把锁放到 globalScope 才能保证整轮任务只弹一次。
+    const completionNoticeStateKey = '__javflowCrawlCompletionNoticeState';
+    const completionNoticeState =
+      globalScope && globalScope[completionNoticeStateKey] &&
+      typeof globalScope[completionNoticeStateKey] === 'object'
+        ? globalScope[completionNoticeStateKey]
+        : { claimed: false, generation: 0 };
+    if (globalScope && !globalScope[completionNoticeStateKey]) {
+      globalScope[completionNoticeStateKey] = completionNoticeState;
+    }
     let previousCrawlStatus = 'idle';
     let feedsBound = false;
     let clearHistoryBound = false;
@@ -112,19 +123,17 @@
       return normalizedStatus;
     }
 
-    function resolveNotificationIdentity(details = {}) {
-      return String(
-        details.runId ||
-          details.taskId ||
-          details.sessionLogPath ||
-          details.latestLogPath ||
-          details.reportPath ||
-          details.completedAt ||
-          details.outputDir ||
-          details.currentTaskOutputDir ||
-          details.lastTaskOutputDir ||
-          ''
-      ).trim();
+    function resetCompletionNoticeForNewRun() {
+      completionNoticeState.generation = Number(completionNoticeState.generation || 0) + 1;
+      completionNoticeState.claimed = false;
+    }
+
+    function claimCompletionNotice() {
+      if (completionNoticeState.claimed) {
+        return false;
+      }
+      completionNoticeState.claimed = true;
+      return true;
     }
 
     // 抓取完成时通过弹窗强提醒用户，避免只依赖日志/状态 pill 的弱反馈。
@@ -133,14 +142,11 @@
       if (!['completed', 'error', 'stopped', 'incomplete'].includes(normalizedStatus)) {
         return;
       }
-      const notificationIdentity = resolveNotificationIdentity(details);
-      const signature = notificationIdentity
-        ? `${normalizedStatus}##${notificationIdentity}`
-        : `${normalizedStatus}##${String(message || '').trim()}`;
-      if (signature === lastNotificationSignature) {
+      // 质量摘要与生命周期终态可能使用不同状态（例如 warning + completed
+      // 与 incomplete）。它们仍属于同一轮任务，因此不能按状态或路径分别弹窗。
+      if (!claimCompletionNotice()) {
         return;
       }
-      lastNotificationSignature = signature;
 
       const titleMap = {
         completed: '抓取完成',
@@ -162,46 +168,51 @@
 
       if (desktopApi && typeof desktopApi.showAlert === 'function') {
         try {
-          await desktopApi.showAlert({
+          // 报告与磁力打开询问合并为一个弹窗，避免连续两轮打扰。
+          const canOpenMagnet = normalizedStatus === 'completed' || normalizedStatus === 'incomplete';
+
+          // 质量摘要和生命周期事件可能先于结果面板到达。即使此时还没有
+          // 磁力路径，也必须显示询问；打开动作会由 Go 桥接按当前运行目录
+          // 再次解析，不能让路径暂时为空吞掉询问。
+          // incomplete（存在失败项/分页缺口的运行）同样已产出磁力文件。
+          if (canOpenMagnet && !magnetTarget && typeof desktopApi.getCrawlRunContext === 'function') {
+            try {
+              const runContext = await desktopApi.getCrawlRunContext();
+              magnetTarget = String(
+                (runContext && runContext.preferredMagnetPath) ||
+                  (runContext && runContext.preferredOutputDir) ||
+                  ''
+              ).trim();
+            } catch (_) {
+              // 打开询问仍需显示，路径解析失败交给打开动作统一反馈。
+            }
+          }
+
+          const buttons = canOpenMagnet ? ['打开磁力链接文件', '关闭'] : ['确定'];
+          const message = canOpenMagnet
+            ? `${body}\n\n是否打开磁力链接文件？`
+            : body;
+
+          const response = await desktopApi.showAlert({
             type: normalizedStatus === 'completed' ? 'success' : 'warning',
             title,
-            message: body,
-            buttons: ['确定']
+            message,
+            buttons
           });
 
-          if (normalizedStatus === 'completed' || normalizedStatus === 'incomplete') {
-            // 质量摘要和生命周期事件可能先于结果面板到达。即使此时还没有
-            // 磁力路径，也必须显示询问；打开动作会由 Go 桥接按当前运行目录
-            // 再次解析，不能让路径暂时为空吞掉第二次弹窗。
-            // incomplete（存在失败项/分页缺口的运行）同样已产出磁力文件，
-            // 完成提示后也应询问是否打开，否则真实抓取几乎永远看不到询问。
-            if (!magnetTarget && typeof desktopApi.getCrawlRunContext === 'function') {
-              try {
-                const runContext = await desktopApi.getCrawlRunContext();
-                magnetTarget = String(
-                  (runContext && runContext.preferredMagnetPath) ||
-                    (runContext && runContext.preferredOutputDir) ||
-                    ''
-                ).trim();
-              } catch (_) {
-                // 打开询问仍需显示，路径解析失败交给打开动作统一反馈。
-              }
-            }
-
-            const magnetResponse = await desktopApi.showAlert({
-              type: 'question',
-              title: '打开磁力链接文件',
-              message: '是否打开磁力链接文件？',
-              buttons: ['打开磁力链接文件', '关闭']
-            });
-            const magnetSelection = String(
-              magnetResponse && magnetResponse.selection ? magnetResponse.selection : ''
-            ).trim();
-            if (
-              magnetSelection.includes('打开') &&
-              typeof desktopApi.openMagnetFile === 'function'
-            ) {
+          const selection = String(
+            response && response.selection ? response.selection : ''
+          ).trim();
+          if (
+            canOpenMagnet &&
+            /打开|^(yes|ok|确定|是)(?:[（(].*)?$/i.test(selection) &&
+            typeof desktopApi.openMagnetFile === 'function'
+          ) {
+            try {
               await desktopApi.openMagnetFile(magnetTarget);
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error || '未知错误');
+              appendLog('warn', `打开磁力链接文件失败：${detail}`);
             }
           }
         } catch (_) {
@@ -521,6 +532,9 @@
       if (supportsGoStagePanel) {
         trackSubscription(desktopApi.onStagePanel((panel) => {
           if (isSubscriptionBridgeSessionActive()) {
+            if (subscriptionController && typeof subscriptionController.applyCrawlStagePanel === 'function') {
+              subscriptionController.applyCrawlStagePanel(panel || {});
+            }
             return;
           }
           stateController.applyStagePanel(panel || {});
@@ -589,10 +603,9 @@
     function consumeLegacyStateFallback(state) {
       // 每次新的抓取运行时重置自动刷新标记，确保同一输出目录的后续完成仍能刷新。
       const currentStatus = String((state && state.status) || '').toLowerCase();
-      if (['starting', 'running'].includes(currentStatus)) {
-        // 同一输出目录可以被重新爬取。新任务开始时清除上一轮通知标记，
-        // 但仍保留同一轮事件源之间的去重能力。
-        lastNotificationSignature = '';
+      if (currentStatus === 'starting') {
+        // 每轮任务只允许一个完成通知；共享锁同时覆盖重复控制器实例。
+        resetCompletionNoticeForNewRun();
       }
       if (currentStatus !== 'completed') {
         lastAutoRefreshSignature = '';

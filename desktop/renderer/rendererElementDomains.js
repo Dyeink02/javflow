@@ -223,6 +223,7 @@
       organizerOpenOrganizedButton: scope.getElementById('organizer-open-organized'),
       organizerOpenUnmatchedButton: scope.getElementById('organizer-open-unmatched'),
       organizerOpenDeleteButton: scope.getElementById('organizer-open-delete'),
+      organizerOpenLogFolderButton: scope.getElementById('organizer-open-log-folder'),
       organizerClearLogButton: scope.getElementById('organizer-clear-log'),
       organizerStatusPill: scope.getElementById('organizer-status-pill'),
       organizerScanned: scope.getElementById('organizer-stat-scanned'),
@@ -267,11 +268,7 @@
       subscriptionDetailEmpty: scope.getElementById('subscription-detail-empty'),
       subscriptionStatTotal: scope.getElementById('subscription-stat-total'),
       subscriptionStatUpdated: scope.getElementById('subscription-stat-updated'),
-      subscriptionStatPending: scope.getElementById('subscription-stat-pending'),
       subscriptionStatChecked: scope.getElementById('subscription-stat-checked'),
-      subscriptionStatTotalSide: scope.getElementById('subscription-stat-total-side'),
-      subscriptionStatUpdatedSide: scope.getElementById('subscription-stat-updated-side'),
-      subscriptionStatCheckedSide: scope.getElementById('subscription-stat-checked-side'),
       subscriptionListSearch: scope.getElementById('subscription-list-search'),
       subscriptionListFilter: scope.getElementById('subscription-list-filter'),
       subscriptionListSort: scope.getElementById('subscription-list-sort'),
@@ -302,7 +299,19 @@
       subscriptionBatchCancelButton: scope.getElementById('subscription-batch-cancel'),
       subscriptionStopCrawlButton: scope.getElementById('subscription-stop-crawl'),
       subscriptionOpenOutputButton: scope.getElementById('subscription-open-output'),
-      subscriptionOpenFolderButton: scope.getElementById('subscription-open-folder')
+      subscriptionOpenFolderButton: scope.getElementById('subscription-open-folder'),
+      subscriptionCrawlStageStatus: scope.getElementById('subscription-crawl-stage-status'),
+      subscriptionCrawlStageProgress: scope.getElementById('subscription-crawl-stage-progress'),
+      subscriptionCrawlStageTitle: scope.getElementById('subscription-crawl-stage-title'),
+      subscriptionCrawlStageDescription: scope.getElementById('subscription-crawl-stage-description'),
+      subscriptionCrawlStageMessage: scope.getElementById('subscription-crawl-stage-message'),
+      subscriptionCrawlStageBarFill: scope.getElementById('subscription-crawl-stage-bar-fill'),
+      subscriptionCrawlStageBar: scope.getElementById('subscription-crawl-stage-bar'),
+      subscriptionCrawlStageOutput: scope.getElementById('subscription-crawl-stage-output'),
+      subscriptionCrawlStagePage: scope.getElementById('subscription-crawl-stage-page'),
+      subscriptionCrawlStageQueued: scope.getElementById('subscription-crawl-stage-queued'),
+      subscriptionCrawlStageAttempted: scope.getElementById('subscription-crawl-stage-attempted'),
+      subscriptionCrawlStageCompleted: scope.getElementById('subscription-crawl-stage-completed')
     };
   }
 

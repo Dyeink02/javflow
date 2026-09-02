@@ -410,6 +410,18 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	if err := os.WriteFile(filepath.Join(managedNestedDir, "state.json"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	logNestedDir := filepath.Join(validDir, "diagnostics")
+	if err := os.MkdirAll(logNestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logNestedPath := filepath.Join(logNestedDir, "organizer-run.log")
+	if err := os.WriteFile(logNestedPath, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doubleExtensionLogPath := filepath.Join(logNestedDir, "task-run.log.txt")
+	if err := os.WriteFile(doubleExtensionLogPath, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(validDir, "filmData.json"), []byte("software artifact"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -486,6 +498,12 @@ func TestRunOrganizerBatchDeleteRunsAfterStrictMatchingAndPreservesManagedOutput
 	}
 	if _, err := os.Stat(filepath.Join(validDir, "filmData.json")); err != nil {
 		t.Fatalf("expected nested crawler artifact to be preserved: %v", err)
+	}
+	if _, err := os.Stat(logNestedPath); err != nil {
+		t.Fatalf("expected nested log file to be preserved: %v", err)
+	}
+	if _, err := os.Stat(doubleExtensionLogPath); err != nil {
+		t.Fatalf("expected .log.txt task log to be preserved: %v", err)
 	}
 	if _, err := os.Stat(emptyNestedDir); !os.IsNotExist(err) {
 		t.Fatalf("expected nested empty directory to be cleaned, stat err=%v", err)

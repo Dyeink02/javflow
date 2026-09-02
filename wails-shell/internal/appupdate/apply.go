@@ -14,12 +14,14 @@ package appupdate
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -144,6 +146,8 @@ type updateHelperOptions struct {
 	expectedPackageSHA string
 }
 
+var renameFile = os.Rename
+
 func runUpdateHelper(options updateHelperOptions) error {
 	sourcePath, err := filepath.Abs(options.sourcePath)
 	if err != nil {
@@ -169,7 +173,10 @@ func runUpdateHelper(options updateHelperOptions) error {
 	for time.Now().Before(deadline) {
 		lastErr = replacePortablePackage(sourcePath, stagedDirectory, backupPath, options.expectedPackageSHA)
 		if lastErr == nil {
-			return startUpdatedExecutable(sourcePath)
+			if err := startUpdatedExecutable(sourcePath); err != nil {
+				return err
+			}
+			return scheduleTemporaryHelperCleanup()
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -202,75 +209,127 @@ func replacePortablePackage(sourcePath string, stagedDirectory string, backupPat
 	}
 	backedUp := make([]string, 0, len(files))
 	installed := make([]string, 0, len(files))
-	rollback := func() {
+	rollback := func() error {
+		var rollbackErr error
 		for _, relative := range installed {
-			_ = os.Remove(filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(relative)))
+			targetFile := filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(relative))
+			if err := os.Remove(targetFile); err != nil && !os.IsNotExist(err) {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("移除新文件 %s：%w", relative, err))
+			}
 		}
 		for _, relative := range backedUp {
 			backupFile := filepath.Join(backupDirectory, filepath.FromSlash(relative))
 			targetFile := filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(relative))
-			_ = os.MkdirAll(filepath.Dir(targetFile), 0o755)
-			_ = os.Remove(targetFile)
-			_ = os.Rename(backupFile, targetFile)
+			if err := os.MkdirAll(filepath.Dir(targetFile), 0o755); err != nil {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("恢复目录 %s：%w", relative, err))
+				continue
+			}
+			if err := os.Remove(targetFile); err != nil && !os.IsNotExist(err) {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("移除待恢复文件 %s：%w", relative, err))
+				continue
+			}
+			if err := renameFile(backupFile, targetFile); err != nil {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("恢复备份文件 %s：%w", relative, err))
+			}
 		}
 		if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-			_ = os.Rename(backupPath, sourcePath)
+			if err := renameFile(backupPath, sourcePath); err != nil {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("恢复旧版 EXE：%w", err))
+			}
 		}
-		_ = os.RemoveAll(backupDirectory)
+		if rollbackErr != nil {
+			// Keep the backup directory intact whenever restoration is incomplete.
+			// It contains the only remaining recovery material for manual repair.
+			return rollbackErr
+		}
+		if err := os.RemoveAll(backupDirectory); err != nil {
+			return fmt.Errorf("清理已恢复的备份文件：%w", err)
+		}
+		return nil
+	}
+	rollbackWith := func(cause error) error {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			return fmt.Errorf("%w；回滚未完全恢复：%v", cause, rollbackErr)
+		}
+		return cause
 	}
 
 	for _, relative := range files {
 		targetFile := filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(relative))
 		if !pathWithinDirectory(filepath.Dir(sourcePath), targetFile) {
-			rollback()
-			return fmt.Errorf("便携包目标路径越界：%s", relative)
+			return rollbackWith(fmt.Errorf("便携包目标路径越界：%s", relative))
 		}
 		if relative == "javflow.exe" {
 			continue
 		}
 		if info, statErr := os.Stat(targetFile); statErr == nil {
 			if info.IsDir() {
-				rollback()
-				return fmt.Errorf("便携包目标路径是目录：%s", relative)
+				return rollbackWith(fmt.Errorf("便携包目标路径是目录：%s", relative))
 			}
 			backupFile := filepath.Join(backupDirectory, filepath.FromSlash(relative))
 			if err := copyFile(targetFile, backupFile, 0o644); err != nil {
-				rollback()
-				return err
+				return rollbackWith(err)
 			}
 			backedUp = append(backedUp, relative)
 		} else if !os.IsNotExist(statErr) {
-			rollback()
-			return statErr
+			return rollbackWith(statErr)
 		}
 	}
 
-	if err := os.Rename(sourcePath, backupPath); err != nil {
-		rollback()
-		return err
+	if err := renameFile(sourcePath, backupPath); err != nil {
+		return rollbackWith(err)
 	}
 	for _, relative := range files {
 		targetFile := filepath.Join(filepath.Dir(sourcePath), filepath.FromSlash(relative))
 		stagedFile := filepath.Join(stagedDirectory, filepath.FromSlash(relative))
 		if relative != "javflow.exe" {
 			if err := os.Remove(targetFile); err != nil && !os.IsNotExist(err) {
-				rollback()
-				return err
+				return rollbackWith(err)
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(targetFile), 0o755); err != nil {
-			rollback()
-			return err
+			return rollbackWith(err)
 		}
-		if err := os.Rename(stagedFile, targetFile); err != nil {
-			rollback()
-			return err
+		if err := renameFile(stagedFile, targetFile); err != nil {
+			return rollbackWith(err)
 		}
 		installed = append(installed, relative)
 	}
 	_ = os.RemoveAll(backupDirectory)
 	_ = os.RemoveAll(stagedDirectory)
 	return nil
+}
+
+// scheduleTemporaryHelperCleanup removes only the helper copy created in the
+// system temp directory. The delayed command runs after this helper exits, so
+// Windows no longer keeps stale javflow-updater-*.exe files after updates.
+func scheduleTemporaryHelperCleanup() error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	helperPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("定位更新辅助进程失败：%w", err)
+	}
+	if !isTemporaryUpdateHelperPath(helperPath) {
+		return nil
+	}
+	if strings.Contains(helperPath, "\"") {
+		return fmt.Errorf("更新辅助进程路径无效")
+	}
+	cleanup := fmt.Sprintf("ping 127.0.0.1 -n 3 > NUL & del /F /Q \"%s\"", helperPath)
+	command := exec.Command("cmd.exe", "/d", "/s", "/c", cleanup)
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("安排更新辅助进程清理失败：%w", err)
+	}
+	return command.Process.Release()
+}
+
+func isTemporaryUpdateHelperPath(pathValue string) bool {
+	baseName := strings.ToLower(filepath.Base(pathValue))
+	return strings.HasPrefix(baseName, "javflow-updater-") && strings.HasSuffix(baseName, ".exe")
 }
 
 func validatePortablePackageDirectory(directory string) error {
@@ -341,8 +400,10 @@ func startUpdatedExecutable(sourcePath string) error {
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	if err := command.Start(); err != nil {
-		// The replacement is already in place. The backup is intentionally kept
-		// for manual rollback rather than silently deleting the previous build.
+		// The replacement is already in place. replacePortablePackage removed the
+		// .files backup of replaced non-EXE files, but the previous EXE binary is
+		// still on disk at backupPath (javflow.previous.exe), so a failed launch
+		// can be recovered manually by renaming it back.
 		return fmt.Errorf("更新后启动新版本失败：%w", err)
 	}
 	_ = command.Process.Release()

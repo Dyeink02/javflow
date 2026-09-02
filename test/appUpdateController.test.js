@@ -83,15 +83,45 @@ function createHarness() {
 }
 
 describe('portable app update controller', () => {
-  it('hides status when the current version is already latest', async () => {
+  it('stays silent on auto-check when already latest, shows message on manual check', async () => {
     const harness = createHarness();
 
+    // 启动自动检查：已是最新时不显示任何状态。
     await harness.controller.check();
-
     assert.strictEqual(harness.controller.getState(), 'latest');
-    assert.strictEqual(harness.status.hidden, true);
     assert.strictEqual(harness.status.textContent, '');
     assert.strictEqual(harness.button.textContent, '检查更新');
+
+    // 手动点击检查更新：显示“当前已是最新版本”。
+    await harness.controller.check({ manual: true });
+    assert.strictEqual(harness.status.hidden, false);
+    assert.strictEqual(harness.status.textContent, '当前已是最新版本');
+    assert.strictEqual(harness.button.textContent, '检查更新');
+  });
+
+  it('keeps auto-check silent for portable, prompts via dialog on manual check', async () => {
+    const harness = createHarness();
+    harness.setCheckResult({
+      inAppUpdateSupported: false,
+      installKind: 'portable',
+      message: '便携版暂不支持在线升级，请前往 GitHub Release 页面下载最新便携包。'
+    });
+
+    // 启动自动检查：便携版完全静默。
+    await harness.controller.check();
+    assert.strictEqual(harness.controller.getState(), 'portable');
+    assert.strictEqual(harness.status.textContent, '');
+    assert.strictEqual(harness.button.textContent, '检查更新');
+    assert.ok(!harness.calls.some((call) => Array.isArray(call) && call[0] === 'alert'));
+
+    // 手动点击检查更新：弹窗提示便携版无法升级。
+    await harness.controller.check({ manual: true });
+    const alertCall = harness.calls.find((call) => Array.isArray(call) && call[0] === 'alert');
+    assert.ok(alertCall, 'expected a portable guidance dialog');
+    assert.ok(alertCall[1].message.includes('便携版暂不支持在线升级'));
+    assert.strictEqual(harness.status.textContent, '');
+    assert.strictEqual(harness.button.textContent, '检查更新');
+    assert.ok(!harness.calls.some((call) => Array.isArray(call) && call[0] === 'download'));
   });
 
   it('moves from pending update to download and confirmed apply', async () => {

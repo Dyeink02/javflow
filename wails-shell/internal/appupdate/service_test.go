@@ -4,7 +4,10 @@ import (
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,11 +34,7 @@ func TestCheckAndDownloadReleaseWithAssetDigest(t *testing.T) {
 	})
 	defer server.Close()
 
-	targetDirectory := t.TempDir()
-	targetPath := filepath.Join(targetDirectory, "javflow.exe")
-	if err := os.WriteFile(targetPath, []byte("MZ-old"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	targetPath := writeInstallerSandbox(t)
 	service := NewService(ServiceOptions{
 		CurrentVersion: "0.4.32",
 		APIBaseURL:     server.URL,
@@ -66,6 +65,54 @@ func TestCheckAndDownloadReleaseWithAssetDigest(t *testing.T) {
 	}
 }
 
+func TestCheckAndDownloadReleaseWithDirectExecutableAsset(t *testing.T) {
+	payload := []byte("MZ-direct-javflow-test-executable")
+	digest := sha256Hex(payload)
+	server := newReleaseServer(t, releaseFixture{
+		tag: "v0.4.4",
+		assets: []githubAsset{{
+			Name:               "javflow.exe",
+			BrowserDownloadURL: "/download/javflow.exe",
+			Digest:             "sha256:" + digest,
+			Size:               int64(len(payload)),
+		}},
+		downloadPath: "/download/javflow.exe",
+		downloadBody: payload,
+	})
+	defer server.Close()
+
+	targetPath := writeInstallerSandbox(t)
+	if err := os.WriteFile(targetPath, []byte("MZ-old"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceOptions{
+		CurrentVersion: "0.4.32",
+		APIBaseURL:     server.URL,
+		ExecutablePath: targetPath,
+		Client:         server.Client(),
+	})
+
+	info, err := service.Check(nil)
+	if err != nil {
+		t.Fatalf("Check direct EXE release failed: %v", err)
+	}
+	if !info.UpdateAvailable || info.AssetName != "javflow.exe" || info.LatestVersion != "0.4.4" {
+		t.Fatalf("unexpected direct EXE check result: %#v", info)
+	}
+	result, err := service.Download(nil, "0.4.4")
+	if err != nil {
+		t.Fatalf("Download direct EXE release failed: %v", err)
+	}
+	if !result.DownloadReady || result.SHA256 != digest {
+		t.Fatalf("unexpected direct EXE download result: %#v", result)
+	}
+	stagedExecutable := filepath.Join(result.DownloadedPath, "javflow.exe")
+	if actual, err := os.ReadFile(stagedExecutable); err != nil || string(actual) != string(payload) {
+		t.Fatalf("staged direct EXE = %q, err=%v", actual, err)
+	}
+	_ = os.RemoveAll(result.DownloadedPath)
+}
+
 func TestDownloadReadsSha256SidecarWhenAssetDigestMissing(t *testing.T) {
 	payload := buildPortableZip(t, map[string][]byte{
 		"javflow.exe": []byte("MZ-sidecar-test-executable"),
@@ -91,7 +138,7 @@ func TestDownloadReadsSha256SidecarWhenAssetDigestMissing(t *testing.T) {
 	})
 	defer server.Close()
 
-	targetPath := filepath.Join(t.TempDir(), "javflow.exe")
+	targetPath := writeInstallerSandbox(t)
 	if err := os.WriteFile(targetPath, []byte("MZ-old"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +176,7 @@ func TestDownloadRejectsChecksumMismatch(t *testing.T) {
 	})
 	defer server.Close()
 
-	targetPath := filepath.Join(t.TempDir(), "javflow.exe")
+	targetPath := writeInstallerSandbox(t)
 	if err := os.WriteFile(targetPath, []byte("MZ-old"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +215,7 @@ func TestDownloadDoesNotUseChecksumForUnrelatedZipAsset(t *testing.T) {
 	})
 	defer server.Close()
 
-	targetPath := filepath.Join(t.TempDir(), "javflow.exe")
+	targetPath := writeInstallerSandbox(t)
 	if err := os.WriteFile(targetPath, []byte("MZ-old"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -224,6 +271,66 @@ func TestReplaceExecutableKeepsBackup(t *testing.T) {
 	}
 	if actual, err := os.ReadFile(filepath.Join(directory, "user-data.json")); err != nil || string(actual) != "keep" {
 		t.Fatalf("user data after replacement = %q, err=%v", actual, err)
+	}
+}
+
+func TestReplacePortablePackagePreservesRecoveryMaterialWhenRollbackFails(t *testing.T) {
+	directory := t.TempDir()
+	sourcePath := filepath.Join(directory, "javflow.exe")
+	stagedDirectory := filepath.Join(directory, "staged")
+	backupPath := filepath.Join(directory, "javflow.previous.exe")
+	assetPath := filepath.Join(directory, "frontend", "asset.txt")
+	stagedAssetPath := filepath.Join(stagedDirectory, "frontend", "asset.txt")
+	backupAssetPath := filepath.Join(backupPath+".files", "frontend", "asset.txt")
+
+	for pathValue, contents := range map[string][]byte{
+		sourcePath: []byte("MZ-old-executable"),
+		assetPath:  []byte("old-asset"),
+		filepath.Join(stagedDirectory, "javflow.exe"): []byte("MZ-new-executable"),
+		stagedAssetPath: []byte("new-asset"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(pathValue), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(pathValue, contents, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expectedSHA, err := packageTreeSHA256(stagedDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalRename := renameFile
+	renameFile = func(oldPath, newPath string) error {
+		if oldPath == stagedAssetPath && newPath == assetPath {
+			return errors.New("injected install failure")
+		}
+		if oldPath == backupAssetPath && newPath == assetPath {
+			return errors.New("injected restore failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	t.Cleanup(func() { renameFile = originalRename })
+
+	err = replacePortablePackage(sourcePath, stagedDirectory, backupPath, expectedSHA)
+	if err == nil || !strings.Contains(err.Error(), "回滚未完全恢复") {
+		t.Fatalf("expected visible rollback failure, got %v", err)
+	}
+	if contents, readErr := os.ReadFile(sourcePath); readErr != nil || string(contents) != "MZ-old-executable" {
+		t.Fatalf("old executable should be restored, contents=%q err=%v", contents, readErr)
+	}
+	if contents, readErr := os.ReadFile(backupAssetPath); readErr != nil || string(contents) != "old-asset" {
+		t.Fatalf("unrestored asset backup must remain for manual recovery, contents=%q err=%v", contents, readErr)
+	}
+}
+
+func TestTemporaryUpdateHelperPath(t *testing.T) {
+	if !isTemporaryUpdateHelperPath(filepath.Join(t.TempDir(), "javflow-updater-123.exe")) {
+		t.Fatal("expected generated updater helper path to be eligible for cleanup")
+	}
+	if isTemporaryUpdateHelperPath(filepath.Join(t.TempDir(), "javflow.exe")) {
+		t.Fatal("running product executable must never be eligible for helper cleanup")
 	}
 }
 
@@ -330,4 +437,67 @@ func newReleaseServer(t *testing.T, fixture releaseFixture) *httptest.Server {
 func sha256Hex(payload []byte) string {
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
+}
+
+// writeInstallerSandbox creates a javflow.exe beside an Uninstall.exe marker so
+// the service classifies the sandbox as an installer (in-app update capable).
+func writeInstallerSandbox(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "javflow.exe"), []byte("MZ-old"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "Uninstall.exe"), []byte("MZ-uninstall"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(directory, "javflow.exe")
+}
+
+// TestCheckPortableInstallShortCircuitsWithoutNetwork verifies that a portable
+// copy (no Uninstall.exe) receives the guidance message immediately and never
+// contacts the release API; the download path refuses as well.
+func TestCheckPortableInstallShortCircuitsWithoutNetwork(t *testing.T) {
+	directory := t.TempDir()
+	exePath := filepath.Join(directory, "javflow.exe")
+	if err := os.WriteFile(exePath, []byte("MZ-portable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	network := failingTransport{}
+	service := NewService(ServiceOptions{
+		CurrentVersion: "0.4.32",
+		ExecutablePath: exePath,
+		Client:         &http.Client{Transport: &network},
+	})
+
+	info, err := service.Check(context.Background())
+	if err != nil {
+		t.Fatalf("portable check must not fail: %v", err)
+	}
+	if info.InAppUpdateSupported {
+		t.Fatalf("portable copy must not support in-app updates: %+v", info)
+	}
+	if info.InstallKind != installKindPortable || info.UpdateAvailable {
+		t.Fatalf("unexpected portable info: %+v", info)
+	}
+	if !strings.Contains(info.Message, "便携版暂不支持在线升级") {
+		t.Fatalf("portable message missing: %q", info.Message)
+	}
+	if network.called {
+		t.Fatalf("portable check must not contact the release API")
+	}
+
+	if _, err := service.Download(context.Background(), ""); err == nil ||
+		!strings.Contains(err.Error(), "便携版暂不支持在线升级") {
+		t.Fatalf("portable download must refuse with guidance, got %v", err)
+	}
+	if network.called {
+		t.Fatalf("portable download must not contact the release API")
+	}
+}
+
+type failingTransport struct{ called bool }
+
+func (f *failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	f.called = true
+	return nil, fmt.Errorf("network must not be reached")
 }

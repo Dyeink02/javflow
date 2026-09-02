@@ -160,13 +160,14 @@ describe('organizerService video extension and root safety', () => {
     fs.writeFileSync(videoPath, Buffer.alloc(2 * 1024 * 1024));
     fs.writeFileSync(adPath, Buffer.from('ad'));
 
+    const originalRename = fs.promises.rename.bind(fs.promises);
     const failingFs = Object.create(fs);
     failingFs.promises = Object.create(fs.promises);
     failingFs.promises.rename = async (src, dest) => {
       if (path.resolve(src) === path.resolve(videoPath)) {
         throw new Error('simulated move failure');
       }
-      return fs.promises.rename(src, dest);
+      return originalRename(src, dest);
     };
     failingFs.createReadStream = (src, options) => {
       if (path.resolve(src) === path.resolve(videoPath)) {
@@ -195,5 +196,64 @@ describe('organizerService video extension and root safety', () => {
     assert.ok(fs.existsSync(videoPath));
     assert.ok(!fs.existsSync(adPath));
     assert.ok(!fs.existsSync(path.join(rootPath, '待整理', 'ABF-002.mp4')));
+  });
+
+  it('batch deletes only classified files and keeps nested logs', async function testBatchDeletePreservesLogs() {
+    const rootPath = makeTempRoot('jav-organizer-batch-log-');
+    this.test.tempRoot = rootPath;
+    const sourceDir = path.join(rootPath, 'ABF-005');
+    const logDir = path.join(sourceDir, 'diagnostics');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'ABF-005.mp4'), Buffer.alloc(2 * 1024 * 1024));
+    fs.writeFileSync(path.join(sourceDir, 'ad.txt'), 'ad');
+    const logPath = path.join(logDir, 'organizer-run.log');
+    fs.writeFileSync(logPath, 'keep');
+    const doubleExtensionLogPath = path.join(logDir, 'task-run.log.txt');
+    fs.writeFileSync(doubleExtensionLogPath, 'keep');
+
+    const service = createOrganizerService({ fs, path });
+    const result = await service.runOrganizer({
+      rootPath,
+      minSizeMB: 1,
+      suffix: '-A',
+      adFileAction: 'delete-directly',
+      batchDelete: true,
+      dryRun: false,
+      includeSubdirectories: true,
+      strictExpectedCodes: true,
+      expectedCodes: ['ABF-005'],
+      videoExtensions: 'mp4, iso',
+      adDetectionEnabled: false
+    });
+
+    assert.strictEqual(result.summary.deletedDirectly, 1);
+    assert.ok(fs.existsSync(logPath));
+    assert.ok(fs.existsSync(doubleExtensionLogPath));
+    assert.ok(fs.existsSync(sourceDir));
+    assert.ok(!fs.existsSync(path.join(sourceDir, 'ad.txt')));
+  });
+
+  it('archives legacy organizer reports instead of deleting them', async function testLegacyReportArchive() {
+    const rootPath = makeTempRoot('jav-organizer-legacy-report-');
+    this.test.tempRoot = rootPath;
+    const legacyPath = path.join(rootPath, '删除清单.txt');
+    fs.writeFileSync(legacyPath, 'legacy report');
+
+    const service = createOrganizerService({ fs, path });
+    await service.runOrganizer({
+      rootPath,
+      minSizeMB: 1000,
+      suffix: '-A',
+      adFileAction: 'delete-directly',
+      dryRun: false,
+      includeSubdirectories: true,
+      strictExpectedCodes: false,
+      expectedCodes: [],
+      videoExtensions: 'mp4',
+      adDetectionEnabled: false
+    });
+
+    assert.ok(!fs.existsSync(legacyPath));
+    assert.strictEqual(fs.readFileSync(path.join(rootPath, 'logs', '删除清单.txt'), 'utf8'), 'legacy report');
   });
 });

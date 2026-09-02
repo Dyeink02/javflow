@@ -96,6 +96,13 @@ func (s *Service) ShowAlert(options map[string]any) (map[string]any, error) {
 	}, nil
 }
 
+// normalizeDialogSelection maps Wails Windows MessageBox semantic results
+// ("Yes"/"No"/"OK", including localized variants) back to the caller's own
+// button labels.
+//
+// Mapping convention: the FIRST caller button is treated as the affirmative
+// action and the LAST as the negative action, so callers must pass buttons as
+// [primaryAction, ..., cancel].
 func normalizeDialogSelection(result string, buttons []string) string {
 	selection := strings.TrimSpace(result)
 	if len(buttons) < 2 {
@@ -213,12 +220,26 @@ func (s *Service) OpenPath(targetPath string) (string, error) {
 		return "", err
 	}
 
-	command := exec.Command("explorer.exe", absolutePath)
+	info, err := os.Stat(absolutePath)
+	if err != nil {
+		return "", err
+	}
+	command := openPathCommand(absolutePath, info.IsDir())
 	if err := command.Start(); err != nil {
 		return "", err
 	}
 
 	return absolutePath, nil
+}
+
+func openPathCommand(absolutePath string, isDirectory bool) *exec.Cmd {
+	if isDirectory {
+		return exec.Command("explorer.exe", absolutePath)
+	}
+	// Explorer only selects a file in a folder; it does not reliably launch
+	// the file's associated application. Windows `start` delegates regular
+	// files to their registered handler (for example, Notepad for TXT).
+	return exec.Command("cmd.exe", "/c", "start", "", absolutePath)
 }
 
 func stringValue(value any) string {

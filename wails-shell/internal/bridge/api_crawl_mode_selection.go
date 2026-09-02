@@ -41,8 +41,12 @@ func (a *API) dispatchCrawlStart(payload map[string]any) (string, error) {
 	mode := a.resolveCrawlExecutionMode(payload)
 	if mode == crawlExecutionModeCloudflareCompat {
 		a.setGoTaskExecutionMode(crawlExecutionModeCloudflareCompat)
-		a.emitLogEntry("info", "[diagnostic] executionMode=cloudflare-compat controllerMode=go-task-controller")
-		a.emitLogEntry("info", "Cloudflare bypass enabled or challenge detected, using Node sidecar compatibility path.")
+		a.emitLogEntry("info", "[diagnostic] executionMode=compat-sidecar controllerMode=go-task-controller")
+		if payloadBool(payload["magnetContentValidation"]) {
+			a.emitLogEntry("info", "已启用磁力内容严格校验，将读取候选 torrent 文件列表并仅保留已验证的单番号磁力。")
+		} else {
+			a.emitLogEntry("info", "Cloudflare bypass enabled or challenge detected, using Node sidecar compatibility path.")
+		}
 		result, err := a.fallbackToLegacySidecar("crawl", "start", payload)
 		if err != nil {
 			return "", fmt.Errorf("Node sidecar start failed: %w", err)

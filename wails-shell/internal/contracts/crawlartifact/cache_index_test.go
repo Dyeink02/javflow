@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestArchiveCompletedCacheSnapshotKeepsReadableHistory(t *testing.T) {
 	userDataDir := t.TempDir()
 	outputDir := filepath.Join(t.TempDir(), "actor-output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	paths := ResolveInternalArtifactPaths(userDataDir, outputDir)
 	if err := os.MkdirAll(filepath.Dir(paths.FilmDataPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -48,6 +52,220 @@ func TestArchiveCompletedCacheSnapshotKeepsReadableHistory(t *testing.T) {
 	}
 	if _, err := os.Stat(items[0].FilmDataPath); err != nil {
 		t.Fatalf("archived film data is not readable: %v", err)
+	}
+}
+
+func TestRemoveCacheSnapshotRemovesHistoryAndStableAlias(t *testing.T) {
+	userDataDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "actor-output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := ResolveInternalArtifactPaths(userDataDir, outputDir)
+	if err := os.MkdirAll(filepath.Dir(paths.FilmDataPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := CrawlProfileArtifact{
+		SchemaVersion:  CurrentSchemaVersion,
+		RunID:          "run-20260826-1",
+		CompletedAt:    "2026-08-26T12:00:00+08:00",
+		ActressName:    "Actor A",
+		OutputDir:      outputDir,
+		FilmDataPath:   paths.FilmDataPath,
+		CompletedCount: 1,
+	}
+	profilePayload, _ := json.Marshal(profile)
+	if err := os.WriteFile(paths.FilmDataPath, []byte(`[{"title":"AAA-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.CrawlProfilePath, profilePayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertCacheSnapshot(userDataDir, BuildCacheSnapshot(paths, profile, "crawler")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ArchiveCompletedCacheSnapshot(userDataDir, paths, profile, "crawler"); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := ListCacheSnapshots(userDataDir)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("expected one archived snapshot, items=%#v err=%v", items, err)
+	}
+	archiveDir := filepath.Dir(items[0].FilmDataPath)
+	if removed, err := RemoveCacheSnapshot(userDataDir, items[0].CacheKey); err != nil || removed != 1 {
+		t.Fatalf("RemoveCacheSnapshot: removed=%d err=%v", removed, err)
+	}
+	if _, err := os.Stat(ResolveInternalArtifactRoot(userDataDir, outputDir)); !os.IsNotExist(err) {
+		t.Fatalf("stable alias still exists after deletion: %v", err)
+	}
+	if _, err := os.Stat(archiveDir); !os.IsNotExist(err) {
+		t.Fatalf("history archive still exists after deletion: %v", err)
+	}
+	if _, err := os.Stat(outputDir); err != nil {
+		t.Fatalf("deleting a snapshot must not delete user output: %v", err)
+	}
+	reloaded, err := DiscoverCacheSnapshots(userDataDir, nil)
+	if err != nil || len(reloaded) != 0 {
+		t.Fatalf("deleted snapshot reappeared after discovery: %#v err=%v", reloaded, err)
+	}
+}
+
+func TestRemovedSnapshotStaysHiddenWhenVisibleOutputIsRediscovered(t *testing.T) {
+	userDataDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "actor-output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	visibleFilmData := filepath.Join(outputDir, CrawlFilmDataFile)
+	if err := os.WriteFile(visibleFilmData, []byte(`[{"title":"AAA-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	internalPaths := ResolveInternalArtifactPaths(userDataDir, outputDir)
+	if err := os.MkdirAll(filepath.Dir(internalPaths.FilmDataPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(internalPaths.FilmDataPath, []byte(`[{"title":"AAA-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	profile := CrawlProfileArtifact{
+		SchemaVersion:  CurrentSchemaVersion,
+		RunID:          "run-delete-visible-1",
+		CompletedAt:    "2026-08-28T12:00:00Z",
+		ActressName:    "Actor A",
+		OutputDir:      outputDir,
+		FilmDataPath:   internalPaths.FilmDataPath,
+		CompletedCount: 1,
+	}
+	profilePayload, _ := json.Marshal(profile)
+	if err := os.WriteFile(internalPaths.CrawlProfilePath, profilePayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertCacheSnapshot(userDataDir, BuildCacheSnapshot(internalPaths, profile, "discovered")); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ListCacheSnapshots(userDataDir)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("expected one snapshot before deletion, items=%#v err=%v", items, err)
+	}
+	if removed, err := RemoveCacheSnapshot(userDataDir, items[0].CacheKey); err != nil || removed != 1 {
+		t.Fatalf("RemoveCacheSnapshot: removed=%d err=%v", removed, err)
+	}
+
+	// A different workspace (for example media-library bootstrap) can ask the
+	// discovery path to scan the still-existing visible output directory. That
+	// scan must honor the explicit deletion tombstone.
+	reloaded, err := DiscoverCacheSnapshots(userDataDir, []string{outputDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded) != 0 {
+		t.Fatalf("deleted snapshot was rebuilt from visible output: %#v", reloaded)
+	}
+	if _, err := os.Stat(visibleFilmData); err != nil {
+		t.Fatalf("visible user output must remain after deletion: %v", err)
+	}
+}
+
+func TestUpsertCacheSnapshotClearsDeletionTombstoneForNewRun(t *testing.T) {
+	userDataDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "actor-output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	visibleFilmData := filepath.Join(outputDir, CrawlFilmDataFile)
+	if err := os.WriteFile(visibleFilmData, []byte(`[{"title":"AAA-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	internalPaths := ResolveInternalArtifactPaths(userDataDir, outputDir)
+	if err := os.MkdirAll(filepath.Dir(internalPaths.FilmDataPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(internalPaths.FilmDataPath, []byte(`[{"title":"AAA-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	profile := CrawlProfileArtifact{
+		SchemaVersion:  CurrentSchemaVersion,
+		RunID:          "run-delete-visible-2",
+		CompletedAt:    "2026-08-28T12:00:00Z",
+		ActressName:    "Actor A",
+		OutputDir:      outputDir,
+		FilmDataPath:   internalPaths.FilmDataPath,
+		CompletedCount: 1,
+	}
+	if err := os.WriteFile(internalPaths.CrawlProfilePath, []byte(`{"actressName":"Actor A","outputDir":"`+strings.ReplaceAll(outputDir, `\`, `\\`)+`","completedCount":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertCacheSnapshot(userDataDir, BuildCacheSnapshot(internalPaths, profile, "discovered")); err != nil {
+		t.Fatal(err)
+	}
+	items, err := ListCacheSnapshots(userDataDir)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("expected one snapshot before deletion, items=%#v err=%v", items, err)
+	}
+	if _, err := RemoveCacheSnapshot(userDataDir, items[0].CacheKey); err != nil {
+		t.Fatal(err)
+	}
+
+	// A subsequent real crawl writes the same output root through Upsert. This
+	// is the explicit signal that the user wants that source visible again.
+	if err := os.MkdirAll(filepath.Dir(internalPaths.FilmDataPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(internalPaths.FilmDataPath, []byte(`[{"title":"AAA-002"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertCacheSnapshot(userDataDir, BuildCacheSnapshot(internalPaths, profile, "discovered")); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := DiscoverCacheSnapshots(userDataDir, nil)
+	if err != nil || len(reloaded) != 1 {
+		t.Fatalf("new upserted run should be discoverable again: items=%#v err=%v", reloaded, err)
+	}
+}
+
+func TestDiscoverCacheSnapshotsRemovesMissingOutputRoot(t *testing.T) {
+	userDataDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "actor-output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := ResolveInternalArtifactPaths(userDataDir, outputDir)
+	if err := os.MkdirAll(filepath.Dir(paths.FilmDataPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := CrawlProfileArtifact{
+		SchemaVersion:  CurrentSchemaVersion,
+		RunID:          "run-20260826-2",
+		CompletedAt:    "2026-08-26T12:00:00+08:00",
+		ActressName:    "Actor B",
+		OutputDir:      outputDir,
+		FilmDataPath:   paths.FilmDataPath,
+		CompletedCount: 1,
+	}
+	profilePayload, _ := json.Marshal(profile)
+	if err := os.WriteFile(paths.FilmDataPath, []byte(`[{"title":"BBB-001"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.CrawlProfilePath, profilePayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertCacheSnapshot(userDataDir, BuildCacheSnapshot(paths, profile, "crawler")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ArchiveCompletedCacheSnapshot(userDataDir, paths, profile, "crawler"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(outputDir); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := DiscoverCacheSnapshots(userDataDir, nil)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("missing output root should remove stale snapshot: %#v err=%v", items, err)
+	}
+	if _, err := os.Stat(ResolveInternalArtifactRoot(userDataDir, outputDir)); !os.IsNotExist(err) {
+		t.Fatalf("stable alias remains after stale cleanup: %v", err)
 	}
 }
 

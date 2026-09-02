@@ -116,8 +116,10 @@ func (ctx *organizerRunContext) executeBatchDelete(pendingDelete []Candidate, wa
 					if !ctx.batchDeleteDirectorySafe(targetPath, pendingSet, protectedPaths) {
 						return fmt.Errorf("目标目录在删除前出现未确认内容")
 					}
+					ctx.waitDeleteInterval()
 					return removeDirectoryWithRetry(targetPath, 5)
 				}
+				ctx.waitDeleteInterval()
 				return os.Remove(targetPath)
 			},
 			ctx.logf,
@@ -263,11 +265,43 @@ func (ctx *organizerRunContext) isBatchDeleteProtectedPath(path string, protecte
 	if !isPathInside(ctx.normalizedRootPath, cleanedPath) || cleanedPath == filepath.Clean(ctx.normalizedRootPath) {
 		return true
 	}
+	if isOperationalLogPath(cleanedPath) {
+		return true
+	}
 	if isBatchDeleteProtectedName(ctx.paths, filepath.Base(cleanedPath)) {
 		return true
 	}
 	for _, protectedPath := range protectedPaths {
 		if isPathInside(protectedPath, cleanedPath) || isPathInside(cleanedPath, protectedPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOperationalLogPath protects log/report text even when a compatibility
+// caller places it below a non-standard folder name. The normal "logs" and
+// "log" directories are already managed-directory exclusions; this broader
+// check covers *.log and Chinese log filenames in user-selected subtrees.
+func isOperationalLogPath(targetPath string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(targetPath))
+	if cleaned == "" || cleaned == "." {
+		return false
+	}
+	// filepath.Ext("run.log.txt") is ".txt", so use suffix checks for
+	// double-extension task logs as well as the ordinary .log form.
+	lowerPath := strings.ToLower(filepath.ToSlash(cleaned))
+	if strings.HasSuffix(lowerPath, ".log") || strings.HasSuffix(lowerPath, ".log.txt") {
+		return true
+	}
+	base := strings.ToLower(filepath.Base(cleaned))
+	if strings.Contains(base, "日志") || strings.Contains(base, "运行日志") || strings.Contains(base, "debug-log") {
+		return true
+	}
+	for _, part := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		switch name {
+		case "log", "logs", "日志", "运行日志", "运行日志文件":
 			return true
 		}
 	}

@@ -75,7 +75,7 @@ func DefaultConfig() CrawlConfig {
 		MagnetExcludeKeywords:       "",
 		ActressCountFilterThreshold: 0,
 		FilmCodeFilterThreshold:     "",
-		MagnetContentValidation:     false,
+		MagnetContentValidation:     true,
 		SupplementMagnetTopN:        3,
 		DemoMode:                    "base",
 		TaskTemplate:                "balanced",

@@ -434,17 +434,18 @@ function runVersionConsistencyGuard() {
   console.log('\n[verify] version consistency');
   const packageVersion = JSON.parse(readRelativeText('package.json')).version;
   const wailsVersion = JSON.parse(readRelativeText('wails-shell/wails.json')).info.productVersion;
-  const expectedBadge = `>v${packageVersion}<`;
   const requiredFiles = [
     ['desktop/common/text/appInfo.js', `const APP_VERSION = '${packageVersion}'`],
     ['desktop/renderer/uiText.js', `version: '${packageVersion}'`],
     ['wails-shell/internal/crawlrunner/runner.go', `AppVersion: "${packageVersion}"`],
     ['wails-shell/internal/dependency/service.go', `JavFlow/${packageVersion}`],
-    ['desktop/renderer/index.template.html', `id="crawler-topbar-version" class="workspace-topbar-version version-badge">v${packageVersion}<`],
-    ['desktop/renderer/partials/organizer-hero.html', expectedBadge],
-    ['desktop/renderer/partials/subscription-hero.html', expectedBadge],
-    ['desktop/renderer/partials/librarymetadata-hero.html', expectedBadge],
-    ['desktop/renderer/partials/actressatlas-hero.html', expectedBadge]
+    ['desktop/renderer/index.template.html', `id="crawler-topbar-version" class="workspace-topbar-version version-badge">v${packageVersion}<`]
+  ];
+  const redundantHeroBadgeFiles = [
+    'desktop/renderer/partials/organizer-hero.html',
+    'desktop/renderer/partials/subscription-hero.html',
+    'desktop/renderer/partials/librarymetadata-hero.html',
+    'desktop/renderer/partials/actressatlas-hero.html'
   ];
   const failures = [];
   if (wailsVersion !== packageVersion) {
@@ -453,6 +454,11 @@ function runVersionConsistencyGuard() {
   for (const [relativePath, expectedSnippet] of requiredFiles) {
     if (!readRelativeText(relativePath).includes(expectedSnippet)) {
       failures.push(`${relativePath} is missing ${expectedSnippet}`);
+    }
+  }
+  for (const relativePath of redundantHeroBadgeFiles) {
+    if (readRelativeText(relativePath).includes('class="version-badge"')) {
+      failures.push(`${relativePath} must not contain a duplicate hero version badge`);
     }
   }
   if (failures.length > 0) {

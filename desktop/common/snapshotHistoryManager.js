@@ -23,6 +23,11 @@
 (function registerSnapshotHistoryManager(globalScope) {
   const attachedSelects = [];
   const handles = [];
+  // Every delete invalidates list requests that were already in flight. This
+  // matters when an initial workspace hydration finishes after the user has
+  // removed a row and would otherwise paint an older response over the new
+  // authoritative list.
+  let mutationSerial = 0;
 
   function defaultFormatSnapshotItem(item) {
     const name = String((item && (item.displayName || item.actressName)) || '').trim() || '未命名任务';
@@ -163,6 +168,8 @@
 
         panel.dataset.busy = '1';
         removeButton.disabled = true;
+        mutationSerial += 1;
+        handle.requestSerial += 1;
         const desktopApi = handle.desktopApi && handle.desktopApi();
         try {
           if (!desktopApi || typeof desktopApi.removeCrawlCacheSnapshot !== 'function') {
@@ -173,7 +180,14 @@
           buildPanelRows(handle, handle.currentItems);
           placePanel(handle);
           syncTriggerLabel(handle);
-          logSafe(handle.log, 'info', '已删除历史快照，各板块的快照列表已同步刷新。');
+          const removedCount = Number(result && result.removedCount) || 0;
+          logSafe(
+            handle.log,
+            removedCount > 0 ? 'info' : 'warn',
+            removedCount > 0
+              ? '已删除历史快照，各板块的快照列表已同步刷新。'
+              : '该历史快照已不存在，列表已按后端最新状态刷新。'
+          );
           await handle.reload();
           await reloadAllHandles(handle);
           syncTriggerLabel(handle);
@@ -209,6 +223,8 @@
 
   async function openPanel(handle) {
     const panel = handle.panel;
+    const requestSerial = ++handle.requestSerial;
+    const mutationAtStart = mutationSerial;
     const desktopApi = handle.desktopApi && handle.desktopApi();
     if (panel.parentNode !== document.body) {
       document.body.appendChild(panel);
@@ -231,6 +247,9 @@
         throw new Error('快照列表接口尚未就绪');
       }
       const result = await desktopApi.listCrawlCacheSnapshots();
+      if (requestSerial !== handle.requestSerial || mutationAtStart !== mutationSerial) {
+        return;
+      }
       handle.currentItems = Array.isArray(result && result.items) ? result.items : [];
       buildPanelRows(handle, handle.currentItems);
       placePanel(handle);
@@ -311,6 +330,7 @@
       itemValue: typeof options.itemValue === 'function' ? options.itemValue : null,
       onSelectItem: typeof options.onSelectItem === 'function' ? options.onSelectItem : null,
       currentItems: [],
+      requestSerial: 0,
       closePanel() {
         closePanel(handle);
       }

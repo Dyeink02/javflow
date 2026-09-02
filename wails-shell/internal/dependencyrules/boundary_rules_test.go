@@ -55,9 +55,7 @@ func internalImports(packageDirs ...string) []string {
 func organizerOrSubscriptionDomainPackages() []string {
 	return []string{
 		"internal/organizer",
-		"internal/avsubscription",
 		"internal/avsubscriptionv2",
-		"internal/subcrawl",
 		"internal/subcrawlv2",
 	}
 }
@@ -175,7 +173,7 @@ func TestModuleBoundaryRules(t *testing.T) {
 	// decoupling direction:
 	// 1) organizer should stay focused on local file processing plus crawl
 	//    output artifacts, not runtime crawl orchestration or UI state helpers
-	// 2) avsubscription should stay on persisted artifact / subscription-target
+	// 2) avsubscriptionv2 should stay on persisted artifact / subscription-target
 	//    contracts, not on JAV crawler business internals
 	// 3) crawler runtime packages should not grow organizer/subscription-specific
 	//    business dependencies back in through convenience imports
@@ -186,9 +184,9 @@ func TestModuleBoundaryRules(t *testing.T) {
 
 	rules := []packageBoundaryRule{
 		rule(
-			"actresslookup does not import avsubscription",
+			"actresslookup does not import avsubscriptionv2",
 			"internal/actresslookup",
-			internalImport("internal/avsubscription"),
+			internalImport("internal/avsubscriptionv2"),
 		),
 		rule(
 			"organizer does not import crawl runner or crawl task internals",
@@ -201,10 +199,10 @@ func TestModuleBoundaryRules(t *testing.T) {
 			internalImport("internal/crawlexecution"),
 		),
 		rule(
-			"organizer does not import avsubscription or crawl ui review layers",
+			"organizer does not import avsubscriptionv2 or crawl ui review layers",
 			"internal/organizer",
 			internalImports(
-				"internal/avsubscription",
+				"internal/avsubscriptionv2",
 				"internal/bridge",
 				"internal/crawlquality",
 				"internal/crawlresult",
@@ -224,36 +222,14 @@ func TestModuleBoundaryRules(t *testing.T) {
 			internalImports("internal/sidecar", "internal/desktop", "internal/runtimecache")...,
 		),
 		rule(
-			"avsubscription does not import organizer",
-			"internal/avsubscription",
-			internalImport("internal/organizer"),
-		),
-		rule(
 			"avsubscriptionv2 does not import organizer",
 			"internal/avsubscriptionv2",
 			internalImport("internal/organizer"),
 		),
 		rule(
-			"avsubscription does not import crawl runner or crawl task internals",
-			"internal/avsubscription",
-			internalImports("internal/crawlrunner", "internal/crawltask", "internal/crawlexecution")...,
-		),
-		rule(
 			"avsubscriptionv2 does not import crawl runner or crawl task internals",
 			"internal/avsubscriptionv2",
 			internalImports("internal/crawlrunner", "internal/crawltask", "internal/crawlexecution")...,
-		),
-		rule(
-			"avsubscription does not import crawl ui review or bridge layers",
-			"internal/avsubscription",
-			internalImports(
-				"internal/bridge",
-				"internal/crawlquality",
-				"internal/crawlresult",
-				"internal/crawlreview",
-				"internal/crawlruncontext",
-				"internal/crawluistate",
-			)...,
 		),
 		rule(
 			"avsubscriptionv2 does not import crawl ui review or bridge layers",
@@ -268,29 +244,14 @@ func TestModuleBoundaryRules(t *testing.T) {
 			)...,
 		),
 		rule(
-			"avsubscription does not import actress lookup or ranking services directly",
-			"internal/avsubscription",
-			internalImports("internal/actresslookup", "internal/actressranking")...,
-		),
-		rule(
 			"avsubscriptionv2 does not import actress lookup or ranking services directly",
 			"internal/avsubscriptionv2",
 			internalImports("internal/actresslookup", "internal/actressranking")...,
 		),
 		rule(
-			"avsubscription does not import organizer-adlearning or dependency shells",
-			"internal/avsubscription",
-			internalImports("internal/adlearning", "internal/dependency", "internal/proxy", "internal/sidecar")...,
-		),
-		rule(
 			"avsubscriptionv2 does not import organizer-adlearning or dependency shells",
 			"internal/avsubscriptionv2",
 			internalImports("internal/adlearning", "internal/dependency", "internal/proxy", "internal/sidecar")...,
-		),
-		rule(
-			"avsubscription does not import sidecar or desktop runtime shells",
-			"internal/avsubscription",
-			internalImports("internal/sidecar", "internal/desktop", "internal/runtimecache")...,
 		),
 		rule(
 			"avsubscriptionv2 does not import sidecar or desktop runtime shells",

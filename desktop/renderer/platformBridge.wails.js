@@ -33,13 +33,6 @@
     'app:get-actress-rankings',
     'app:load-crawl-film-codes',
     'app:discover-organizer-codes',
-    'app:list-av-subscriptions',
-    'app:scan-av-subscriptions-from-output',
-    'app:add-av-subscription',
-    'app:refresh-av-subscriptions',
-    'app:remove-av-subscription',
-    'app:clear-av-subscriptions',
-    'app:mark-av-subscription-synced',
     'app:list-av-subscriptions-v2',
     'app:scan-av-subscriptions-v2-from-output',
     'app:add-av-subscription-v2-manual',
@@ -107,6 +100,75 @@
 
     const message = error instanceof Error ? error.message : String(error || '');
     return /sidecar|startup|starting|deadline|timed out|eof|broken pipe/i.test(message);
+  }
+
+  // 应用内弹窗：替代 Wails 原生系统对话框。
+  // 原因：Wails v2 在 Windows 上关闭原生对话框时会把关闭信号传给主窗口，
+  // 导致任务完成点确认后整个软件退出（复现+二分实验确认）。改用应用内
+  // HTML 弹窗后彻底规避，且样式与软件主题一致。
+  function showInAppAlert(options) {
+    return new Promise((resolve) => {
+      const spec = options && typeof options === 'object' ? options : {};
+      const buttons =
+        Array.isArray(spec.buttons) && spec.buttons.length
+          ? spec.buttons.map((button) => String(button))
+          : ['我知道了'];
+
+      const overlay = document.createElement('div');
+      overlay.className = 'app-dialog-overlay';
+
+      const dialog = document.createElement('div');
+      dialog.className = 'app-dialog';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+
+      if (String(spec.title || '').trim()) {
+        const title = document.createElement('h3');
+        title.className = 'app-dialog-title';
+        title.textContent = String(spec.title);
+        dialog.appendChild(title);
+      }
+
+      const message = document.createElement('p');
+      message.className = 'app-dialog-message';
+      message.textContent = String(spec.message || '');
+      dialog.appendChild(message);
+
+      const actions = document.createElement('div');
+      actions.className = 'app-dialog-actions';
+
+      let settled = false;
+      const finish = (selection) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        document.removeEventListener('keydown', onKeyDown, true);
+        overlay.remove();
+        resolve({ selection });
+      };
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          finish(buttons[buttons.length - 1]);
+        }
+      };
+
+      buttons.forEach((label, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = index === 0 ? 'app-dialog-button is-primary' : 'app-dialog-button';
+        button.textContent = label;
+        button.addEventListener('click', () => finish(label));
+        actions.appendChild(button);
+      });
+
+      dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+      document.addEventListener('keydown', onKeyDown, true);
+      document.body.appendChild(overlay);
+    });
   }
 
   async function invoke(command, payload) {
@@ -254,7 +316,7 @@
       getCrawlReviewPanel: noPayloadCommand('app:get-crawl-review-panel'),
       getCrawlTaskSnapshot: noPayloadCommand('app:get-crawl-task-snapshot'),
       getLogContext: noPayloadCommand('app:get-log-context'),
-      showAlert: optionsCommand('app:show-alert'),
+      showAlert: (options) => showInAppAlert(options),
       validateProxy: twoValueCommand('app:validate-proxy', 'proxyValue', 'options'),
 	      // One persisted proxy setting is shared by crawler, Actor Atlas,
 	      // subscriptions, and library metadata. Keep the old Atlas-named route

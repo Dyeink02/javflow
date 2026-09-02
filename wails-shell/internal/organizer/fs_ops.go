@@ -79,6 +79,87 @@ func ensureDirectory(targetPath string) error {
 	return os.MkdirAll(targetPath, 0o755)
 }
 
+// organizerReportFileNames is deliberately explicit. The organizer must
+// never sweep arbitrary TXT/JSON files into logs just because they sit beside
+// the media tree.
+var organizerReportFileNames = []string{
+	renameMapName,
+	"更新前后对照.txt",
+	"合并奶头磁力.txt",
+	"合并奶头番号.txt",
+	"合并奶头明细.txt",
+	unmatchedName,
+	adRiskCodesName,
+	adRiskDetailName,
+	adRiskMagnetsName,
+	missingMagnetsName,
+	rescueReportName,
+}
+
+// migrateLegacyOrganizerArtifacts archives known organizer reports that were
+// previously written directly under the media root. Existing destination
+// files are never overwritten.
+func migrateLegacyOrganizerArtifacts(rootPath string, paths Paths, logf func(string, string)) error {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	if rootPath == "." || rootPath == "" || paths.LogsDir == "" {
+		return nil
+	}
+	if err := ensureDirectory(paths.LogsDir); err != nil {
+		return err
+	}
+
+	names := append(append([]string{}, organizerReportFileNames...), legacyReportFileNames...)
+	for _, name := range names {
+		sourcePath := filepath.Join(rootPath, name)
+		targetPath := filepath.Join(paths.LogsDir, name)
+		if strings.EqualFold(filepath.Clean(sourcePath), filepath.Clean(targetPath)) || !pathExists(sourcePath) {
+			continue
+		}
+		info, err := os.Stat(sourcePath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		movedPath, err := moveWithUnique(sourcePath, targetPath)
+		if err != nil {
+			return fmt.Errorf("archive organizer report %s -> %s: %w", sourcePath, targetPath, err)
+		}
+		if logf != nil {
+			logf("info", "archived organizer report to logs: "+movedPath)
+		}
+	}
+
+	oldStateDir := filepath.Join(rootPath, stateDirName)
+	if strings.EqualFold(filepath.Clean(oldStateDir), filepath.Clean(paths.StateDir)) || !pathExists(oldStateDir) {
+		return nil
+	}
+	oldEntries, err := os.ReadDir(oldStateDir)
+	if err != nil {
+		return fmt.Errorf("read old organizer state directory %s: %w", oldStateDir, err)
+	}
+	if err := ensureDirectory(paths.StateDir); err != nil {
+		return err
+	}
+	for _, entry := range oldEntries {
+		sourcePath := filepath.Join(oldStateDir, entry.Name())
+		targetPath := filepath.Join(paths.StateDir, entry.Name())
+		if pathExists(targetPath) {
+			if logf != nil {
+				logf("warn", "new organizer state already has same file; old file kept: "+sourcePath)
+			}
+			continue
+		}
+		if _, err := moveWithUnique(sourcePath, targetPath); err != nil {
+			return fmt.Errorf("migrate organizer state %s -> %s: %w", sourcePath, targetPath, err)
+		}
+	}
+	if remaining, readErr := os.ReadDir(oldStateDir); readErr == nil && len(remaining) == 0 {
+		if removeErr := os.Remove(oldStateDir); removeErr != nil && logf != nil {
+			logf("warn", "old organizer state directory could not be removed; kept: "+oldStateDir)
+		}
+	}
+	return nil
+}
+
 func copyThenRemove(srcPath string, targetPath string) error {
 	if err := ensureDirectory(filepath.Dir(targetPath)); err != nil {
 		return err
@@ -362,12 +443,19 @@ func cleanupEmptyDirectories(rootPath string, preservedTopDirs map[string]struct
 	return removedCount
 }
 
-// cleanupLegacyReportFiles removes explicit pre-split historical artifacts only.
-// The cleanup intentionally avoids wildcard deletion so current reports and user
-// files cannot be swept away by a broad compatibility rule.
+// cleanupLegacyReportFiles archives explicit pre-split historical artifacts.
+// Reports are operator-visible logs, so compatibility cleanup must never delete
+// them just because they use an older filename.
 func cleanupLegacyReportFiles(rootPath string, logf func(string, string)) int {
 	removedCount := 0
 	if rootPath == "" || !filepath.IsAbs(rootPath) {
+		return 0
+	}
+	logsPath := filepath.Join(rootPath, logsDirName)
+	if err := ensureDirectory(logsPath); err != nil {
+		if logf != nil {
+			logf("warn", fmt.Sprintf("create logs directory failed; legacy reports kept: %s (%s)", logsPath, err.Error()))
+		}
 		return 0
 	}
 	for _, fileName := range legacyReportFileNames {
@@ -376,15 +464,16 @@ func cleanupLegacyReportFiles(rootPath string, logf func(string, string)) int {
 		if err != nil || fileInfo.IsDir() {
 			continue
 		}
-		if err := os.Remove(legacyPath); err != nil {
+		archivedPath, err := moveWithUnique(legacyPath, filepath.Join(logsPath, fileName))
+		if err != nil {
 			if logf != nil {
-				logf("warn", fmt.Sprintf("清理历史报告失败：%s，原因：%s", legacyPath, err.Error()))
+				logf("warn", fmt.Sprintf("archive legacy report failed; original kept: %s (%s)", legacyPath, err.Error()))
 			}
 			continue
 		}
 		removedCount++
 		if logf != nil {
-			logf("info", "\u5df2\u6e05\u7406\u5386\u53f2\u62a5\u544a\uff1a"+legacyPath)
+			logf("info", "legacy report archived to logs: "+archivedPath)
 		}
 	}
 	return removedCount

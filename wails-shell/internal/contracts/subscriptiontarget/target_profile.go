@@ -4,7 +4,7 @@ package subscriptiontarget
 // lookup and AV-subscription flows. It exists so subscription refresh logic can
 // evolve without importing crawler UI/domain types directly.
 //
-// This package is intentionally smaller than avsubscription itself: it captures
+// This package is intentionally smaller than avsubscriptionv2 itself: it captures
 // the neutral “resolved actress target” view that lookup, bridge, and future
 // subscription refresh paths can all share.
 //
@@ -20,7 +20,7 @@ package subscriptiontarget
 
 // TargetProfile describes the resolved actress target in a module-neutral way.
 // It is used by lookup, bridge, and subscription wiring without tying the
-// actress lookup flow to the avsubscription package.
+// actress lookup flow to the avsubscriptionv2 package.
 //
 // Design rule:
 // if a field only matters to one concrete UI/controller path, do not add it

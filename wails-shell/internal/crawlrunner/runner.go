@@ -668,13 +668,27 @@ func (r *Runner) isFilmCodeStringMatch(value string) bool {
 		return false
 	}
 
-	for _, part := range strings.Split(r.config.FilmCodeFilterThreshold, ",") {
+	for _, part := range splitFilmCodeFilterKeywords(r.config.FilmCodeFilterThreshold) {
 		substring := strings.ToLower(strings.TrimSpace(part))
 		if substring != "" && strings.Contains(normalized, substring) {
 			return true
 		}
 	}
 	return false
+}
+
+// splitFilmCodeFilterKeywords accepts the separators users naturally enter in
+// the desktop settings. In particular, Chinese/Japanese punctuation such as
+// "VR、OFJE" must behave the same as the documented "VR, OFJE" form.
+func splitFilmCodeFilterKeywords(value string) []string {
+	return strings.FieldsFunc(value, func(char rune) bool {
+		switch char {
+		case ',', '，', '、', ';', '；', '\n', '\r', '\t':
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 // isFilmCodeLinkFiltered checks a detail link's extracted film code against
@@ -930,7 +944,11 @@ func (r *Runner) fetchMagnetForFilm(ctx context.Context, metadata crawlparse.Met
 	if err != nil {
 		return nil, err
 	}
-	candidates = crawlrequest.ApplyMagnetExcludeFilter(candidates, r.config.MagnetExcludeKeywords)
+	filteredCandidates := crawlrequest.ApplyMagnetExcludeFilter(candidates, r.config.MagnetExcludeKeywords)
+	if removed := len(candidates) - len(filteredCandidates); removed > 0 {
+		r.emitLog("warn", fmt.Sprintf("磁力候选已过滤 %d 条合集/用户排除项，避免大合集污染当前番号：%s", removed, metadata.Title))
+	}
+	candidates = filteredCandidates
 	return crawlrequest.BuildMagnetResult(candidates, r.config.Allmag, r.config.SupplementMagnetTopN), nil
 }
 
@@ -1816,7 +1834,7 @@ func (r *Runner) buildSnapshot(status RunnerStatus, message string, mode crawlex
 	// 快照是恢复闭环的核心：保存当前进度、队列、校验结果和输出状态。
 	recon := r.tracker.BuildReconciliation()
 	return crawltaskstate.BuildSnapshot(crawltaskstate.BuilderParams{
-		AppVersion: "0.4.4",
+		AppVersion: "0.4.41",
 		Status:     string(status),
 		Message:    strings.TrimSpace(message),
 		StartedAt:  strings.TrimSpace(r.startedAt),

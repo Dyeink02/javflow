@@ -147,15 +147,13 @@ func planTargetNames(candidates []Candidate, strategy conflictSuffixStrategy) []
 	outputNames := make([]string, len(candidates))
 	grouped := map[string][]int{}
 	for index, item := range candidates {
-		if !item.RenameByFilmCode || item.FilmCode == "" {
+		filmCode := normalizeTargetFilmCode(item.FilmCode)
+		if !item.RenameByFilmCode || filmCode == "" {
 			originalName := filepath.Base(strings.TrimSpace(item.Src))
-			if originalName == "" {
-				originalName = "UNNAMED_" + intToString(index+1)
-			}
-			outputNames[index] = originalName
+			outputNames[index] = sanitizeOutputFileName(originalName, "UNNAMED_"+intToString(index+1))
 			continue
 		}
-		grouped[item.FilmCode] = append(grouped[item.FilmCode], index)
+		grouped[filmCode] = append(grouped[filmCode], index)
 	}
 
 	codes := make([]string, 0, len(grouped))
@@ -170,12 +168,12 @@ func planTargetNames(candidates []Candidate, strategy conflictSuffixStrategy) []
 		})
 		useSuffix := len(indexes) > 1
 		for sequence, candidateIndex := range indexes {
-			extension := strings.ToLower(filepath.Ext(candidates[candidateIndex].Src))
+			extension := normalizedSourceExtension(candidates[candidateIndex].Src)
 			suffix := ""
 			if useSuffix {
 				suffix = formatSuffix(strategy, sequence)
 			}
-			outputNames[candidateIndex] = filmCode + suffix + extension
+			outputNames[candidateIndex] = sanitizeOutputFileName(filmCode+suffix+extension, "UNNAMED_"+intToString(candidateIndex+1)+extension)
 		}
 	}
 	return outputNames
@@ -228,7 +226,8 @@ func resolveDeleteDestinationPath(paths Paths, sourcePath string) string {
 // goes directly into the visible pending-delete folder. moveWithUnique handles
 // same-name files there without reintroducing the source directory.
 func resolveDeleteFileDestinationPath(paths Paths, sourcePath string) string {
-	return filepath.Join(paths.ToDeleteDir, filepath.Base(sourcePath))
+	fileName := sanitizeOutputFileName(filepath.Base(sourcePath), "UNNAMED")
+	return filepath.Join(paths.ToDeleteDir, fileName)
 }
 
 func resolveIntroAdDestinationPath(paths Paths, sourcePath string) string {

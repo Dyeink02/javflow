@@ -23,7 +23,8 @@
     downloadedPrefix: '已下载 v',
     applyButton: '立即更新',
     applying: '正在准备重启...',
-    latest: '',
+    latest: '当前已是最新版本',
+    portableMessage: '便携版暂不支持在线升级，请前往 GitHub Release 页面下载最新便携包。',
     checkFailedPrefix: '更新检查失败：',
     downloadFailedPrefix: '更新下载失败：',
     applyFailedPrefix: '更新启动失败：',
@@ -90,17 +91,44 @@
       return actionPromise;
     }
 
-    async function check() {
+    async function check(options = {}) {
+      // manual = 用户点击“检查更新”按钮；否则是启动时的自动检查。
+      // 便携版：自动检查完全静默（顶栏不显示任何内容），手动检查弹窗提示。
+      const manual = Boolean(options && options.manual);
       return runOnce(async () => {
         state = 'checking';
-        setStatus(text.checking, 'checking');
-        setButton(text.checkButton, true);
+        if (manual) {
+          setStatus(text.checking, 'checking');
+          setButton(text.checkButton, true);
+        }
         try {
           const result = await desktopApi.checkAppUpdate();
           latestInfo = result && typeof result === 'object' ? result : null;
+          if (latestInfo && latestInfo.inAppUpdateSupported === false) {
+            // 便携版：不进入下载流程。
+            state = 'portable';
+            setButton(text.checkButton, false);
+            if (manual) {
+              const message = String(latestInfo.message || text.portableMessage);
+              if (typeof desktopApi.showAlert === 'function') {
+                await desktopApi.showAlert({
+                  type: 'info',
+                  title: '便携版升级',
+                  message,
+                  buttons: ['我知道了']
+                });
+              } else if (typeof globalScope.alert === 'function') {
+                globalScope.alert(message);
+              }
+            }
+            setStatus('');
+            return latestInfo;
+          }
           if (!latestInfo || !latestInfo.updateAvailable) {
             state = 'latest';
-            setStatus(text.latest);
+            if (manual) {
+              setStatus(String((latestInfo && latestInfo.message) || text.latest));
+            }
             setButton(text.checkButton, false);
             return latestInfo;
           }
@@ -202,7 +230,7 @@
         void apply();
         return;
       }
-      void check();
+      void check({ manual: true });
     }
 
     function bootstrap() {

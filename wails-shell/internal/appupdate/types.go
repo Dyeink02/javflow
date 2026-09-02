@@ -26,6 +26,13 @@ const (
 	checkTimeout    = 30 * time.Second
 	downloadTimeout = 30 * time.Minute
 	replaceTimeout  = 45 * time.Second
+
+	// Install kinds: the NSIS installer drops Uninstall.exe beside the app,
+	// portable deployments (ZIP/Lite-Direct/manual) do not.
+	installKindInstaller = "installer"
+	installKindPortable  = "portable"
+
+	portableUpdateMessage = "便携版暂不支持在线升级，请前往 GitHub Release 页面下载最新便携包。"
 )
 
 type ServiceOptions struct {
@@ -56,6 +63,12 @@ type UpdateInfo struct {
 	DownloadedPath  string `json:"downloadedPath,omitempty"`
 	DownloadReady   bool   `json:"downloadReady"`
 	Message         string `json:"message,omitempty"`
+
+	// InstallKind reports "installer" or "portable" for the running copy, and
+	// InAppUpdateSupported is false for portable copies: the renderer shows the
+	// portable guidance message instead of offering a download.
+	InstallKind          string `json:"installKind,omitempty"`
+	InAppUpdateSupported bool   `json:"inAppUpdateSupported"`
 }
 
 type ApplyResult struct {

@@ -71,6 +71,33 @@
       listSort: 'updated',
       globalProxy: ''
     };
+    const subscriptionStageRenderer =
+      globalScope.desktopStagePanelRenderer && typeof globalScope.desktopStagePanelRenderer.createStagePanelRenderer === 'function'
+        ? globalScope.desktopStagePanelRenderer.createStagePanelRenderer({
+            crawlStageStatus: elements.subscriptionCrawlStageStatus,
+            crawlStageProgress: elements.subscriptionCrawlStageProgress,
+            crawlStageTitle: elements.subscriptionCrawlStageTitle,
+            crawlStageDescription: elements.subscriptionCrawlStageDescription,
+            crawlStageMessage: elements.subscriptionCrawlStageMessage,
+            crawlStageBarFill: elements.subscriptionCrawlStageBarFill,
+            crawlStageBar: elements.subscriptionCrawlStageBar,
+            crawlStageOutput: elements.subscriptionCrawlStageOutput,
+            crawlStagePage: elements.subscriptionCrawlStagePage,
+            crawlStageQueued: elements.subscriptionCrawlStageQueued,
+            crawlStageAttempted: elements.subscriptionCrawlStageAttempted,
+            crawlStageCompleted: elements.subscriptionCrawlStageCompleted,
+            statusLabels: {
+              idle: '待机',
+              starting: '准备中',
+              running: '抓取中',
+              completed: '已完成',
+              incomplete: '未完全完成',
+              stopped: '已停止',
+              error: '失败'
+            },
+            defaultMessage: '等待开始抓取。'
+          })
+        : null;
     let eventsBound = false;
     let bootstrapCompleted = false;
     let bootstrapPromise = null;
@@ -185,6 +212,18 @@
         output.push(code);
       });
       return output;
+    }
+
+    function renderCodePreview(values, emptyText = '无内容', limit = 12) {
+      const codes = normalizeCodes(values);
+      if (codes.length === 0) {
+        return `<span class="subscription-code-preview">${escapeHtml(emptyText)}</span>`;
+      }
+      const visibleCodes = codes.slice(0, Math.max(1, limit));
+      const remaining = Math.max(0, codes.length - visibleCodes.length);
+      const summary = `${visibleCodes.join('、')}${remaining > 0 ? ` 等 ${remaining} 个` : ''}`;
+      const fullText = codes.join('、');
+      return `<span class="subscription-code-preview${remaining > 0 ? ' is-truncated' : ''}" title="${escapeHtml(fullText)}">${escapeHtml(summary)}</span>`;
     }
 
     function resolveSubscriptionBaselineCount(item) {
@@ -379,18 +418,19 @@
       const list = Array.isArray(state.subscriptions) ? state.subscriptions : [];
       const total = list.length;
       const updated = list.filter((item) => normalizeCount(item.pendingCount, 0) > 0).length;
-      const pending = list.reduce((sum, item) => sum + normalizeCount(item.pendingCount, 0), 0);
       const checked = list.filter((item) => normalizeText(item.lastCheckedAt)).length;
 
       if (elements.subscriptionStatTotal) elements.subscriptionStatTotal.textContent = String(total);
-      if (elements.subscriptionStatTotalSide) elements.subscriptionStatTotalSide.textContent = String(total);
       if (elements.subscriptionStatUpdated) elements.subscriptionStatUpdated.textContent = String(updated);
-      if (elements.subscriptionStatUpdatedSide) elements.subscriptionStatUpdatedSide.textContent = String(updated);
-      if (elements.subscriptionStatPending) elements.subscriptionStatPending.textContent = String(pending);
       if (elements.subscriptionStatChecked) elements.subscriptionStatChecked.textContent = String(checked);
-      if (elements.subscriptionStatCheckedSide) elements.subscriptionStatCheckedSide.textContent = String(checked);
       if (elements.subscriptionListResultCount) {
         elements.subscriptionListResultCount.textContent = `显示 ${visibleSubscriptionList().length} / ${total} 位`;
+      }
+    }
+
+    function applySubscriptionStagePanel(panel = {}) {
+      if (subscriptionStageRenderer && typeof subscriptionStageRenderer.applyPanel === 'function') {
+        subscriptionStageRenderer.applyPanel(panel || {});
       }
     }
 
@@ -416,6 +456,21 @@
       return state.activeCrawlSession && typeof state.activeCrawlSession === 'object'
         ? { ...state.activeCrawlSession }
         : null;
+    }
+
+    function getBridgeCrawlSession() {
+      const active = getActiveCrawlSession();
+      if (active) {
+        return active;
+      }
+      if (state.activeBatchCrawl) {
+        return {
+          subscriptionId: '__subscription_batch__',
+          kind: 'batch',
+          outputDir: normalizeText(state.activeBatchCrawl.outputDir)
+        };
+      }
+      return null;
     }
 
     async function resolveSubscriptionDefaultOutputDir() {
@@ -1303,8 +1358,6 @@
       const baselineCount = resolveSubscriptionBaselineCount(current);
       const currentTotal = resolveSubscriptionCurrentTotal(current);
       const currentCount = resolveSubscriptionCurrentCount(current);
-      const pendingText = pendingCodes.length > 0 ? pendingCodes.join('、') : '暂无待更新番号';
-      const baselineText = baselineCodes.length > 0 ? baselineCodes.slice(0, 24).join('、') : '无基线番号';
       const sourceTypeText =
         current.sourceType === 'metadata-auto'
           ? '刮削自动订阅'
@@ -1323,7 +1376,7 @@
       const preparedRows = prepared
         ? `
           <div class="detail-row detail-prepared"><span>预载状态</span><strong>已填充，可开始更新</strong></div>
-          <div class="detail-row"><span>预载影片</span><div>${escapeHtml(String(normalizeCount(prepared.targetCount, 0)))} 部 · ${escapeHtml(normalizeCodes(prepared.pendingCodes).join('、') || '等待检测番号')}</div></div>
+          <div class="detail-row"><span>预载影片</span><div>${escapeHtml(String(normalizeCount(prepared.targetCount, 0)))} 部 · ${renderCodePreview(prepared.pendingCodes, '等待检测番号')}</div></div>
           <div class="detail-row"><span>预载地址</span><div>${escapeHtml(prepared.crawlUrl || '未设置')}</div></div>
           <div class="detail-row"><span>保存位置</span><div>${escapeHtml(prepared.outputDir || '软件内部 AV订阅 路径')}</div></div>
         `
@@ -1342,8 +1395,8 @@
           <div class="detail-row"><span>基数</span><strong>${escapeHtml(String(baselineCount))}</strong></div>
           <div class="detail-row"><span>当前总量</span><strong>${escapeHtml(String(currentTotal))}</strong></div>
           <div class="detail-row"><span>当前总数</span><strong>${escapeHtml(String(currentCount))}</strong></div>
-          <div class="detail-row"><span>待更新番号</span><div>${escapeHtml(pendingText)}</div></div>
-          <div class="detail-row"><span>基线预览</span><div>${escapeHtml(baselineText)}</div></div>
+          <div class="detail-row"><span>待更新番号</span><div>${renderCodePreview(pendingCodes, '暂无待更新番号')}</div></div>
+          <div class="detail-row"><span>基线预览</span><div>${renderCodePreview(baselineCodes, '无基线番号')}</div></div>
           ${preparedRows}
           ${mismatchWarning}
         </div>
@@ -1761,8 +1814,27 @@
       appendLog('info', `Cloudflare 兼容：${cloudflareEnabled ? '已启用（桥接 JAV 爬虫配置）' : '未启用'}`);
       appendLog('info', `反屏蔽：${state.antiBlockReady ? '已启用' : '初始化失败'}`);
       setSubscriptionCrawlerStatus('正在抓取...');
+      applySubscriptionStagePanel({
+        status: 'starting',
+        phaseTitle: '准备订阅抓取',
+        phaseDescription: '正在初始化订阅抓取运行环境。',
+        message: `即将抓取 ${targetCount} 部待更新影片。`,
+        outputDir,
+        stats: { pageIndex: 0, queued: 0, attempted: 0, completed: 0 }
+      });
 
       try {
+        // Publish the session before starting the shared crawl feed so the
+        // first stage event is routed to the subscription workspace.
+        setActiveCrawlSession({
+          subscriptionId: normalizeText(item.id),
+          actressName: normalizeText(item.actressName),
+          targetCodes: normalizeCodes(item.pendingCodes),
+          outputDir,
+          baseOutputDir: outputDir,
+          targetCount,
+          crawlLimit
+        });
         const startResult = await desktopApi.startSubscriptionCrawl(buildSubscriptionRuntimePayload({
           subscriptionId: item.id,
           outputDir,
@@ -1770,18 +1842,15 @@
           targetCodes: Array.isArray(item.pendingCodes) ? item.pendingCodes : [],
           proxy
         }));
-        setActiveCrawlSession({
-          subscriptionId: normalizeText(item.id),
-          actressName: normalizeText(item.actressName),
-          targetCodes: normalizeCodes(item.pendingCodes),
-          outputDir:
+        if (state.activeCrawlSession) {
+          state.activeCrawlSession.outputDir =
             normalizeText(startResult && startResult.currentTaskOutputDir) ||
             normalizeText(startResult && startResult.outputDir) ||
-            outputDir,
-          baseOutputDir: normalizeText(startResult && startResult.baseOutputDir) || outputDir,
-          targetCount,
-          crawlLimit: normalizeCount(startResult && startResult.crawlLimit, crawlLimit) || crawlLimit
-        });
+            outputDir;
+          state.activeCrawlSession.baseOutputDir = normalizeText(startResult && startResult.baseOutputDir) || outputDir;
+          state.activeCrawlSession.crawlLimit = normalizeCount(startResult && startResult.crawlLimit, crawlLimit) || crawlLimit;
+          publishActiveSubscriptionCrawlSession(state.activeCrawlSession);
+        }
       } catch (error) {
         clearActiveCrawlSession();
         appendLog('error', `启动抓取失败: ${getErrorMessage(error)}`);
@@ -1846,6 +1915,17 @@
         startedAt: Date.now(),
         completionNotified: false
       };
+      publishActiveSubscriptionCrawlSession(getBridgeCrawlSession());
+      applySubscriptionStagePanel({
+        status: 'starting',
+        phaseTitle: '准备批量更新',
+        phaseDescription: '正在初始化订阅批量抓取任务。',
+        message: `即将处理 ${pendingItems.length} 位演员。`,
+        outputDir,
+        phaseIndex: 0,
+        phaseTotal: pendingItems.length,
+        stats: { pageIndex: 0, queued: 0, attempted: 0, completed: 0 }
+      });
 
       try {
         await desktopApi.startSubscriptionBatchCrawl(buildSubscriptionRuntimePayload({
@@ -1854,6 +1934,7 @@
         }));
       } catch (error) {
         state.activeBatchCrawl = null;
+        publishActiveSubscriptionCrawlSession(null);
         appendLog('error', `\u4e00\u952e\u5168\u90e8\u66f4\u65b0\u542f\u52a8\u5931\u8d25: ${getErrorMessage(error)}`);
         setSubscriptionCrawlerStatus('\u542f\u52a8\u5931\u8d25');
       }
@@ -2050,6 +2131,20 @@
               const noUpdate = normalizeCount(data.batchNoUpdate, 0);
               const failed = normalizeCount(data.failed, 0);
               const batchRun = state.activeBatchCrawl;
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '批量更新完成',
+                phaseDescription: '本次订阅批量抓取已完成。',
+                message: `成功 ${succeeded} 位，无更新 ${noUpdate} 位，失败 ${failed} 位。`,
+                outputDir: batchRun && batchRun.outputDir,
+                phaseIndex: normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal),
+                phaseTotal: normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal),
+                stats: {
+                  queued: normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal),
+                  attempted: normalizeCount(data.batchCompleted, 0),
+                  completed: normalizeCount(data.batchCompleted, 0)
+                }
+              });
               if (!batchRun || batchRun.completionNotified) {
                 return;
               }
@@ -2063,10 +2158,25 @@
                 { type: failed > 0 ? 'warning' : 'success' }
               );
               state.activeBatchCrawl = null;
+              publishActiveSubscriptionCrawlSession(null);
               return;
             }
             if (status === 'stopped') {
               const batchRun = state.activeBatchCrawl;
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '批量更新已停止',
+                phaseDescription: '本次订阅批量抓取已停止。',
+                message: `已完成 ${normalizeCount(data.batchCompleted, 0)} / ${normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal)} 位演员。`,
+                outputDir: batchRun && batchRun.outputDir,
+                phaseIndex: normalizeCount(data.batchCompleted, 0),
+                phaseTotal: normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal),
+                stats: {
+                  queued: normalizeCount(data.batchTotal, batchRun && batchRun.expectedTotal),
+                  attempted: normalizeCount(data.batchCompleted, 0),
+                  completed: normalizeCount(data.batchCompleted, 0)
+                }
+              });
               setSubscriptionCrawlerStatus('\u5df2\u505c\u6b62\u5168\u90e8\u66f4\u65b0');
               void loadSubscriptions();
               if (batchRun && !batchRun.completionNotified) {
@@ -2077,11 +2187,22 @@
                 );
               }
               state.activeBatchCrawl = null;
+              publishActiveSubscriptionCrawlSession(null);
               return;
             }
             const completed = normalizeCount(data.batchCompleted, 0);
             const total = normalizeCount(data.batchTotal, 0);
             const active = normalizeCount(data.active, 0);
+            applySubscriptionStagePanel({
+              status: 'running',
+              phaseTitle: '正在批量更新',
+              phaseDescription: '多个订阅正在并行抓取，请查看执行记录了解详情。',
+              message: `已完成 ${completed} / ${total} 位演员，运行中 ${active} 位。`,
+              outputDir: state.activeBatchCrawl && state.activeBatchCrawl.outputDir,
+              phaseIndex: completed,
+              phaseTotal: total,
+              stats: { queued: total, attempted: completed, completed }
+            });
             setSubscriptionCrawlerStatus(total > 0 ? `\u66f4\u65b0\u4e2d ${completed}/${total}\uff08\u8fd0\u884c ${active}\uff09` : '\u66f4\u65b0\u4e2d...');
           } catch (_) {}
         });
@@ -2119,22 +2240,54 @@
             }
             const status = normalizeText(data.status).toLowerCase();
             if (status === 'completed') {
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '抓取完成',
+                phaseDescription: '订阅抓取已完成，正在回收结果。',
+                message: normalizeText(data.message) || '抓取完成，正在回收订阅结果。',
+                outputDir: data.currentTaskOutputDir || data.outputDir || '',
+                stats: data.stats || {}
+              });
               setSubscriptionCrawlerStatus('抓取完成');
               void finalizeActiveSubscriptionCrawl(data);
               return;
             }
             if (status === 'incomplete') {
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '抓取未完全完成',
+                phaseDescription: '部分结果已生成，正在回收已抓到的待更新影片。',
+                message: normalizeText(data.message) || '抓取未完全完成，正在回收已抓到的结果。',
+                outputDir: data.currentTaskOutputDir || data.outputDir || '',
+                stats: data.stats || {}
+              });
               setSubscriptionCrawlerStatus('抓取未完全完成，正在回收已抓到的待更新结果');
               appendLog('warn', '主爬虫返回未完成状态，AV 订阅仍会先回收已抓到的待更新番号，并在收尾日志中列出缺失番号。');
               void finalizeActiveSubscriptionCrawl(data);
               return;
             }
             if (status === 'stopped') {
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '抓取已停止',
+                phaseDescription: '本次订阅抓取已停止。',
+                message: normalizeText(data.message) || '抓取已停止。',
+                outputDir: data.currentTaskOutputDir || data.outputDir || '',
+                stats: data.stats || {}
+              });
               setSubscriptionCrawlerStatus('已停止');
               clearActiveCrawlSession();
               return;
             }
             if (status === 'error') {
+              applySubscriptionStagePanel({
+                status,
+                phaseTitle: '抓取出错',
+                phaseDescription: '订阅抓取发生错误，请查看执行记录。',
+                message: normalizeText(data.message) || '抓取出错。',
+                outputDir: data.currentTaskOutputDir || data.outputDir || '',
+                stats: data.stats || {}
+              });
               setSubscriptionCrawlerStatus('抓取出错');
               clearActiveCrawlSession();
               return;
@@ -2538,6 +2691,13 @@
       }
       setSubscriptionProxyStatus('checking');
       setSummaryMessage('等待检测订阅更新。');
+      applySubscriptionStagePanel({
+        status: 'idle',
+        phaseTitle: '等待开始抓取',
+        phaseDescription: '加载配置并初始化本次抓取运行环境。',
+        message: '等待开始抓取。',
+        stats: { pageIndex: 0, queued: 0, attempted: 0, completed: 0 }
+      });
       appendLog('info', 'AV 订阅模块已就绪。');
       const proxyInitialization = loadGlobalSubscriptionProxy()
         .then((proxyValue) => validateSubscriptionProxyValue(proxyValue))
@@ -2564,7 +2724,9 @@
       bootstrap,
       dispose,
       loadRecentCrawlOptionsFromHistory,
-      loadSubscriptions
+      loadSubscriptions,
+      applyCrawlStagePanel: applySubscriptionStagePanel,
+      getBridgeCrawlSession
     };
   }
 

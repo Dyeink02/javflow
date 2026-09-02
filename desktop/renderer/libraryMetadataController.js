@@ -1520,11 +1520,32 @@
       return '待刮削';
     }
 
+    function isEnabledFlag(value) {
+      if (value === true) {
+        return true;
+      }
+      if (typeof value === 'number') {
+        return value !== 0;
+      }
+      if (typeof value === 'string') {
+        return /^(1|true|yes|y|是|有)$/i.test(value.trim());
+      }
+      return false;
+    }
+
+    function hasScrapeFailureFlag(item) {
+      return Boolean(
+        item &&
+        [item.failed, item.scrapeFailed, item.scrapeIncomplete, item.incomplete, item.unfinished, item.partial]
+          .some(isEnabledFlag)
+      );
+    }
+
     function resolveStatusLightClass(item) {
       if (!item.hasMedia) {
         return 'no-media';
       }
-      if (item.failed) {
+      if (hasScrapeFailureFlag(item)) {
         return 'failed';
       }
       if (item.status === '已完整') {
@@ -1566,10 +1587,38 @@
         : '当前显示所选 JSON 中的全部番号';
     }
 
-    // 仅显示刮削失败：作用于当前清单范围（与“仅显示刮削内容”叠加），
-    // 失败项高亮可见，方便用户直接定位需要重刮的番号。
+    // 仅显示刮削失败/未完成：作用于当前清单范围（与“仅显示刮削内容”叠加）。
+    // 部分写入会留下至少一项缺失内容而不会标记为 failed，因此必须和
+    // 明确失败一起进入筛选结果，方便用户直接补刮。
+    function isScrapeIncomplete(item) {
+      if (!item || item.hasMedia === false) {
+        return false;
+      }
+
+      const status = normalizeText(item.status || item.scrapeStatus || item.completionStatus);
+      const completeStatus = /已完整|complete/i.test(status);
+      const incompleteStatus = /失败|未完成|部分|缺(?:少)?|待刮削|错误|incomplete|failed|partial|pending/i.test(status);
+
+      if (hasScrapeFailureFlag(item) || incompleteStatus) {
+        return true;
+      }
+      if (completeStatus) {
+        return false;
+      }
+
+      // Current Go results always set hasMedia=true. Keep mediaPath as a
+      // compatibility signal for older cached rows that predate that field.
+      const hasMedia = item.hasMedia === true || Boolean(item.mediaPath || item.filePath || item.path);
+      if (!hasMedia) {
+        return false;
+      }
+
+      return !isEnabledFlag(item.hasNfo) || !isEnabledFlag(item.hasPoster) ||
+        !isEnabledFlag(item.hasBackdrop) || !isEnabledFlag(item.hasLandscape);
+    }
+
     function matchesFailedOnly(item) {
-      return !state.resultFailedOnly || Boolean(item && item.failed);
+      return !state.resultFailedOnly || Boolean(item && (hasScrapeFailureFlag(item) || isScrapeIncomplete(item)));
     }
 
     function updateResultFailedOnlyButton() {
@@ -1579,9 +1628,10 @@
       }
       button.classList.toggle('active', state.resultFailedOnly);
       button.setAttribute('aria-pressed', state.resultFailedOnly ? 'true' : 'false');
+      button.textContent = '仅显示刮削失败/未完成';
       button.title = state.resultFailedOnly
-        ? '当前仅显示刮削失败的影片，点击恢复'
-        : '仅显示刮削失败的影片';
+        ? '当前仅显示刮削失败或未完成的影片，点击恢复'
+        : '仅显示刮削失败或未完成的影片';
     }
 
     function toggleResultFailedOnly() {

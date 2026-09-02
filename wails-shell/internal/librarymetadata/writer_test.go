@@ -219,3 +219,25 @@ func TestDownloadImageWithEngineFallback_ContextCancel(t *testing.T) {
 		t.Error("expected context canceled error")
 	}
 }
+
+func TestDownloadImageWithEngineFallbackRejectsPrivateURLBeforeFetcher(t *testing.T) {
+	fetcherCalled := false
+	fetcher := func(string, string) ([]byte, error) {
+		fetcherCalled = true
+		return makeTestJPEG(t), nil
+	}
+
+	err := downloadImageWithEngineFallback(
+		context.Background(),
+		fetcher,
+		[]string{"http://127.0.0.1/private-image.jpg"},
+		filepath.Join(t.TempDir(), "private.jpg"),
+		"JavBus",
+	)
+	if err == nil {
+		t.Fatal("expected private image URL to be rejected")
+	}
+	if fetcherCalled {
+		t.Fatal("provider image fetcher must not receive private network URLs")
+	}
+}

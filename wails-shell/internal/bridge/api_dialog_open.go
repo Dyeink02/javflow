@@ -3,6 +3,7 @@ package bridge
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Dialog open helpers resolve desktop paths and then delegate to the desktop
@@ -55,7 +56,14 @@ func (a *API) handleOpenLogFolder() (string, error) {
 }
 
 func (a *API) handleOpenMagnetFile(payload map[string]any) (string, error) {
-	outputCtx := a.resolveOutputContext(nonEmptyString(payload["targetOutput"]))
+	targetOutput := nonEmptyString(payload["targetOutput"])
+	if magnetPath := existingMagnetFile(targetOutput); magnetPath != "" {
+		// Completion events commonly provide the concrete magnet file rather
+		// than its parent directory. Do not treat that file as a directory and
+		// append magnet-links.txt a second time.
+		return a.openDialogPath(magnetPath)
+	}
+	outputCtx := a.resolveOutputContext(targetOutput)
 	magnetPath := outputCtx.MagnetPath
 	if _, err := os.Stat(magnetPath); err != nil {
 		magnetPath = latestSubscriptionDatedTextFile(outputCtx.OutputDir)
@@ -64,6 +72,18 @@ func (a *API) handleOpenMagnetFile(payload map[string]any) (string, error) {
 		}
 	}
 	return a.openDialogPath(magnetPath)
+}
+
+func existingMagnetFile(targetPath string) string {
+	trimmed := strings.TrimSpace(targetPath)
+	if trimmed == "" {
+		return ""
+	}
+	info, err := os.Stat(trimmed)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return trimmed
 }
 
 func (a *API) handleOpenOrganizerPath(payload map[string]any) (string, error) {

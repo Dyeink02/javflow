@@ -46,6 +46,7 @@ export interface FilterMagnetCandidatesResult {
 
 interface ClassifiedFile {
   name: string;
+  sourcePath: string;
   extension: string;
   length: number;
   isVideo: boolean;
@@ -67,6 +68,7 @@ const DEFAULT_MAX_INSPECT_COUNT = 2;
 const DEFAULT_MAX_VALIDATION_TIME_MS = 9000;
 const SOFT_SUSPICIOUS_TOTAL_LIMIT_BYTES = 1024 * 1024;
 const UNKNOWN_TOTAL_LIMIT_BYTES = 8 * 1024 * 1024;
+const FILM_CODE_TOKEN_PATTERN = /(?:FC2[-_ ]?PPV[-_ ]?\d{3,8}|[A-Z]{2,12}[-_ ]?\d{1,8}[A-Z]*)/gi;
 
 const DEFAULT_TRACKERS = [
   'udp://tracker.opentrackr.org:1337/announce',
@@ -149,13 +151,17 @@ const SUSPICIOUS_CANDIDATE_KEYWORDS = [
 ];
 
 function normalizeFileName(file: MagnetMetadataFileLike): string {
-  const rawPath = String(file.path || file.name || '').trim().replace(/\\/g, '/');
+  const rawPath = getSourcePath(file);
   if (!rawPath) {
     return '';
   }
 
   const segments = rawPath.split('/').filter(Boolean);
   return segments.length > 0 ? segments[segments.length - 1] : rawPath;
+}
+
+function getSourcePath(file: MagnetMetadataFileLike): string {
+  return String(file.path || file.name || '').trim().replace(/\\/g, '/');
 }
 
 function getFileExtension(fileName: string): string {
@@ -215,6 +221,30 @@ function extractFilmCode(value: string): string | null {
   return match ? normalizeComparisonToken(match[0]) : null;
 }
 
+function normalizeFilmCodeToken(value: string): string {
+  const normalized = String(value || '').toUpperCase().trim();
+  const fc2Match = normalized.match(/^FC2[-_ ]?PPV[-_ ]?0*(\d{3,8})/);
+  if (fc2Match?.[1]) {
+    return `FC2-PPV-${String(Number(fc2Match[1]))}`;
+  }
+
+  const match = normalized.match(/^([A-Z]{2,12})[-_ ]?0*(\d{1,8})/);
+  if (!match?.[1] || !match[2]) {
+    return '';
+  }
+
+  return `${match[1]}-${String(Number(match[2]))}`;
+}
+
+function extractFilmCodeTokens(value: string): Set<string> {
+  const withoutExtensions = String(value || '').replace(/\.[A-Z0-9]{2,5}(?=\/|$)/gi, ' ');
+  return new Set(
+    Array.from(withoutExtensions.toUpperCase().matchAll(FILM_CODE_TOKEN_PATTERN))
+      .map((match) => normalizeFilmCodeToken(match[0]))
+      .filter(Boolean)
+  );
+}
+
 function isTimeoutReason(reason: string): boolean {
   return String(reason || '').toLowerCase().includes('timeout');
 }
@@ -250,6 +280,7 @@ function buildClassifiedFiles(files: MagnetMetadataFileLike[]): ClassifiedFile[]
 
       return {
         name,
+        sourcePath: getSourcePath(file),
         extension,
         length: toSafeLength(file.length),
         isVideo,
@@ -263,7 +294,10 @@ function buildClassifiedFiles(files: MagnetMetadataFileLike[]): ClassifiedFile[]
     .filter((file) => file.name);
 }
 
-export function classifyMagnetMetadataFiles(files: MagnetMetadataFileLike[]): MagnetMetadataClassification {
+export function classifyMagnetMetadataFiles(
+  files: MagnetMetadataFileLike[],
+  expectedTitle = ''
+): MagnetMetadataClassification {
   const classifiedFiles = buildClassifiedFiles(files).sort((left, right) => right.length - left.length);
   if (classifiedFiles.length === 0) {
     return {
@@ -326,6 +360,32 @@ export function classifyMagnetMetadataFiles(files: MagnetMetadataFileLike[]): Ma
     };
   }
 
+  const videoCodes = new Set<string>();
+  videoFiles.forEach((videoFile) => {
+    extractFilmCodeTokens(videoFile.sourcePath).forEach((code) => videoCodes.add(code));
+  });
+  const expectedCodes = extractFilmCodeTokens(expectedTitle);
+  const codePreview = Array.from(videoCodes).slice(0, 4).join('、');
+
+  if (videoCodes.size >= 2) {
+    return {
+      accepted: false,
+      reason: `检测到多个不同番号视频：${codePreview}`,
+      summary: `有效视频 ${videoFiles.length} 个，识别出 ${videoCodes.size} 个不同番号：${codePreview}`
+    };
+  }
+
+  if (expectedCodes.size > 0 && videoCodes.size === 1) {
+    const [videoCode] = Array.from(videoCodes);
+    if (videoCode && !expectedCodes.has(videoCode)) {
+      return {
+        accepted: false,
+        reason: `视频番号与目标不符：${videoCode}`,
+        summary: `目标番号 ${Array.from(expectedCodes).join('、')}，视频番号 ${videoCode}`
+      };
+    }
+  }
+
   return {
     accepted: true,
     reason: '校验通过',
@@ -337,6 +397,7 @@ export function classifyMagnetMetadataFiles(files: MagnetMetadataFileLike[]): Ma
 
 async function inspectMagnetCandidate(
   candidate: ParsedMagnetCandidate,
+  title: string,
   validationTimeoutSeconds = DEFAULT_VALIDATION_TIMEOUT_SECONDS
 ): Promise<MagnetCandidateInspectionResult> {
   try {
@@ -347,7 +408,7 @@ async function inspectMagnetCandidate(
     });
     const torrent = await client.getTorrent(candidate.magnetLink);
     const files = Array.isArray(torrent?.files) ? torrent.files : [];
-    const classification = classifyMagnetMetadataFiles(files);
+    const classification = classifyMagnetMetadataFiles(files, title);
 
     return {
       candidate,
@@ -408,13 +469,13 @@ async function selectSingleMagnetCandidateByContent(
   maxValidationTimeMs: number,
   abortSignal?: AbortSignal
 ): Promise<FilterMagnetCandidatesResult> {
-  // Default mode only validates the current best candidate, then steps down one
-  // candidate at a time when it is explicitly rejected as an ad/bundle magnet.
+  // Default mode validates candidates in size order and stops at the first
+  // candidate whose torrent contents match the requested film.
   const suspiciousCandidates = orderedCandidates.filter((candidate) => isSuspiciousMagnetCandidate(candidate, title));
   stats.suspiciousCandidateCount = suspiciousCandidates.length;
 
   stats.validationApplied = true;
-  logger.info(`fetchMagnet: 已启用磁力内容校验（广告过滤），将按大小顺序逐条判断并在命中广告后顺延下一条：${title}`);
+  logger.info(`fetchMagnet: 已启用磁力内容严格校验，将按大小顺序逐条验证并在拒绝后顺延下一条：${title}`);
 
   const validationStartedAt = Date.now();
 
@@ -426,7 +487,7 @@ async function selectSingleMagnetCandidateByContent(
       stats.validationSkippedReason = 'aborted';
       stats.skippedCount = remainingCount + 1;
       return {
-        candidates: [candidate],
+        candidates: [],
         stats
       };
     }
@@ -434,9 +495,9 @@ async function selectSingleMagnetCandidateByContent(
     if (stats.inspectedCount >= maxInspectCount || Date.now() - validationStartedAt >= maxValidationTimeMs) {
       stats.validationSkippedReason = 'budget-exhausted';
       stats.skippedCount = remainingCount + 1;
-      logger.warn(`fetchMagnet: 磁力内容校验已达到单片预算上限，保留当前顺延候选并停止继续检查：${title}`);
+      logger.warn(`fetchMagnet: 磁力内容严格校验已达到单片预算上限，未验证候选不会写入：${title}`);
       return {
-        candidates: [candidate],
+        candidates: [],
         stats
       };
     }
@@ -451,7 +512,7 @@ async function selectSingleMagnetCandidateByContent(
         stats.validationSkippedReason = 'aborted';
         stats.skippedCount = remainingCount + 1;
         return {
-          candidates: [candidate],
+          candidates: [],
           stats
         };
       }
@@ -460,7 +521,7 @@ async function selectSingleMagnetCandidateByContent(
         candidate,
         status: 'unverified',
         reason,
-        summary: '磁力元数据读取失败，已保留当前候选'
+        summary: '磁力元数据读取失败，已记为未验证候选'
       };
     }
 
@@ -481,19 +542,15 @@ async function selectSingleMagnetCandidateByContent(
       if (isTimeoutReason(inspection.reason)) {
         stats.timeoutCount += 1;
       }
-      stats.skippedCount = remainingCount;
-      logger.warn(`fetchMagnet: 磁力内容校验未完成，保留当前候选 ${candidateLabel}；原因：${inspection.reason}`);
-      return {
-        candidates: [candidate],
-        stats
-      };
+      logger.warn(`fetchMagnet: 磁力内容严格校验未完成，已跳过候选 ${candidateLabel}；原因：${inspection.reason}`);
+      continue;
     }
 
     stats.rejectedCount += 1;
     logger.warn(`fetchMagnet: 磁力内容校验未通过，已跳过候选 ${candidateLabel}；原因：${inspection.reason}`);
   }
 
-  logger.warn(`fetchMagnet: ${title} 的候选磁力均被判定为广告包或杂文件包，已放弃当前磁力结果。`);
+  logger.warn(`fetchMagnet: ${title} 的候选磁力均未通过严格内容校验，已放弃当前磁力结果。`);
   return {
     candidates: [],
     stats
@@ -536,7 +593,7 @@ export async function filterMagnetCandidatesByContentDetailed(
 
   const inspect = options.inspectCandidate
     ? options.inspectCandidate
-    : (candidate: ParsedMagnetCandidate) => inspectMagnetCandidate(candidate, validationTimeoutSeconds);
+    : (candidate: ParsedMagnetCandidate) => inspectMagnetCandidate(candidate, title, validationTimeoutSeconds);
 
   if (!keepAll) {
     return selectSingleMagnetCandidateByContent(
@@ -551,21 +608,12 @@ export async function filterMagnetCandidatesByContentDetailed(
   }
 
   const inspectWindow = orderedCandidates.slice(0, Math.max(1, maxInspectCount));
-  const suspiciousCandidates = inspectWindow.filter((candidate) => isSuspiciousMagnetCandidate(candidate, title));
-  stats.suspiciousCandidateCount = suspiciousCandidates.length;
-
-  if (suspiciousCandidates.length === 0) {
-    stats.validationSkippedReason = 'no-suspicious-candidate';
-    stats.skippedCount = orderedCandidates.length;
-    return {
-      candidates: orderedCandidates,
-      stats
-    };
-  }
+  const candidatesToInspect = inspectWindow;
+  stats.suspiciousCandidateCount = candidatesToInspect.length;
 
   stats.validationApplied = true;
   logger.info(
-    `fetchMagnet: 已启用磁力内容校验（广告过滤），本次仅检查前 ${inspectWindow.length} 条中的 ${suspiciousCandidates.length} 条可疑候选：${title}`
+    `fetchMagnet: 已启用磁力内容严格校验，本次检查前 ${inspectWindow.length} 条候选并仅保留已验证单番号磁力：${title}`
   );
 
   const inspectedCandidateSet = new Set<ParsedMagnetCandidate>();
@@ -573,7 +621,7 @@ export async function filterMagnetCandidatesByContentDetailed(
   const unverifiedCandidates: ParsedMagnetCandidate[] = [];
   const validationStartedAt = Date.now();
 
-  for (const candidate of suspiciousCandidates) {
+  for (const candidate of candidatesToInspect) {
     if (abortSignal?.aborted) {
       stats.validationSkippedReason = 'aborted';
       break;
@@ -639,9 +687,7 @@ export async function filterMagnetCandidatesByContentDetailed(
   stats.skippedCount = skippedCandidates.length;
 
   if (keepAll) {
-    const retainedCandidates = acceptedCandidates
-      .concat(unverifiedCandidates.filter((candidate) => !acceptedCandidates.includes(candidate)))
-      .concat(skippedCandidates.filter((candidate) => !acceptedCandidates.includes(candidate)));
+    const retainedCandidates = acceptedCandidates;
 
     if (retainedCandidates.length === 0) {
       logger.warn(`fetchMagnet: ${title} 的全部候选磁力均未通过内容校验，已全部跳过。`);
@@ -653,8 +699,12 @@ export async function filterMagnetCandidatesByContentDetailed(
 
     if (unverifiedCandidates.length > 0) {
       logger.warn(
-        `fetchMagnet: ${title} 有 ${unverifiedCandidates.length} 条候选因元数据读取失败未能确认，已暂时保留未验证结果。`
+        `fetchMagnet: ${title} 有 ${unverifiedCandidates.length} 条候选因元数据读取失败未能确认，已按严格策略跳过。`
       );
+    }
+
+    if (skippedCandidates.length > 0) {
+      logger.info(`fetchMagnet: ${title} 有 ${skippedCandidates.length} 条候选未进入校验窗口，严格策略不会输出未验证磁力。`);
     }
 
     return {
@@ -663,27 +713,13 @@ export async function filterMagnetCandidatesByContentDetailed(
     };
   }
 
-  if (unverifiedCandidates.length > 0) {
-    const fallbackCandidate = unverifiedCandidates[0];
+  if (unverifiedCandidates.length > 0 || skippedCandidates.length > 0) {
     logger.warn(
-      `fetchMagnet: ${title} 没有找到明确通过校验的候选磁力，已回退到首条未验证候选：${getCandidateLabel(fallbackCandidate)}`
+      `fetchMagnet: ${title} 没有足够的已验证候选（未验证 ${unverifiedCandidates.length} 条，未检查 ${skippedCandidates.length} 条），严格策略已全部跳过。`
     );
-    return {
-      candidates: [fallbackCandidate],
-      stats
-    };
+  } else {
+    logger.warn(`fetchMagnet: ${title} 的候选磁力均未通过严格内容校验，已放弃当前磁力结果。`);
   }
-
-  if (skippedCandidates.length > 0) {
-    const fallbackCandidate = skippedCandidates[0];
-    logger.info(`fetchMagnet: ${title} 未发现可直接通过校验的候选，回退到未检查的下一条候选：${getCandidateLabel(fallbackCandidate)}`);
-    return {
-      candidates: [fallbackCandidate],
-      stats
-    };
-  }
-
-  logger.warn(`fetchMagnet: ${title} 的候选磁力均被判定为广告包或杂文件包，已放弃当前磁力结果。`);
   return {
     candidates: [],
     stats

@@ -158,6 +158,46 @@
       </div>
     </section>
 
+    <section class="ops-card stage-ops-card subscription-stage-card" aria-live="polite">
+      <div class="ops-card-head">
+        <div>
+          <p class="message-label">抓取阶段面板</p>
+          <strong id="subscription-crawl-stage-title">等待开始抓取</strong>
+        </div>
+        <div class="ops-chip-row">
+          <span id="subscription-crawl-stage-status" class="mini-status idle">待机</span>
+          <span id="subscription-crawl-stage-progress" class="ops-chip">阶段 1/10 · 0%</span>
+        </div>
+      </div>
+      <div class="stage-progress-bar" id="subscription-crawl-stage-bar">
+        <div id="subscription-crawl-stage-bar-fill" class="stage-progress-bar-fill"></div>
+      </div>
+      <p id="subscription-crawl-stage-description" class="ops-description">加载配置并初始化本次抓取运行环境。</p>
+      <p id="subscription-crawl-stage-message" class="ops-summary">等待开始抓取。</p>
+      <div class="ops-metric-grid">
+        <div class="ops-metric">
+          <span>当前页</span>
+          <strong id="subscription-crawl-stage-page">0</strong>
+        </div>
+        <div class="ops-metric">
+          <span>已入队</span>
+          <strong id="subscription-crawl-stage-queued">0</strong>
+        </div>
+        <div class="ops-metric">
+          <span>已尝试</span>
+          <strong id="subscription-crawl-stage-attempted">0</strong>
+        </div>
+        <div class="ops-metric">
+          <span>已完成</span>
+          <strong id="subscription-crawl-stage-completed">0</strong>
+        </div>
+      </div>
+      <div class="ops-path-block">
+        <span class="ops-path-label">当前输出目录</span>
+        <p id="subscription-crawl-stage-output" class="ops-path">尚未生成</p>
+      </div>
+    </section>
+
     <section class="panel subscription-log-panel">
       <div class="panel-head">
         <div>
@@ -246,32 +286,6 @@
       <div id="subscription-detail-card" class="detail-card hidden"></div>
     </section>
 
-    <section class="panel subscription-overview-panel">
-      <div class="panel-head">
-        <div>
-          <p class="panel-kicker">订阅统计</p>
-          <h2>更新总览</h2>
-        </div>
-      </div>
-      <div class="stat-grid organizer-stat-grid subscription-overview-grid">
-        <article class="stat-card">
-          <span>订阅总数</span>
-          <strong id="subscription-stat-total-side">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>有更新女优</span>
-          <strong id="subscription-stat-updated-side">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>待抓新增</span>
-          <strong id="subscription-stat-pending">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>已检查订阅</span>
-          <strong id="subscription-stat-checked-side">0</strong>
-        </article>
-      </div>
-    </section>
   </aside>
 </main>
 <dialog id="subscription-batch-dialog" class="subscription-batch-dialog">

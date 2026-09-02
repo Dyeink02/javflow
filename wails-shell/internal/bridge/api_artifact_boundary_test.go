@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"javflow/internal/avsubscription"
+	"javflow/internal/avsubscriptionv2"
 	"javflow/internal/contracts/crawlartifact"
 	"javflow/internal/organizer"
 	runtimepaths "javflow/internal/runtime"
@@ -281,7 +281,7 @@ func TestBuildOrganizerRunOptionsKeepsExplicitPreloadedMetadataAndUsesLegacyOnly
 	}
 }
 
-func TestScanSubscriptionsFromOutputResultAcceptsArtifactPath(t *testing.T) {
+func TestScanSubscriptionsV2FromOutputResultAcceptsArtifactPath(t *testing.T) {
 	tempDir := t.TempDir()
 	outputDir := filepath.Join(tempDir, "Yuki Rino")
 	profile := crawlartifact.CrawlProfileArtifact{
@@ -304,42 +304,42 @@ func TestScanSubscriptionsFromOutputResultAcceptsArtifactPath(t *testing.T) {
 	if err := writeBridgeTestFile(artifactPath, payload); err != nil {
 		t.Fatalf("write crawl profile: %v", err)
 	}
+	if err := writeBridgeTestFile(filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile), []byte(`[{"title":"AAA-001","actress":["Yuki Rino"]}]`)); err != nil {
+		t.Fatalf("write filmData artifact: %v", err)
+	}
 
 	api := &API{
 		lookup: lookupFacade{
-			avSubscriptions: avsubscription.NewService(runtimepaths.Paths{
+			avSubscriptionsV2: avsubscriptionv2.NewService(runtimepaths.Paths{
 				UserData:  filepath.Join(tempDir, "user-data"),
 				Documents: tempDir,
-			}),
+			}, nil),
 		},
 	}
 
-	raw, err := api.scanSubscriptionsFromOutputResult(map[string]any{
+	raw, err := api.scanSubscriptionsV2FromOutputResult(map[string]any{
 		"artifactInput": artifactPath,
 	})
 	if err != nil {
-		t.Fatalf("scanSubscriptionsFromOutputResult returned error: %v", err)
+		t.Fatalf("scanSubscriptionsV2FromOutputResult returned error: %v", err)
 	}
 
-	var result avsubscription.ScanResult
+	var result map[string]any
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatalf("unmarshal subscription result: %v", err)
 	}
-	if result.SourceType != "crawlProfile" {
-		t.Fatalf("expected crawlProfile sourceType, got %q", result.SourceType)
+	if result["sourceType"] != "crawl-import" {
+		t.Fatalf("expected crawl-import sourceType, got %#v", result["sourceType"])
 	}
-	if result.OutputDir != outputDir {
-		t.Fatalf("expected outputDir %q, got %q", outputDir, result.OutputDir)
+	if result["outputDir"] != outputDir {
+		t.Fatalf("expected outputDir %q, got %#v", outputDir, result["outputDir"])
 	}
-	if result.CrawlProfilePath != artifactPath {
-		t.Fatalf("expected crawl-profile path %q, got %q", artifactPath, result.CrawlProfilePath)
-	}
-	if len(result.ScannedActressList) != 1 || result.ScannedActressList[0] != "Yuki Rino" {
-		t.Fatalf("unexpected scanned actress list: %#v", result.ScannedActressList)
+	if actresses, ok := result["scannedActressList"].([]any); !ok || len(actresses) != 1 || actresses[0] != "Yuki Rino" {
+		t.Fatalf("unexpected scanned actress list: %#v", result["scannedActressList"])
 	}
 }
 
-func TestScanSubscriptionsFromOutputResultAcceptsFilmDataPathAsArtifactInput(t *testing.T) {
+func TestScanSubscriptionsV2FromOutputResultAcceptsFilmDataPathAsArtifactInput(t *testing.T) {
 	tempDir := t.TempDir()
 	outputDir := filepath.Join(tempDir, "Yuki Rino")
 	records := []map[string]any{
@@ -365,39 +365,39 @@ func TestScanSubscriptionsFromOutputResultAcceptsFilmDataPathAsArtifactInput(t *
 
 	api := &API{
 		lookup: lookupFacade{
-			avSubscriptions: avsubscription.NewService(runtimepaths.Paths{
+			avSubscriptionsV2: avsubscriptionv2.NewService(runtimepaths.Paths{
 				UserData:  filepath.Join(tempDir, "user-data"),
 				Documents: tempDir,
-			}),
+			}, nil),
 		},
 	}
 
-	raw, err := api.scanSubscriptionsFromOutputResult(map[string]any{
+	raw, err := api.scanSubscriptionsV2FromOutputResult(map[string]any{
 		"artifactInput": filmDataPath,
 	})
 	if err != nil {
-		t.Fatalf("scanSubscriptionsFromOutputResult returned error: %v", err)
+		t.Fatalf("scanSubscriptionsV2FromOutputResult returned error: %v", err)
 	}
 
-	var result avsubscription.ScanResult
+	var result map[string]any
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatalf("unmarshal subscription result: %v", err)
 	}
-	if result.SourceType != "filmData" {
-		t.Fatalf("expected filmData sourceType, got %q", result.SourceType)
+	if result["sourceType"] != "crawl-import" {
+		t.Fatalf("expected crawl-import sourceType, got %#v", result["sourceType"])
 	}
-	if result.OutputDir != outputDir {
-		t.Fatalf("expected outputDir %q, got %q", outputDir, result.OutputDir)
+	if result["outputDir"] != outputDir {
+		t.Fatalf("expected outputDir %q, got %#v", outputDir, result["outputDir"])
 	}
-	if result.FilmDataPath != filmDataPath {
-		t.Fatalf("expected filmDataPath %q, got %q", filmDataPath, result.FilmDataPath)
+	if result["filmDataPath"] != filmDataPath {
+		t.Fatalf("expected filmDataPath %q, got %#v", filmDataPath, result["filmDataPath"])
 	}
-	if len(result.ScannedActressList) != 1 || result.ScannedActressList[0] != "Yuki Rino" {
-		t.Fatalf("unexpected scanned actress list: %#v", result.ScannedActressList)
+	if actresses, ok := result["scannedActressList"].([]any); !ok || len(actresses) != 1 || actresses[0] != "Yuki Rino" {
+		t.Fatalf("unexpected scanned actress list: %#v", result["scannedActressList"])
 	}
 }
 
-func TestScanSubscriptionsFromOutputResultPrefersArtifactInputOverLegacyOutputDir(t *testing.T) {
+func TestScanSubscriptionsV2FromOutputResultPrefersArtifactInputOverLegacyOutputDir(t *testing.T) {
 	tempDir := t.TempDir()
 	activeOutputDir := filepath.Join(tempDir, "active-run")
 	legacyOutputDir := filepath.Join(tempDir, "legacy-run")
@@ -441,33 +441,39 @@ func TestScanSubscriptionsFromOutputResultPrefersArtifactInputOverLegacyOutputDi
 	if err := writeBridgeTestFile(filepath.Join(legacyOutputDir, crawlartifact.CrawlProfileFile), legacyPayload); err != nil {
 		t.Fatalf("write legacy crawl profile: %v", err)
 	}
+	if err := writeBridgeTestFile(filepath.Join(activeOutputDir, crawlartifact.CrawlFilmDataFile), []byte(`[{"title":"AAA-001","actress":["Primary Target"]}]`)); err != nil {
+		t.Fatalf("write active filmData artifact: %v", err)
+	}
+	if err := writeBridgeTestFile(filepath.Join(legacyOutputDir, crawlartifact.CrawlFilmDataFile), []byte(`[{"title":"BBB-001","actress":["Legacy Target"]}]`)); err != nil {
+		t.Fatalf("write legacy filmData artifact: %v", err)
+	}
 
 	api := &API{
 		lookup: lookupFacade{
-			avSubscriptions: avsubscription.NewService(runtimepaths.Paths{
+			avSubscriptionsV2: avsubscriptionv2.NewService(runtimepaths.Paths{
 				UserData:  filepath.Join(tempDir, "user-data"),
 				Documents: tempDir,
-			}),
+			}, nil),
 		},
 	}
 
-	raw, err := api.scanSubscriptionsFromOutputResult(map[string]any{
+	raw, err := api.scanSubscriptionsV2FromOutputResult(map[string]any{
 		"artifactInput": activeArtifactPath,
 		"outputDir":     legacyOutputDir,
 	})
 	if err != nil {
-		t.Fatalf("scanSubscriptionsFromOutputResult returned error: %v", err)
+		t.Fatalf("scanSubscriptionsV2FromOutputResult returned error: %v", err)
 	}
 
-	var result avsubscription.ScanResult
+	var result map[string]any
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatalf("unmarshal subscription result: %v", err)
 	}
-	if result.OutputDir != activeOutputDir {
-		t.Fatalf("expected artifactInput outputDir %q, got %q", activeOutputDir, result.OutputDir)
+	if result["outputDir"] != activeOutputDir {
+		t.Fatalf("expected artifactInput outputDir %q, got %#v", activeOutputDir, result["outputDir"])
 	}
-	if len(result.ScannedActressList) != 1 || result.ScannedActressList[0] != "Primary Target" {
-		t.Fatalf("expected artifactInput actress selection, got %#v", result.ScannedActressList)
+	if actresses, ok := result["scannedActressList"].([]any); !ok || len(actresses) != 1 || actresses[0] != "Primary Target" {
+		t.Fatalf("expected artifactInput actress selection, got %#v", result["scannedActressList"])
 	}
 }
 

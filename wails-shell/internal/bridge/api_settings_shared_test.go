@@ -81,3 +81,12 @@ func TestMutateBridgeSettingsKeepsConcurrentWorkspaceFields(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyCrawlerSettingsPayloadDefaultsMagnetContentValidationToDisabled(t *testing.T) {
+	settings := map[string]any{}
+	applyCrawlerSettingsPayload(settings, map[string]any{})
+
+	if got := settings["magnetContentValidation"]; got != false {
+		t.Fatalf("missing magnetContentValidation = %v, want false", got)
+	}
+}

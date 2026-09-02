@@ -22,8 +22,7 @@
   .state-grid,
   .crawl-ops-grid,
   .ops-metric-grid,
-  .subscription-metric-grid,
-  .subscription-overview-grid {
+    .subscription-metric-grid {
     grid-template-columns: 1fr;
   }
 

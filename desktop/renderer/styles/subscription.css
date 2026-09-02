@@ -661,10 +661,6 @@
   min-width: 110px;
 }
 
-.subscription-overview-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .subscription-detail-panel .detail-card {
   display: grid;
   gap: 12px;
@@ -968,14 +964,12 @@
 }
 
 .subscription-actions-panel .panel-head,
-.subscription-overview-panel .panel-head,
 .subscription-log-panel .panel-head,
 .subscription-master-panel .panel-head {
   margin-bottom: 16px;
 }
 
 .subscription-actions-panel h2,
-.subscription-overview-panel h2,
 .subscription-log-panel h2 {
   font-size: 18px;
 }
@@ -1008,12 +1002,22 @@
   margin-top: 14px;
 }
 
-.subscription-overview-panel .stat-card {
-  padding: 16px;
+.subscription-stage-card {
+  min-height: 0;
 }
 
-.subscription-overview-panel .stat-card strong {
-  font-size: 22px;
+.subscription-code-preview {
+  display: block;
+  max-height: 84px;
+  overflow-y: auto;
+  padding-right: 4px;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  scrollbar-width: thin;
+}
+
+.subscription-code-preview.is-truncated {
+  color: #d7e9ff;
 }
 
 .subscription-log-panel .log-view {
@@ -1113,8 +1117,7 @@
 
 @media (max-width: 680px) {
   .subscription-crawler-grid,
-  .subscription-inline-actions,
-  .subscription-overview-grid {
+  .subscription-inline-actions {
     grid-template-columns: 1fr;
   }
 

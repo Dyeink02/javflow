@@ -112,6 +112,29 @@ func TestListPreservesLegacyCountOnlySubscription(t *testing.T) {
 	}
 }
 
+func TestUpsertPreservesRawBaselineCountAboveUniqueCodeCount(t *testing.T) {
+	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
+	created, err := service.Upsert(Subscription{
+		ActressName:   "基线测试演员",
+		CrawlURL:      "https://example.test/star/raw-baseline",
+		BaselineCodes: []string{"AAA-001", "AAA-002"},
+		BaselineCount: 251,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.BaselineCount != 251 || len(created.BaselineCodes) != 2 {
+		t.Fatalf("raw baseline was overwritten by unique code count: %+v", created)
+	}
+	items, err := service.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].BaselineCount != 251 {
+		t.Fatalf("raw baseline did not persist: %+v", items)
+	}
+}
+
 func TestReorderPersistsAcrossLaterSubscriptionUpdates(t *testing.T) {
 	service := NewService(runtimepaths.Paths{UserData: t.TempDir()}, nil)
 	created := make([]Subscription, 0, 3)

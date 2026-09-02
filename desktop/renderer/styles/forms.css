@@ -354,3 +354,68 @@ input[type='checkbox'] {
   font-size: 14px;
   color: var(--muted);
 }
+
+/* 应用内弹窗：替代原生系统对话框（规避 Wails 原生弹窗关闭主窗口的框架缺陷） */
+.app-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 8, 18, 0.62);
+  backdrop-filter: blur(4px);
+}
+
+.app-dialog {
+  width: min(460px, calc(100vw - 48px));
+  padding: 22px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(13, 19, 39, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.app-dialog-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.app-dialog-message {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+  white-space: pre-line;
+  word-break: break-all;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.app-dialog-button {
+  padding: 8px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.app-dialog-button:hover {
+  background: rgba(255, 110, 157, 0.22);
+  border-color: rgba(255, 110, 157, 0.5);
+}
+
+.app-dialog-button.is-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  border: none;
+  color: #ffffff;
+  font-weight: 700;
+}

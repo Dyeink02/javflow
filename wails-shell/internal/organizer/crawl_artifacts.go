@@ -40,7 +40,7 @@ import (
 // Practical split:
 // - artifact lookup and precedence stay here
 // - organizer execution and file moves stay in `run*.go`
-// - subscription import logic stays in `internal/avsubscription`
+// - subscription import logic stays in `internal/avsubscriptionv2`
 type MagnetEntry struct {
 	Link        string `json:"link"`
 	Size        string `json:"size"`

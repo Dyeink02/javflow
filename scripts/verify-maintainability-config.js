@@ -423,7 +423,7 @@ function createGoMaintainabilityTestGroups() {
         'AV subscription artifact-import contracts',
         'ad-learning model/evaluation contracts'
       ],
-      packages: ['./internal/organizer', './internal/avsubscription', './internal/adlearning']
+      packages: ['./internal/organizer', './internal/avsubscriptionv2', './internal/adlearning']
     },
     {
       label: 'Go read-model contract tests',
@@ -442,7 +442,7 @@ function createGoMaintainabilityTestGroups() {
     {
       label: 'Go dependency boundary tests',
       rationale: [
-        'organizer / avsubscription should not drift back into crawler runtime internals',
+        'organizer / avsubscriptionv2 should not drift back into crawler runtime internals',
         'crawler runtime / read-model packages should stay isolated from organizer/subscription business domains',
         'bridge / desktop / sidecar shells should keep explicit dependency boundaries'
       ],
@@ -452,7 +452,7 @@ function createGoMaintainabilityTestGroups() {
       label: 'Go core module tests',
       rationale: [
         'crawlrunner / crawltask / crawlquality stay stable while decoupling continues',
-        'bridge / organizer / avsubscription integration-facing contracts remain green'
+        'bridge / organizer / avsubscriptionv2 integration-facing contracts remain green'
       ],
       packages: [
         './internal/crawlrunner',
@@ -460,7 +460,7 @@ function createGoMaintainabilityTestGroups() {
         './internal/crawlquality',
         './internal/bridge',
         './internal/organizer',
-        './internal/avsubscription'
+        './internal/avsubscriptionv2'
       ]
     }
   ];
@@ -747,7 +747,7 @@ function createBridgeCommandOwnershipDefinition() {
       learning: 'wails-shell/internal/bridge/api_dispatch_ad_learning.go',
       ranking: 'wails-shell/internal/bridge/api_dispatch_lookup_rankings.go',
       target: 'wails-shell/internal/bridge/api_dispatch_lookup_targets.go',
-      subscription: 'wails-shell/internal/bridge/api_dispatch_subscription.go',
+      subscription: 'wails-shell/internal/bridge/api_dispatch_subscription_v2.go',
       dependency: 'wails-shell/internal/bridge/api_dispatch_dependency.go',
       dialog: 'wails-shell/internal/bridge/api_dispatch_dialog.go',
       runtimeQuery: 'wails-shell/internal/bridge/api_dispatch_runtime_crawl_queries.go',
@@ -764,17 +764,27 @@ function createBridgeCommandOwnershipDefinition() {
       ['app:learn-ad-samples-by-codes', 'learning', 'case "app:learn-ad-samples-by-codes":'],
       ['app:get-actress-rankings', 'ranking', 'case "app:get-actress-rankings":'],
       ['app:resolve-actress-crawl-target', 'target', 'case "app:resolve-actress-crawl-target":'],
-      ['app:list-av-subscriptions', 'subscription', 'case "app:list-av-subscriptions":'],
-      ['app:scan-av-subscriptions-from-output', 'subscription', 'case "app:scan-av-subscriptions-from-output":'],
-      ['app:add-av-subscription', 'subscription', 'case "app:add-av-subscription":'],
-      ['app:refresh-av-subscriptions', 'subscription', 'case "app:refresh-av-subscriptions":'],
-      ['app:remove-av-subscription', 'subscription', 'case "app:remove-av-subscription":'],
-      ['app:clear-av-subscriptions', 'subscription', 'case "app:clear-av-subscriptions":'],
-      ['app:mark-av-subscription-synced', 'subscription', 'case "app:mark-av-subscription-synced":'],
+      ['app:list-av-subscriptions-v2', 'subscription', 'case "app:list-av-subscriptions-v2":'],
+      ['app:scan-av-subscriptions-v2-from-output', 'subscription', 'case "app:scan-av-subscriptions-v2-from-output":'],
+      ['app:add-av-subscription-v2-manual', 'subscription', 'case "app:add-av-subscription-v2-manual":'],
+      ['app:refresh-av-subscriptions-v2', 'subscription', 'case "app:refresh-av-subscriptions-v2":'],
+      ['app:refresh-av-subscription-v2', 'subscription', 'case "app:refresh-av-subscription-v2":'],
+      ['app:prepare-av-subscription-v2-crawl', 'subscription', 'case "app:prepare-av-subscription-v2-crawl":'],
+      ['app:start-av-subscription-v2-crawl', 'subscription', 'case "app:start-av-subscription-v2-crawl":'],
+      ['app:start-av-subscription-v2-batch-crawl', 'subscription', 'case "app:start-av-subscription-v2-batch-crawl":'],
+      ['app:finalize-av-subscription-v2-crawl', 'subscription', 'case "app:finalize-av-subscription-v2-crawl":'],
+      ['app:stop-av-subscription-v2-crawl', 'subscription', 'case "app:stop-av-subscription-v2-crawl":'],
+      ['app:av-subscription-v2-crawl-status', 'subscription', 'case "app:av-subscription-v2-crawl-status":'],
+      ['app:remove-av-subscription-v2', 'subscription', 'case "app:remove-av-subscription-v2":'],
+      ['app:clear-av-subscriptions-v2', 'subscription', 'case "app:clear-av-subscriptions-v2":'],
+      ['app:mark-av-subscription-v2-synced', 'subscription', 'case "app:mark-av-subscription-v2-synced":'],
+      ['app:patch-av-subscription-v2', 'subscription', 'case "app:patch-av-subscription-v2":'],
+      ['app:patch-all-av-subscriptions-actress-filter-v2', 'subscription', 'case "app:patch-all-av-subscriptions-actress-filter-v2":'],
+      ['app:reorder-av-subscriptions-v2', 'subscription', 'case "app:reorder-av-subscriptions-v2":'],
+      ['app:enrich-av-subscription-v2-media', 'subscription', 'case "app:enrich-av-subscription-v2-media":'],
       ['app:get-dependency-status', 'dependency', 'case "app:get-dependency-status":'],
       ['app:install-dependency', 'dependency', 'case "app:install-dependency":'],
       ['app:uninstall-dependency', 'dependency', 'case "app:uninstall-dependency":'],
-      ['app:show-alert', 'dialog', 'case "app:show-alert":'],
       ['app:choose-output', 'dialog', 'case "app:choose-output":'],
       ['app:choose-background-image', 'dialog', 'case "app:choose-background-image":'],
       ['app:clear-background-image', 'dialog', 'case "app:clear-background-image":'],
@@ -1099,7 +1109,7 @@ function createLegacyBoundaryMarkers(rootDir) {
     [['bridge', 'api.go'], 'Package bridge is the current Wails desktop command boundary'],
     [['bridge', 'api_facades.go'], 'This file declares the bridge-owned facade groupings'],
     [['bridge', 'api_runtime_state.go'], 'Runtime-state helpers are the bridge-owned synchronization point'],
-    [['bridge', 'api_subscription_builders.go'], 'The placeholder remains deliberate: it marks the stable bridge boundary']
+    [['bridge', 'api_subscription_v2_crawl.go'], 'This file implements domain logic for the javflow backend.']
   ];
   const goServiceBoundaryEntries = [
     [['crawlrunner', 'runner.go'], 'Package crawlrunner owns the Go-native crawl state machine and execution'],
@@ -1122,8 +1132,7 @@ function createLegacyBoundaryMarkers(rootDir) {
     [['desktop', 'dialogs.go'], 'Package desktop wraps Wails desktop shell integrations such as dialogs and local path actions.'],
     [['settings', 'store.go'], 'Package settings persists desktop settings and default path conventions for the current app.'],
     [['organizer', 'service.go'], 'Package organizer is the current Go-native video organizer domain'],
-    [['avsubscription', 'service.go'], 'Package avsubscription is the current Go-native AV subscription domain'],
-    [['avsubscription', 'storage.go'], 'storage.go owns persistence and ordering rules for subscriptions.'],
+    [['avsubscriptionv2', 'types.go'], 'Package avsubscriptionv2 owns the rebuilt AV-subscription workflow.'],
     [['common', 'common.go'], 'Package common contains narrow cross-domain helpers'],
     [['contracts', 'crawlartifact', 'artifacts.go'], 'Package crawlartifact defines the persisted crawl-output contract shared by'],
     [['contracts', 'crawlartifact', 'paths.go'], 'This file owns the canonical crawl artifact path contract used by Go-side'],
@@ -1443,9 +1452,7 @@ function createFocusedMaintainabilityHeaderChecks(rootDir) {
     [['organizer', 'fs_ops.go']],
     [['bridge', 'api_output_context.go']],
     [['bridge', 'api_settings_shared.go']],
-    [['avsubscription', 'storage.go']],
     [['bridge', 'api.go']],
-    [['bridge', 'api_subscription_import.go']],
     [['bridge', 'api_dispatch_crawl_lifecycle.go']],
     [['bridge', 'api_crawl_mode_selection.go']],
     [['organizer', 'run_scan_phase.go']],

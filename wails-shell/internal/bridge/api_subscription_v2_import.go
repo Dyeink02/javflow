@@ -19,7 +19,7 @@ func (a *API) scanSubscriptionsV2FromOutputResult(payload map[string]any) (strin
 	if a.lookup.avSubscriptionsV2 == nil {
 		return "", fmt.Errorf("AV subscription V2 service is not initialized")
 	}
-	result, err := a.lookup.avSubscriptionsV2.ImportFromOutput(a.resolveSubscriptionOutputDir(payload))
+	result, err := a.lookup.avSubscriptionsV2.ImportFromOutput(a.resolveArtifactInputOutputDir(payload, "outputDir"))
 	if err != nil {
 		return "", err
 	}

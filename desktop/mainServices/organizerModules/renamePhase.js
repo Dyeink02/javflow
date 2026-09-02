@@ -63,6 +63,65 @@ function isManagedRootChild(paths, path, directoryPath) {
   return managedTopDirs.has(topDirName);
 }
 
+function isOperationalLogPath(path, targetPath) {
+  const cleaned = normalizeAbsolutePath(path, targetPath);
+  const lowerPath = cleaned.replace(/\\/g, '/').toLowerCase();
+  // path.extname('run.log.txt') is '.txt'; suffix checks cover both
+  // ordinary logs and compatibility task-log double extensions.
+  if (lowerPath.endsWith('.log') || lowerPath.endsWith('.log.txt')) {
+    return true;
+  }
+  const baseName = path.basename(cleaned).toLowerCase();
+  if (baseName.includes('日志') || baseName.includes('运行日志') || baseName.includes('debug-log')) {
+    return true;
+  }
+  return cleaned
+    .split(path.sep)
+    .some((part) => ['log', 'logs', '日志', '运行日志', '运行日志文件'].includes(String(part || '').trim().toLowerCase()));
+}
+
+async function batchDeleteDirectorySafe(fs, path, directoryPath, pendingDeleteSet, paths, protectedSources) {
+  if (isManagedRootChild(paths, path, directoryPath) || isOperationalLogPath(path, directoryPath)) {
+    return false;
+  }
+  const entries = await fs.promises.readdir(directoryPath, { withFileTypes: true }).catch(() => null);
+  if (!Array.isArray(entries)) {
+    return false;
+  }
+  for (const entry of entries) {
+    const childPath = path.join(directoryPath, entry.name);
+    if (isOperationalLogPath(path, childPath)) {
+      return false;
+    }
+    if (entry.isDirectory()) {
+      if (!(await batchDeleteDirectorySafe(fs, path, childPath, pendingDeleteSet, paths, protectedSources))) {
+        return false;
+      }
+      continue;
+    }
+    if (!entry.isFile() || protectedSources.has(normalizeAbsolutePath(path, childPath))) {
+      return false;
+    }
+    if (!pendingDeleteSet.has(normalizeAbsolutePath(path, childPath))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sanitizeOutputFileName(path, value, fallback) {
+  let name = path.basename(String(value || '').trim());
+  name = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '');
+  if (!name || name === '.' || name === '..') {
+    name = String(fallback || '').trim() || 'UNNAMED';
+  }
+  const stem = name.replace(/\.[^.]*$/, '').toUpperCase();
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(stem)) {
+    name = `_${name}`;
+  }
+  return name;
+}
+
 // Shared bounded-concurrency helper for delete/move subwork inside the rename
 // phase so file-system pressure stays predictable.
 async function runWithConcurrency(items, concurrency, worker) {
@@ -95,8 +154,9 @@ async function runWithConcurrency(items, concurrency, worker) {
 function resolveDeleteDestinationPath(paths, path, sourcePath) {
   const rootPath = String((paths && paths.rootPath) || '').trim();
   const normalizedSource = String(sourcePath || '').trim();
+  const sourceName = sanitizeOutputFileName(path, path.basename(normalizedSource), 'UNNAMED');
   if (!rootPath || !normalizedSource) {
-    return path.join(paths.toDeleteDir, path.basename(normalizedSource));
+    return path.join(paths.toDeleteDir, sourceName);
   }
 
   const relativePath = path.relative(rootPath, normalizedSource);
@@ -107,10 +167,10 @@ function resolveDeleteDestinationPath(paths, path, sourcePath) {
     !relativePath.includes(`..${path.sep}`);
 
   if (!isSafeRelative) {
-    return path.join(paths.toDeleteDir, path.basename(normalizedSource));
+    return path.join(paths.toDeleteDir, sourceName);
   }
 
-  return path.join(paths.toDeleteDir, relativePath);
+  return path.join(paths.toDeleteDir, path.dirname(relativePath), sourceName);
 }
 
 // Rename phase owns all file movement after classification:
@@ -132,6 +192,7 @@ async function runRenamePhase(context = {}) {
     path,
     dryRun,
     adFileAction,
+    batchDelete,
     paths,
     candidates,
     pendingDelete,
@@ -164,7 +225,11 @@ async function runRenamePhase(context = {}) {
     const candidate = candidates[index] || {};
     const plannedName = String(targetNames[index] || '').trim();
     const fallbackName = path.basename(String(candidate.src || '').trim());
-    const fileName = plannedName || fallbackName;
+    const fileName = sanitizeOutputFileName(
+      path,
+      plannedName || fallbackName,
+      `UNNAMED_${index + 1}`
+    );
     const destinationPath = path.join(paths.waitingDir, fileName);
     const originalName = path.basename(String(candidate.src || ''));
     const renameApplied = Boolean(candidate.renameByFilmCode && candidate.filmCode);
@@ -245,7 +310,7 @@ async function runRenamePhase(context = {}) {
 
   const deleteConcurrency = dryRun
     ? 1
-    : toPositiveInt(context.deleteConcurrency, adFileAction === 'delete-directly' ? 20 : 16);
+    : toPositiveInt(context.deleteConcurrency, adFileAction === 'delete-directly' ? 8 : 16);
   emitLog(onLog, 'info', `待删除阶段并发数：${deleteConcurrency}`);
 
   let deleteProcessed = 0;
@@ -260,7 +325,9 @@ async function runRenamePhase(context = {}) {
 
   // 直接删除模式优先按目录快速清理，减少逐文件 unlink 开销。
   // 如果大视频移动失败，则保留原目录，避免为了清理小广告误删有效视频。
-  if (!dryRun && adFileAction === 'delete-directly' && pendingDeleteMap.size > 0) {
+  if (!dryRun && batchDelete && adFileAction === 'delete-directly' && pendingDeleteMap.size > 0) {
+    const pendingDeleteSet = new Set(pendingDeleteMap.keys());
+    const protectedSources = new Set(Array.from(waitingMoveFailedSources).map((item) => normalizeAbsolutePath(path, item)));
     const directoryCandidates = new Set();
     for (const item of pendingDeleteMap.values()) {
       const sourcePath = normalizeAbsolutePath(path, item.src);
@@ -287,6 +354,10 @@ async function runRenamePhase(context = {}) {
         continue;
       }
 
+      if (!(await batchDeleteDirectorySafe(fs, path, sourceDir, pendingDeleteSet, paths, protectedSources))) {
+        emitLog(onLog, 'info', `按目录批量删除跳过未确认内容，改为保留目录并处理明确文件：${sourceDir}`);
+        continue;
+      }
       await fs.promises.rm(sourceDir, { recursive: true, force: true }).catch(() => {});
       const dirExists = await fs.promises.stat(sourceDir).then(() => true).catch(() => false);
       if (dirExists) {
@@ -342,10 +413,14 @@ async function runRenamePhase(context = {}) {
     } else {
       try {
         if (adFileAction === 'delete-directly') {
-          await fs.promises.unlink(item.src);
-          summary.deletedDirectly += 1;
-          if (shouldLogDeleteDetail) {
-            emitLog(onLog, 'info', `已直接删除：${item.src}`);
+          if (isOperationalLogPath(path, item.src)) {
+            emitLog(onLog, 'warn', `检测到日志文件，已跳过直接删除：${item.src}`);
+          } else {
+            await fs.promises.unlink(item.src);
+            summary.deletedDirectly += 1;
+            if (shouldLogDeleteDetail) {
+              emitLog(onLog, 'info', `已直接删除：${item.src}`);
+            }
           }
         } else {
           const destinationPath = resolveDeleteDestinationPath(paths, path, item.src);

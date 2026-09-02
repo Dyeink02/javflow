@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file implements V2 subscription baseline import from crawler artifacts.
+//
+//	This file implements V2 subscription baseline import from crawler artifacts.
 //
 // File map for maintainers:
-//   1) ImportFromOutput entry and artifact-root resolution.
-//   2) crawl-profile.json and filmData.json importers.
-//   3) Import helpers and validation.
-//
+//  1. ImportFromOutput entry and artifact-root resolution.
+//  2. crawl-profile.json and filmData.json importers.
+//  3. Import helpers and validation.
 package avsubscriptionv2
 
 import (
@@ -65,15 +65,13 @@ func (s *Service) importFromProfile(outputDir string) (ImportResult, error) {
 	if len(baselineCodes) == 0 {
 		return ImportResult{}, fmt.Errorf("未能从隐藏或公开 filmData.json 读取完整番号基线。")
 	}
-	count := profile.CompletedCount
-	if count <= 0 {
-		count = profile.TargetCount
-	}
-	if count <= 0 {
-		count = len(baselineCodes)
-	}
-	if count <= 0 {
+	baselineCount := profileBaselineCount(profile, len(baselineCodes))
+	if baselineCount <= 0 {
 		return ImportResult{}, fmt.Errorf("crawl-profile.json 中缺少有效影片数量。")
+	}
+	completedCount := profile.CompletedCount
+	if completedCount <= 0 {
+		completedCount = baselineCount
 	}
 
 	crawlURL := strings.TrimSpace(profile.CrawlURL)
@@ -95,11 +93,11 @@ func (s *Service) importFromProfile(outputDir string) (ImportResult, error) {
 		PreferredBase:        preferredBase,
 		SourceType:           sourceTypeCrawlImport,
 		BaselineCodes:        baselineCodes,
-		BaselineCount:        len(baselineCodes),
-		CurrentObservedCount: maxInt(count, len(baselineCodes)),
-		CurrentTotal:         count,
+		BaselineCount:        baselineCount,
+		CurrentObservedCount: maxInt(baselineCount, len(baselineCodes)),
+		CurrentTotal:         completedCount,
 		ItemsPerPage:         maxInt(defaultItemsPerPage, profile.ItemsPerPage),
-		TotalPages:           maxInt(calcPages(count, maxInt(defaultItemsPerPage, profile.ItemsPerPage)), profile.TotalPages),
+		TotalPages:           maxInt(calcPages(baselineCount, maxInt(defaultItemsPerPage, profile.ItemsPerPage)), profile.TotalPages),
 		CreatedAt:            now,
 		BaselineSnapshotAt:   strings.TrimSpace(profile.CompletedAt),
 		LastUpdatedAt:        now,
@@ -142,6 +140,8 @@ func (s *Service) importFromFilmData(outputDir string) (ImportResult, error) {
 
 	recoveredURL, recoveredBase := s.recoverSubscriptionTargetMetadata(outputDir)
 	baselineCodes := sortedFilmSetKeys(actressFilmSet[primaryKey])
+	rawBaselineCount := countActressFilmRecords(records, primaryKey)
+	baselineCount := maxInt(rawBaselineCount, len(baselineCodes))
 	now := time.Now().Format(time.RFC3339)
 	next := Subscription{
 		ActressName:          actressName,
@@ -149,11 +149,11 @@ func (s *Service) importFromFilmData(outputDir string) (ImportResult, error) {
 		PreferredBase:        recoveredBase,
 		SourceType:           sourceTypeCrawlImport,
 		BaselineCodes:        baselineCodes,
-		BaselineCount:        len(baselineCodes),
-		CurrentObservedCount: len(baselineCodes),
-		CurrentTotal:         len(baselineCodes),
+		BaselineCount:        baselineCount,
+		CurrentObservedCount: baselineCount,
+		CurrentTotal:         baselineCount,
 		ItemsPerPage:         defaultItemsPerPage,
-		TotalPages:           calcPages(len(baselineCodes), defaultItemsPerPage),
+		TotalPages:           calcPages(baselineCount, defaultItemsPerPage),
 		CreatedAt:            now,
 		BaselineSnapshotAt:   now,
 		LastUpdatedAt:        now,
@@ -172,6 +172,23 @@ func (s *Service) importFromFilmData(outputDir string) (ImportResult, error) {
 		OutputDir:    paths.OutputDir,
 		FilmDataPath: paths.FilmDataPath,
 	}, nil
+}
+
+// countActressFilmRecords preserves the raw listing population for imports
+// that do not have crawl-profile.json. The film-code set above is intentionally
+// unique for update comparisons; this count is intentionally not unique because
+// it represents what the user selected/received from the source listing.
+func countActressFilmRecords(records []map[string]any, actressKey string) int {
+	count := 0
+	for _, record := range records {
+		for _, name := range extractActressNames(record) {
+			if normalizeName(name) == actressKey {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }
 
 func (s *Service) upsertWithChangeState(next Subscription) (Subscription, bool, bool, error) {

@@ -8,8 +8,14 @@ const controllerSource = fs.readFileSync(
 );
 
 function createControllerHarness({ withQualitySummary = false } = {}) {
-  const handlers = {};
+  const handlers = {
+    stateCallbacks: [],
+    qualitySummaryCallbacks: [],
+    state: (payload) => handlers.stateCallbacks.slice().forEach((callback) => callback(payload)),
+    qualitySummary: (payload) => handlers.qualitySummaryCallbacks.slice().forEach((callback) => callback(payload))
+  };
   const alerts = [];
+  const openedMagnets = [];
   const sandbox = {
     console,
     setTimeout,
@@ -27,14 +33,20 @@ function createControllerHarness({ withQualitySummary = false } = {}) {
       alerts.push(options);
       return { selection: options.buttons[0] };
     },
-    openMagnetFile: async () => 'opened',
+    openMagnetFile: async (target) => {
+      openedMagnets.push(target);
+      return 'opened';
+    },
     onLog: (callback) => {
       handlers.log = callback;
       return () => {};
     },
     onState: (callback) => {
-      handlers.state = callback;
-      return () => {};
+      handlers.stateCallbacks.push(callback);
+      return () => {
+        const index = handlers.stateCallbacks.indexOf(callback);
+        if (index >= 0) handlers.stateCallbacks.splice(index, 1);
+      };
     },
     onLogContext: (callback) => {
       handlers.logContext = callback;
@@ -46,36 +58,43 @@ function createControllerHarness({ withQualitySummary = false } = {}) {
       preferredOutputDir: 'C:\\JavFlow\\output'
     });
     desktopApi.onQualitySummary = (callback) => {
-      handlers.qualitySummary = callback;
-      return () => {};
+      handlers.qualitySummaryCallbacks.push(callback);
+      return () => {
+        const index = handlers.qualitySummaryCallbacks.indexOf(callback);
+        if (index >= 0) handlers.qualitySummaryCallbacks.splice(index, 1);
+      };
     };
   }
 
   const noop = () => {};
-  const controller = sandbox.desktopCrawlRuntimeController.createCrawlRuntimeController({
-    desktopApi,
-    platformBridge: null,
-    elements: { output: { value: '' } },
-    uiText: { UI_TEXT: { state: { defaultMessage: '' } }, STATUS_LABELS: {} },
-    logController: { appendLog: noop, updateLogContext: noop },
-    stateController: {
-      setStatus: noop,
-      enqueueUiState: noop,
-      applyStagePanel: noop,
-      applyResultPanel: noop,
-      enqueueReviewPanel: noop,
-      enqueueState: noop,
-      clearResultHistory: noop
-    },
-    crawlPanelModel: null,
-    subscriptionCrawlSessionBridge: { getSession: () => null },
-    subscriptionController: null,
-    organizerController: null,
-    libraryMetadataController: null
-  });
+  function createController() {
+    const controller = sandbox.desktopCrawlRuntimeController.createCrawlRuntimeController({
+      desktopApi,
+      platformBridge: null,
+      elements: { output: { value: '' } },
+      uiText: { UI_TEXT: { state: { defaultMessage: '' } }, STATUS_LABELS: {} },
+      logController: { appendLog: noop, updateLogContext: noop },
+      stateController: {
+        setStatus: noop,
+        enqueueUiState: noop,
+        applyStagePanel: noop,
+        applyResultPanel: noop,
+        enqueueReviewPanel: noop,
+        enqueueState: noop,
+        clearResultHistory: noop
+      },
+      crawlPanelModel: null,
+      subscriptionCrawlSessionBridge: { getSession: () => null },
+      subscriptionController: null,
+      organizerController: null,
+      libraryMetadataController: null
+    });
+    controller.bindEventFeeds();
+    return controller;
+  }
 
-  controller.bindEventFeeds();
-  return { alerts, handlers };
+  createController();
+  return { alerts, handlers, openedMagnets, createController };
 }
 
 function flushNotifications() {
@@ -83,7 +102,7 @@ function flushNotifications() {
 }
 
 describe('crawl completion dialogs', () => {
-  it('shows the magnet-file question for a completed quality summary without a path', async () => {
+  it('merges report and magnet question into one dialog for a completed run', async () => {
     const harness = createControllerHarness({ withQualitySummary: true });
 
     harness.handlers.qualitySummary({
@@ -94,12 +113,14 @@ describe('crawl completion dialogs', () => {
     });
     await flushNotifications();
 
-    assert.strictEqual(harness.alerts.length, 2);
+    assert.strictEqual(harness.alerts.length, 1);
     assert.strictEqual(harness.alerts[0].title, '抓取完成');
-    assert.strictEqual(harness.alerts[1].title, '打开磁力链接文件');
+    assert.ok(harness.alerts[0].message.includes('是否打开磁力链接文件？'));
+    assert.deepStrictEqual([...harness.alerts[0].buttons], ['打开磁力链接文件', '关闭']);
+    assert.deepStrictEqual(harness.openedMagnets, ['C:\\JavFlow\\output']);
   });
 
-  it('shows the dialogs again when the same output is crawled again', async () => {
+  it('keeps one dialog per crawl when the same output is crawled again', async () => {
     const harness = createControllerHarness();
     const outputDir = 'C:\\JavFlow\\output';
 
@@ -113,14 +134,18 @@ describe('crawl completion dialogs', () => {
     harness.handlers.state({ status: 'completed', message: '完成', outputDir });
     await flushNotifications();
 
-    assert.strictEqual(harness.alerts.length, 4);
+    assert.strictEqual(harness.alerts.length, 2);
     assert.deepStrictEqual(
       harness.alerts.map((item) => item.title),
-      ['抓取完成', '打开磁力链接文件', '抓取完成', '打开磁力链接文件']
+      ['抓取完成', '抓取完成']
     );
+    harness.alerts.forEach((item) => {
+      assert.ok(item.message.includes('是否打开磁力链接文件？'));
+      assert.deepStrictEqual([...item.buttons], ['打开磁力链接文件', '关闭']);
+    });
   });
 
-  it('asks to open the magnet file when the run ends incomplete with output', async () => {
+  it('merges the magnet question into the incomplete dialog too', async () => {
     const harness = createControllerHarness();
     const outputDir = 'C:\\JavFlow\\output';
 
@@ -133,9 +158,10 @@ describe('crawl completion dialogs', () => {
     });
     await flushNotifications();
 
-    assert.strictEqual(harness.alerts.length, 2);
+    assert.strictEqual(harness.alerts.length, 1);
     assert.strictEqual(harness.alerts[0].title, '抓取未完全完成');
-    assert.strictEqual(harness.alerts[1].title, '打开磁力链接文件');
+    assert.ok(harness.alerts[0].message.includes('是否打开磁力链接文件？'));
+    assert.deepStrictEqual([...harness.alerts[0].buttons], ['打开磁力链接文件', '关闭']);
   });
 
   it('does not ask to open the magnet file for error or stopped runs', async () => {
@@ -153,9 +179,62 @@ describe('crawl completion dialogs', () => {
     await flushNotifications();
 
     assert.strictEqual(harness.alerts.length, 2);
-    assert.deepStrictEqual(
-      harness.alerts.map((item) => item.title),
-      ['抓取出错', '抓取已停止']
-    );
+    harness.alerts.forEach((item) => {
+      assert.deepStrictEqual([...item.buttons], ['确定']);
+      assert.ok(!item.message.includes('是否打开磁力链接文件'));
+    });
+  });
+
+  it('deduplicates quality-summary and state completion for the same run', async () => {
+    const harness = createControllerHarness({ withQualitySummary: true });
+    const outputDir = 'C:\\JavFlow\\output';
+
+    harness.handlers.state({ status: 'starting', message: '开始' });
+    harness.handlers.state({ status: 'running', message: '运行中', outputDir });
+    // 质量摘要事件先到（携带报告路径，目录与输出目录一致）
+    harness.handlers.qualitySummary({
+      status: 'ok',
+      completed: true,
+      summaryLine: '抓取任务已完成',
+      reportPath: outputDir + '\\crawl-quality-summary.txt'
+    });
+    // 状态终态事件后到（同一输出目录、同一完成态）——必须被跨源去重
+    harness.handlers.state({ status: 'completed', message: '完成', outputDir });
+    await flushNotifications();
+
+    assert.strictEqual(harness.alerts.length, 1);
+    assert.strictEqual(harness.alerts[0].title, '抓取完成');
+    assert.strictEqual(harness.openedMagnets.length, 1);
+  });
+
+  it('deduplicates completed and incomplete terminal statuses from the same run', async () => {
+    const harness = createControllerHarness({ withQualitySummary: true });
+    const outputDir = 'C:\\JavFlow\\output';
+
+    harness.handlers.state({ status: 'starting', message: '开始', outputDir });
+    harness.handlers.state({ status: 'running', message: '运行中', outputDir });
+    harness.handlers.qualitySummary({
+      status: 'warning',
+      completed: true,
+      summaryLine: '存在告警但已结束',
+      outputDir
+    });
+    harness.handlers.state({ status: 'incomplete', message: '部分完成', outputDir });
+    await flushNotifications();
+
+    assert.strictEqual(harness.alerts.length, 1);
+  });
+
+  it('shares the completion lock across duplicate controller instances', async () => {
+    const harness = createControllerHarness();
+    harness.createController();
+    const outputDir = 'C:\\JavFlow\\output';
+
+    harness.handlers.state({ status: 'starting', message: '开始', outputDir });
+    harness.handlers.state({ status: 'running', message: '运行中', outputDir });
+    harness.handlers.state({ status: 'completed', message: '完成', outputDir });
+    await flushNotifications();
+
+    assert.strictEqual(harness.alerts.length, 1);
   });
 });

@@ -912,10 +912,6 @@ class RequestHandler {
         if (!Boolean(this.config.magnetContentValidation) || candidates.length === 0) {
             return candidates;
         }
-        if (!this.isMagnetValidationEnabled()) {
-            this.logMagnetValidationDisabledNotice();
-            return candidates;
-        }
         const result = await (0, magnetContentValidation_1.filterMagnetCandidatesByContentDetailed)({
             title,
             candidates,
@@ -925,7 +921,6 @@ class RequestHandler {
             maxValidationTimeMs: this.magnetValidationBudgetMs,
             abortSignal: this.magnetValidationAbortController.signal
         });
-        this.recordMagnetValidationStats(title, result.stats);
         return result.candidates;
     }
     isMagnetValidationEnabled() {

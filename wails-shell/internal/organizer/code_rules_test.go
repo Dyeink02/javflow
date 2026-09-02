@@ -2,6 +2,7 @@ package organizer
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,57 @@ func TestExtractFilmCodeFromFileRejectsSubstringAndAmbiguousExpectedMatches(t *t
 		got := extractFilmCodeFromFile(filename, codeSet, tokenSet)
 		if got != "" && containsCode(codeSet, got) {
 			t.Errorf("extractFilmCodeFromFile(%q) guessed expected code %q", filename, got)
+		}
+	}
+}
+
+func TestPlanTargetNamesSanitizesFilmCodeBeforeBuildingFilename(t *testing.T) {
+	strategy, err := parseConflictSuffixStrategy("-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := planTargetNames([]Candidate{
+		{
+			Src:              filepath.Join("downloads", "DRDZ-002.mp4**..mp4"),
+			FilmCode:         "DRDZ-002.mp4**",
+			RenameByFilmCode: true,
+		},
+		{
+			Src:              filepath.Join("downloads", "ABP-001 source.mkv"),
+			FilmCode:         "ABP-001",
+			RenameByFilmCode: true,
+		},
+	}, strategy)
+
+	if got, want := names[0], "DRDZ-002.mp4"; got != want {
+		t.Fatalf("malformed code target = %q, want %q", got, want)
+	}
+	if got, want := names[1], "ABP-001.mkv"; got != want {
+		t.Fatalf("normal target = %q, want %q", got, want)
+	}
+}
+
+func TestPlanTargetNamesSanitizesUnmatchedIsoGlobName(t *testing.T) {
+	strategy, err := parseConflictSuffixStrategy("-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := planTargetNames([]Candidate{
+		{
+			Src:              filepath.Join("downloads", "*.iso"),
+			RenameByFilmCode: false,
+		},
+		{
+			Src:              filepath.Join("downloads", "movie**.ISO"),
+			RenameByFilmCode: false,
+		},
+	}, strategy)
+	if names[0] != "_.iso" || names[1] != "movie__.ISO" {
+		t.Fatalf("unsafe ISO names = %#v, want sanitized names", names)
+	}
+	for _, name := range names {
+		if strings.ContainsAny(name, `<>:"/\\|?*`) {
+			t.Fatalf("sanitized name still contains Windows wildcard: %q", name)
 		}
 	}
 }

@@ -14,6 +14,15 @@ import (
 
 const organizerFinalizeUnits = 4
 
+// Batch deletes should be much faster than the inspectable per-file mode, but
+// a cloud-mounted drive still needs a small pause between bursts. This keeps a
+// single run from looking like an automated delete flood to services such as
+// 115 while avoiding the old one-file-per-500ms behavior.
+const (
+	batchDeleteBurstSize  = 32
+	batchDeleteBurstPause = 350 * time.Millisecond
+)
+
 // run_context.go owns derived organizer execution context construction and the
 // phase-to-phase handoff structs used by the Go organizer pipeline.
 //
@@ -33,41 +42,43 @@ const organizerFinalizeUnits = 4
 // mutable summary. The phase files operate on this shared context so bugs can
 // be isolated by phase without re-threading a large parameter list.
 type organizerRunContext struct {
-	options              RunOptions
-	preloadedExpected    PreloadedExpectedCodes
-	normalizedRootPath   string
-	dryRun               bool
-	minSizeMB            int
-	minSizeBytes         int64
-	adFileAction         string
-	batchDelete          bool // 是否启用批量删除模式
-	deleteIntervalMs     int  // 删除间隔（毫秒）
-	organizeIntervalMs   int  // 整理间隔（毫秒）
-	lastDeleteOpAt       time.Time
-	lastOrganizeOpAt     time.Time
-	adDetectionEnabled   bool
-	adModelType          string
-	adThreshold          int
-	videoExtensionSet    map[string]struct{}
-	videoExtensionsText  string
-	suffixStrategy       conflictSuffixStrategy
-	paths                Paths
-	logf                 func(string, string)
-	progressf            func(ProgressEntry)
-	codeSet              map[string]struct{}
-	tokenSet             map[string]struct{}
+	options                RunOptions
+	preloadedExpected      PreloadedExpectedCodes
+	normalizedRootPath     string
+	artifactRootPath       string
+	dryRun                 bool
+	minSizeMB              int
+	minSizeBytes           int64
+	adFileAction           string
+	batchDelete            bool // 是否启用批量删除模式
+	deleteIntervalMs       int  // 删除间隔（毫秒）
+	organizeIntervalMs     int  // 整理间隔（毫秒）
+	lastDeleteOpAt         time.Time
+	batchDeleteOps         int
+	lastOrganizeOpAt       time.Time
+	adDetectionEnabled     bool
+	adModelType            string
+	adThreshold            int
+	videoExtensionSet      map[string]struct{}
+	videoExtensionsText    string
+	suffixStrategy         conflictSuffixStrategy
+	paths                  Paths
+	logf                   func(string, string)
+	progressf              func(ProgressEntry)
+	codeSet                map[string]struct{}
+	tokenSet               map[string]struct{}
 	expectedCodeAliasIndex expectedCodeAliasIndex
 	expectedCodeEntryMap   map[string][]MagnetEntry
-	summary              Summary
+	summary                Summary
 }
 
 // throttleFileOp spaces out per-item file operations with the user-configured
-// interval so cloud-drive mounts do not see one dense request burst. The
-// batch-delete path deliberately skips throttling (checked batch = delete in
-// bulk as fast as possible). Organizer phases run on one goroutine, so no
-// locking is needed. Returns nothing; callers should invoke it immediately
-// before the filesystem mutation, inside heartbeat closures when available so
-// progress keeps flowing while waiting.
+// interval so cloud-drive mounts do not see one dense request burst. Checked
+// batch deletes use the burst limiter below instead of this per-file delay.
+// Organizer phases run on one goroutine, so no locking is needed. Returns
+// nothing; callers should invoke it immediately before the filesystem mutation,
+// inside heartbeat closures when available so progress keeps flowing while
+// waiting.
 func (ctx *organizerRunContext) throttleFileOp(lastOpAt *time.Time, intervalMs int) {
 	if ctx.dryRun || intervalMs <= 0 {
 		return
@@ -82,8 +93,20 @@ func (ctx *organizerRunContext) throttleFileOp(lastOpAt *time.Time, intervalMs i
 }
 
 // waitDeleteInterval throttles destructive operations (per-file or
-// per-directory removal) with the configured delete interval.
+// per-directory removal) with the configured delete interval. Checked batch
+// deletes use the burst limiter instead: one pause every batchDeleteBurstSize
+// target operations. Both branches are skipped in dry-run.
 func (ctx *organizerRunContext) waitDeleteInterval() {
+	if ctx.dryRun {
+		return
+	}
+	if ctx.batchDelete && ctx.adFileAction == adFileActionDeleteDirectly {
+		ctx.batchDeleteOps++
+		if ctx.batchDeleteOps > 0 && ctx.batchDeleteOps%batchDeleteBurstSize == 0 {
+			time.Sleep(batchDeleteBurstPause)
+		}
+		return
+	}
 	ctx.throttleFileOp(&ctx.lastDeleteOpAt, ctx.deleteIntervalMs)
 }
 
@@ -118,6 +141,44 @@ type supplementPhaseResult struct {
 	adRiskMagnetEntries  []CodeEntry
 	missingCodes         []string
 	missingMagnetEntries []CodeEntry
+}
+
+// resolveOrganizerArtifactRootPath chooses the directory that owns organizer
+// state and reports. Crawl/整理 snapshot inputs may be directories or one of
+// the supported JSON files; a missing path is still normalized by filename so
+// a first run can create its logs beside the selected input.
+func resolveOrganizerArtifactRootPath(options RunOptions, preloaded PreloadedExpectedCodes) string {
+	candidates := []string{
+		preloaded.OutputDir,
+		preloaded.SourcePath,
+		preloaded.FilmDataPath,
+		preloaded.OrganizerCodesPath,
+		options.CrawlOutputDir,
+	}
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
+		}
+		normalized := crawlartifact.NormalizeRootPath(trimmed)
+		if info, err := os.Stat(normalized); err == nil && !info.IsDir() {
+			return filepath.Dir(normalized)
+		}
+		if isOrganizerArtifactFileName(filepath.Base(normalized)) {
+			return filepath.Dir(normalized)
+		}
+		return crawlartifact.ResolveEffectiveCrawlOutputDir(normalized)
+	}
+	return crawlartifact.NormalizeRootPath(options.RootPath)
+}
+
+func isOrganizerArtifactFileName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "filmdata.json", "crawl-profile.json", "organizer-codes.json", "filtered-film-codes.json", "magnet-links.txt":
+		return true
+	default:
+		return false
+	}
 }
 
 // newOrganizerRunContext normalizes one organizer invocation into a shared
@@ -166,6 +227,7 @@ func newOrganizerRunContext(service *Service, options RunOptions) (*organizerRun
 	if err != nil {
 		return nil, err
 	}
+	artifactRootPath := resolveOrganizerArtifactRootPath(options, preloadedExpected)
 
 	ctx := &organizerRunContext{
 		options:            options,
@@ -182,7 +244,8 @@ func newOrganizerRunContext(service *Service, options RunOptions) (*organizerRun
 		adThreshold:        toSafeInteger(options.AdThreshold, 60, 1),
 		videoExtensionSet:  normalizeVideoExtensions(options.VideoExtensions),
 		suffixStrategy:     suffixStrategy,
-		paths:              service.ResolvePaths(normalizedRootPath),
+		artifactRootPath:   artifactRootPath,
+		paths:              service.ResolvePathsForInput(normalizedRootPath, artifactRootPath),
 		logf: func(level string, message string) {
 			_ = modulelog.Append(service.paths.AppPath, modulelog.Organizer, level, message, time.Now())
 			emitOrganizerLog(options.OnLog, level, message)
@@ -224,6 +287,10 @@ func (ctx *organizerRunContext) prepareFilesystem() error {
 		return nil
 	}
 
+	if err := migrateLegacyOrganizerArtifacts(ctx.normalizedRootPath, ctx.paths, ctx.logf); err != nil {
+		return err
+	}
+
 	ensureTasks := []string{ctx.paths.WaitingDir, ctx.paths.UnmatchedDir, ctx.paths.IntroAdDir, ctx.paths.LogsDir, ctx.paths.StateDir}
 	if ctx.adFileAction == adFileActionMoveToDelete {
 		ensureTasks = append(ensureTasks, ctx.paths.ToDeleteDir)
@@ -232,9 +299,6 @@ func (ctx *organizerRunContext) prepareFilesystem() error {
 		if err := ensureDirectory(targetDir); err != nil {
 			return err
 		}
-	}
-	if !ctx.batchDelete || ctx.adFileAction != adFileActionDeleteDirectly {
-		cleanupLegacyReportFiles(ctx.normalizedRootPath, ctx.logf)
 	}
 	return nil
 }
@@ -517,6 +581,6 @@ func (ctx *organizerRunContext) buildResultPaths() map[string]string {
 		"toDeleteDir":  ctx.paths.ToDeleteDir,
 		"introAdDir":   ctx.paths.IntroAdDir,
 		"logsDir":      ctx.paths.LogsDir,
-		"reportsDir":   ctx.paths.RootPath,
+		"reportsDir":   ctx.paths.LogsDir,
 	}
 }

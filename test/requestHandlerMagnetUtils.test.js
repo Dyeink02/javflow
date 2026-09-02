@@ -48,4 +48,35 @@ describe('requestHandler magnet display names', () => {
       ['ABA-250-c', 'ABA-250']
     );
   });
+
+  it('blocks multi-film aggregate magnets by default even without user keywords', () => {
+    const candidates = [
+      {
+        magnetLink: 'magnet:?xt=urn:btih:COLLECTION&dn=BF-271%2CDGL-041%2CSNIS-009%2CSNIS-010',
+        size: 70000,
+        displayName: 'BF-271,DGL-041,SNIS-009,SNIS-010'
+      },
+      {
+        magnetLink: 'magnet:?xt=urn:btih:SINGLE&dn=SNIS-009',
+        size: 5000,
+        displayName: 'SNIS-009'
+      }
+    ];
+
+    assert.strictEqual(magnetUtils.isCollectionMagnetCandidate(candidates[0]), true);
+    assert.strictEqual(magnetUtils.isCollectionMagnetCandidate(candidates[1]), false);
+    const filtered = magnetUtils.applyMagnetExcludeFilter('SNIS-009', candidates, '');
+    assert.deepStrictEqual(filtered, [candidates[1]]);
+  });
+
+  it('blocks explicit collection markers even when only one film code is present', () => {
+    const candidate = {
+      magnetLink: 'magnet:?xt=urn:btih:COLLECTION&dn=SNIS-009%20complete%20collection',
+      size: 70000,
+      displayName: 'SNIS-009 complete collection'
+    };
+
+    assert.strictEqual(magnetUtils.isCollectionMagnetCandidate(candidate), true);
+    assert.deepStrictEqual(magnetUtils.applyMagnetExcludeFilter('SNIS-009', [candidate], ''), []);
+  });
 });

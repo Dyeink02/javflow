@@ -2,10 +2,10 @@
 // legacy video libraries before the mutating organizer workflow is started.
 //
 // Ownership summary:
-// 1) scan local video names and derive deterministic, normalized candidates
-// 2) persist the hidden discovery snapshot and unmatched review report
-// 3) expose a safe handoff into organizer code-list loading without renaming
-//    or deleting any user files
+//  1. scan local video names and derive deterministic, normalized candidates
+//  2. persist the hidden discovery snapshot and unmatched review report
+//  3. expose a safe handoff into organizer code-list loading without renaming
+//     or deleting any user files
 //
 // This file deliberately does not perform crawl requests or organizer moves.
 //
@@ -179,7 +179,7 @@ func (s *Service) DiscoverLocalCodes(options DiscoverOptions) (DiscoverLocalCode
 	}
 	result.StatePath = statePath
 	if len(result.Unidentified) > 0 {
-		result.ReportPath = filepath.Join(absoluteRoot, unmatchedName)
+		result.ReportPath = filepath.Join(absoluteRoot, logsDirName, unmatchedName)
 		lines := []string{"# 本地番号识别未命中清单", "# 这些文件没有唯一番号，严格整理时不会自动改名。"}
 		for _, item := range result.Unidentified {
 			candidateText := strings.Join(item.Candidates, ", ")
@@ -187,6 +187,9 @@ func (s *Service) DiscoverLocalCodes(options DiscoverOptions) (DiscoverLocalCode
 				candidateText = "无候选"
 			}
 			lines = append(lines, fmt.Sprintf("[%s] 候选：%s | %s", item.Reason, candidateText, item.Path))
+		}
+		if err := os.MkdirAll(filepath.Dir(result.ReportPath), 0o755); err != nil {
+			return DiscoverLocalCodesResult{}, err
 		}
 		if err := os.WriteFile(result.ReportPath, []byte(strings.Join(lines, "\r\n")+"\r\n"), 0o644); err != nil {
 			return DiscoverLocalCodesResult{}, err

@@ -107,6 +107,13 @@ jobs:
           $hash = (Get-FileHash "release-staging\$zipName" -Algorithm SHA256).Hash
           "$hash  $zipName" | Out-File -Encoding ascii "release-staging\$zipName.sha256"
 
+          # Also publish the standalone EXE as a lightweight fallback asset.
+          # The updater prefers the portable ZIP; the EXE keeps the direct
+          # executable update path working when only the binary changed.
+          Copy-Item $exeSource "release-staging\javflow.exe"
+          $exeHash = (Get-FileHash "release-staging\javflow.exe" -Algorithm SHA256).Hash
+          "$exeHash  javflow.exe" | Out-File -Encoding ascii "release-staging\javflow.exe.sha256"
+
           Write-Output "EXE path: $exeSource"
           Write-Output "ZIP: release-staging\$zipName"
           Write-Output "SHA256: $hash"
@@ -117,6 +124,8 @@ jobs:
           files: |
             release-staging/*.zip
             release-staging/*.zip.sha256
+            release-staging/javflow.exe
+            release-staging/javflow.exe.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -77,12 +77,6 @@
         elements.crawlerWorkspace.classList.toggle('hidden', !showCrawler);
       }
 
-	      if (elements.crawlerUpdateControls) {
-	        elements.crawlerUpdateControls.classList.toggle('hidden', !showCrawler);
-	      } else if (elements.crawlerTopbarVersion) {
-	        elements.crawlerTopbarVersion.classList.toggle('hidden', !showCrawler);
-      }
-
       if (elements.organizerWorkspace) {
         elements.organizerWorkspace.classList.toggle('hidden', !showOrganizer);
       }

@@ -28,6 +28,15 @@ func (a *API) resolveCrawlExecutionMode(payload map[string]any) string {
 		return crawlExecutionModeCloudflareCompat
 	}
 
+	// Magnet metadata inspection is implemented by the maintained legacy
+	// RequestHandler (magnet2torrent-js). Route this explicitly to the sidecar
+	// compatibility lane until the equivalent Go torrent-metadata reader exists;
+	// otherwise the checkbox would be accepted by the UI but silently ignored by
+	// the normal Go runner.
+	if payloadBool(payload["magnetContentValidation"]) {
+		return crawlExecutionModeCloudflareCompat
+	}
+
 	if a.crawl.crawlFetch == nil {
 		return crawlExecutionModeCloudflareCompat
 	}

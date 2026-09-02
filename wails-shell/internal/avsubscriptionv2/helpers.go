@@ -157,6 +157,30 @@ func extractCodesFromOutput(outputDir string, userDataDir string) []string {
 	return normalizeCodes(codes)
 }
 
+// extractBaselineFromOutput deliberately keeps two different views of a crawl:
+// the raw listing count selected by the user, and the unique code set needed
+// for future update diffs. A duplicate detail link must not make a 251-item
+// crawl look like a 249-item subscription baseline.
+func extractBaselineFromOutput(outputDir string, userDataDir string) ([]string, int) {
+	codes := extractCodesFromOutput(outputDir, userDataDir)
+	baselineCount := len(codes)
+	if _, profile, err := crawlartifact.ReadCrawlProfileArtifactWithUserData(outputDir, userDataDir); err == nil {
+		baselineCount = profileBaselineCount(profile, baselineCount)
+	}
+	return codes, baselineCount
+}
+
+func profileBaselineCount(profile crawlartifact.CrawlProfileArtifact, minimum int) int {
+	// TargetCount is the original listing population before crawler-level
+	// de-duplication. It is therefore the correct user-facing baseline; the
+	// completed count remains useful only when older artifacts lack a target.
+	count := profile.TargetCount
+	if count <= 0 {
+		count = profile.CompletedCount
+	}
+	return maxInt(count, minimum)
+}
+
 func extractRecordIdentity(record map[string]any, index int) string {
 	candidates := []string{
 		recordFieldText(record["filmCode"]),

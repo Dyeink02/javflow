@@ -218,10 +218,12 @@ func (s *Service) MarkSynced(id string) (Subscription, error) {
 		if item.ID != strings.TrimSpace(id) {
 			continue
 		}
+		previousBaselineCount := maxInt(item.BaselineCount, len(item.BaselineCodes))
+		pendingBaselineCount := maxInt(item.PendingCount, len(item.PendingCodes))
 		merged := append([]string{}, item.BaselineCodes...)
 		merged = append(merged, item.PendingCodes...)
 		item.BaselineCodes = normalizeCodes(merged)
-		item.BaselineCount = len(item.BaselineCodes)
+		item.BaselineCount = maxInt(previousBaselineCount+pendingBaselineCount, len(item.BaselineCodes))
 		item.CurrentObservedCount = maxInt(item.CurrentObservedCount, item.BaselineCount)
 		item.PendingCodes = []string{}
 		item.PendingCount = 0
@@ -410,16 +412,22 @@ func (s *Service) MarkCrawlCompleted(id string, outputDir string) (Subscription,
 		return Subscription{}, err
 	}
 
-	nextBaseline := extractCodesFromOutput(outputDir, s.paths.UserData)
+	nextBaseline, outputBaselineCount := extractBaselineFromOutput(outputDir, s.paths.UserData)
 	now := time.Now().Format(time.RFC3339)
 	for index, item := range items {
 		if item.ID != strings.TrimSpace(id) {
 			continue
 		}
+		previousBaselineCount := maxInt(item.BaselineCount, len(item.BaselineCodes))
+		newCodes := diffCodes(nextBaseline, item.BaselineCodes)
 		merged := append([]string{}, item.BaselineCodes...)
 		merged = append(merged, nextBaseline...)
 		item.BaselineCodes = normalizeCodes(merged)
-		item.BaselineCount = len(item.BaselineCodes)
+		if len(newCodes) > 0 {
+			item.BaselineCount = maxInt(previousBaselineCount+maxInt(outputBaselineCount, len(newCodes)), len(item.BaselineCodes))
+		} else {
+			item.BaselineCount = maxInt(previousBaselineCount, maxInt(outputBaselineCount, len(item.BaselineCodes)))
+		}
 		item.CurrentObservedCount = maxInt(item.CurrentObservedCount, item.BaselineCount)
 		item.PendingCodes = diffCodes(item.PendingCodes, nextBaseline)
 		item.PendingCount = len(item.PendingCodes)
@@ -495,11 +503,7 @@ func normalizeSubscription(item Subscription, now string) Subscription {
 	item.SourceType = normalizeSourceType(item.SourceType)
 	item.BaselineCodes = normalizeCodes(item.BaselineCodes)
 	item.PendingCodes = normalizeCodes(item.PendingCodes)
-	if len(item.BaselineCodes) > 0 {
-		item.BaselineCount = len(item.BaselineCodes)
-	} else {
-		item.BaselineCount = persistedBaselineCount
-	}
+	item.BaselineCount = maxInt(persistedBaselineCount, len(item.BaselineCodes))
 	item.PendingCodes = diffCodes(item.PendingCodes, item.BaselineCodes)
 	if len(item.PendingCodes) > 0 {
 		item.PendingCount = len(item.PendingCodes)
@@ -628,6 +632,7 @@ func mergeSubscriptionState(current Subscription, next Subscription, now string)
 	} else {
 		next.BaselineCodes = normalizeCodes(append(append([]string{}, current.BaselineCodes...), next.BaselineCodes...))
 	}
+	next.BaselineCount = maxInt(next.BaselineCount, current.BaselineCount)
 	if len(next.PendingCodes) == 0 && len(current.PendingCodes) > 0 {
 		next.PendingCodes = current.PendingCodes
 	}

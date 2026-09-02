@@ -86,11 +86,44 @@ func (s *Service) Check(ctx context.Context) (UpdateInfo, error) {
 	if s == nil {
 		return UpdateInfo{}, fmt.Errorf("在线更新服务未初始化")
 	}
+
+	// Portable copies never attempt the online flow: the renderer shows the
+	// portable guidance message without waiting for any network request.
+	installKind := s.installKind()
+	if installKind != installKindInstaller {
+		return UpdateInfo{
+			CurrentVersion:       s.CurrentVersion(),
+			InstallKind:          installKind,
+			InAppUpdateSupported: false,
+			Message:              portableUpdateMessage,
+		}, nil
+	}
+
 	requestContext, cancel := context.WithTimeout(normalizeContext(ctx), checkTimeout)
 	defer cancel()
 
 	info, _, _, err := s.checkRelease(requestContext)
-	return info, err
+	if err != nil {
+		return UpdateInfo{}, err
+	}
+	info.InstallKind = installKind
+	info.InAppUpdateSupported = true
+	return info, nil
+}
+
+// installKind classifies the running deployment. The NSIS installer writes
+// Uninstall.exe beside the application; portable ZIP/Lite-Direct/manual
+// deployments do not have it, and their contents live in arbitrary user-owned
+// folders that must not be rewritten by an in-app updater.
+func (s *Service) installKind() string {
+	targetPath, err := s.runningExecutablePath()
+	if err != nil {
+		return installKindPortable
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(targetPath), "Uninstall.exe")); err == nil {
+		return installKindInstaller
+	}
+	return installKindPortable
 }
 
 func (s *Service) checkRelease(ctx context.Context) (UpdateInfo, githubRelease, githubAsset, error) {
@@ -124,21 +157,28 @@ func (s *Service) checkRelease(ctx context.Context) (UpdateInfo, githubRelease, 
 		return info, release, githubAsset{}, nil
 	}
 
-	asset, ok := selectPortableAsset(release.Assets)
+	asset, assetKind, ok := selectUpdateAsset(release.Assets)
 	if !ok {
-		return UpdateInfo{}, githubRelease{}, githubAsset{}, fmt.Errorf("Release %s 未找到 JavFlow 便携包 ZIP 资产", release.TagName)
+		return UpdateInfo{}, githubRelease{}, githubAsset{}, fmt.Errorf("Release %s 未找到可更新的便携包或 javflow.exe 资产", release.TagName)
 	}
 	info.UpdateAvailable = true
 	info.AssetName = asset.Name
 	info.AssetSize = asset.Size
 	info.SHA256 = normalizeSHA256(asset.Digest)
-	info.Message = "发现新版本"
+	if assetKind == updateAssetExecutable {
+		info.Message = "发现新版本（EXE 更新包）"
+	} else {
+		info.Message = "发现新版本"
+	}
 	return info, release, asset, nil
 }
 
 func (s *Service) Download(ctx context.Context, requestedVersion string) (UpdateInfo, error) {
 	if s == nil {
 		return UpdateInfo{}, fmt.Errorf("在线更新服务未初始化")
+	}
+	if s.installKind() != installKindInstaller {
+		return UpdateInfo{}, fmt.Errorf("%s", portableUpdateMessage)
 	}
 	requestContext, cancel := context.WithTimeout(normalizeContext(ctx), downloadTimeout)
 	defer cancel()
@@ -240,7 +280,12 @@ func (s *Service) Download(ctx context.Context, requestedVersion string) (Update
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("无法创建便携包临时目录：%w", err)
 	}
-	if err := extractPortableArchive(temporaryPath, stagedDirectory); err != nil {
+	if isExecutableAsset(asset) {
+		if err := stageExecutableAsset(temporaryPath, stagedDirectory); err != nil {
+			_ = os.RemoveAll(stagedDirectory)
+			return UpdateInfo{}, err
+		}
+	} else if err := extractPortableArchive(temporaryPath, stagedDirectory); err != nil {
 		_ = os.RemoveAll(stagedDirectory)
 		return UpdateInfo{}, err
 	}
@@ -438,14 +483,46 @@ func responseError(response *http.Response) error {
 	return fmt.Errorf("远程更新服务返回异常：%s", detail)
 }
 
-func selectPortableAsset(assets []githubAsset) (githubAsset, bool) {
+type updateAssetKind string
+
+const (
+	updateAssetPortableZip updateAssetKind = "portable-zip"
+	updateAssetExecutable  updateAssetKind = "executable"
+)
+
+// selectUpdateAsset prefers the complete portable ZIP. Older/public releases
+// may contain only javflow.exe, so retain a direct-EXE compatibility path until
+// those releases are replaced. Both forms are staged under javflow.exe and use
+// the same checksum and in-place replacement safeguards.
+func selectUpdateAsset(assets []githubAsset) (githubAsset, updateAssetKind, bool) {
 	for _, asset := range assets {
 		name := strings.ToLower(strings.TrimSpace(asset.Name))
 		if strings.HasPrefix(name, "javflow-portable-") && strings.HasSuffix(name, ".zip") {
-			return asset, true
+			return asset, updateAssetPortableZip, true
 		}
 	}
-	return githubAsset{}, false
+	for _, asset := range assets {
+		name := strings.ToLower(strings.TrimSpace(asset.Name))
+		if name == "javflow.exe" {
+			return asset, updateAssetExecutable, true
+		}
+	}
+	return githubAsset{}, "", false
+}
+
+func isExecutableAsset(asset githubAsset) bool {
+	return strings.EqualFold(filepath.Ext(strings.TrimSpace(asset.Name)), ".exe")
+}
+
+func stageExecutableAsset(sourcePath string, stagedDirectory string) error {
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("无法读取 EXE 更新文件：%w", err)
+	}
+	if err := os.WriteFile(filepath.Join(stagedDirectory, "javflow.exe"), payload, 0o755); err != nil {
+		return fmt.Errorf("无法暂存 EXE 更新文件：%w", err)
+	}
+	return nil
 }
 
 func isChecksumAsset(name string) bool {

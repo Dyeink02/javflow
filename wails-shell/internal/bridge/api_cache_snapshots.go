@@ -41,7 +41,10 @@ func (a *API) removeCrawlCacheSnapshotResult(payload map[string]any) (string, er
 	if err != nil {
 		return "", err
 	}
-	items, _ := crawlartifact.ListCacheSnapshots(a.runtime.store.UserDataDir())
+	items, discoverErr := crawlartifact.DiscoverCacheSnapshots(a.runtime.store.UserDataDir(), nil)
+	if discoverErr != nil {
+		return "", discoverErr
+	}
 	return marshalResult(map[string]any{
 		"removedCount": removedCount,
 		"items":        items,

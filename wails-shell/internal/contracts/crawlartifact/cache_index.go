@@ -1,11 +1,11 @@
 // Ownership summary:
-//   This file implements the crawl-cache snapshot index used across crawler, subscription, and organizer.
+//
+//	This file implements the crawl-cache snapshot index used across crawler, subscription, and organizer.
 //
 // File map for maintainers:
-//   1) CacheSnapshot type and index file constants.
-//   2) Snapshot discovery, read, and write operations.
-//   3) Index maintenance helpers.
-//
+//  1. CacheSnapshot type and index file constants.
+//  2. Snapshot discovery, read, and write operations.
+//  3. Index maintenance helpers.
 package crawlartifact
 
 import (
@@ -22,6 +22,11 @@ import (
 
 const (
 	CrawlCacheIndexFile = "crawl-cache-index.json"
+	// CrawlCacheDeletedFile stores explicit user deletions separately from the
+	// visible cache index. Visible crawl output may still exist on disk and can
+	// be rediscovered by another workspace, so an index row alone is not enough
+	// to make a deletion durable.
+	CrawlCacheDeletedFile = "crawl-cache-deleted.json"
 )
 
 // CacheSnapshot is the lightweight internal crawl snapshot index entry shared
@@ -52,6 +57,12 @@ type CacheSnapshot struct {
 
 var cacheIndexMu sync.Mutex
 
+type deletedCacheSnapshot struct {
+	CacheKey  string `json:"cacheKey"`
+	OutputDir string `json:"outputDir,omitempty"`
+	DeletedAt string `json:"deletedAt,omitempty"`
+}
+
 // BackfillResult reports one bounded visible-to-hidden cache migration.
 type BackfillResult struct {
 	MigratedFilmDataCount int `json:"migratedFilmDataCount"`
@@ -66,6 +77,125 @@ func CacheIndexPath(userDataDir string) string {
 		return ""
 	}
 	return filepath.Join(normalizedUserData, "crawl-artifacts", CrawlCacheIndexFile)
+}
+
+func cacheDeletedPath(userDataDir string) string {
+	normalizedUserData := NormalizeRootPath(userDataDir)
+	if normalizedUserData == "" {
+		return ""
+	}
+	return filepath.Join(normalizedUserData, "crawl-artifacts", CrawlCacheDeletedFile)
+}
+
+func readDeletedCacheSnapshots(userDataDir string) (map[string]deletedCacheSnapshot, error) {
+	result := map[string]deletedCacheSnapshot{}
+	path := cacheDeletedPath(userDataDir)
+	if path == "" {
+		return result, nil
+	}
+	payload, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return result, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var records []deletedCacheSnapshot
+	if err := json.Unmarshal(payload, &records); err != nil {
+		return nil, fmt.Errorf("删除快照索引损坏或格式错误：%w", err)
+	}
+	for _, record := range records {
+		record.CacheKey = strings.TrimSpace(record.CacheKey)
+		record.OutputDir = NormalizeRootPath(record.OutputDir)
+		record.DeletedAt = strings.TrimSpace(record.DeletedAt)
+		if record.CacheKey == "" && record.OutputDir == "" {
+			continue
+		}
+		key := strings.ToLower(record.CacheKey)
+		if key == "" {
+			key = "dir:" + strings.ToLower(record.OutputDir)
+		}
+		result[key] = record
+	}
+	return result, nil
+}
+
+func writeDeletedCacheSnapshots(userDataDir string, records map[string]deletedCacheSnapshot) error {
+	path := cacheDeletedPath(userDataDir)
+	if path == "" {
+		return nil
+	}
+	items := make([]deletedCacheSnapshot, 0, len(records))
+	for _, record := range records {
+		record.CacheKey = strings.TrimSpace(record.CacheKey)
+		record.OutputDir = NormalizeRootPath(record.OutputDir)
+		record.DeletedAt = strings.TrimSpace(record.DeletedAt)
+		if record.CacheKey == "" && record.OutputDir == "" {
+			continue
+		}
+		items = append(items, record)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return strings.ToLower(items[i].CacheKey+"|"+items[i].OutputDir) < strings.ToLower(items[j].CacheKey+"|"+items[j].OutputDir)
+	})
+	if len(items) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, payload, 0o644)
+}
+
+func deletedSnapshotKey(cacheKey string) string {
+	return strings.ToLower(strings.TrimSpace(cacheKey))
+}
+
+func isDeletedCacheSnapshot(snapshot CacheSnapshot, deleted map[string]deletedCacheSnapshot) bool {
+	if len(deleted) == 0 {
+		return false
+	}
+	if key := deletedSnapshotKey(snapshot.CacheKey); key != "" {
+		if _, exists := deleted[key]; exists {
+			return true
+		}
+	}
+	outputDir := strings.ToLower(NormalizeRootPath(snapshot.OutputDir))
+	if outputDir == "" {
+		return false
+	}
+	for _, record := range deleted {
+		if strings.ToLower(NormalizeRootPath(record.OutputDir)) == outputDir {
+			return true
+		}
+	}
+	return false
+}
+
+func forgetDeletedCacheSnapshot(snapshot CacheSnapshot, deleted map[string]deletedCacheSnapshot) {
+	if len(deleted) == 0 {
+		return
+	}
+	key := deletedSnapshotKey(snapshot.CacheKey)
+	if key != "" {
+		delete(deleted, key)
+	}
+	outputDir := strings.ToLower(NormalizeRootPath(snapshot.OutputDir))
+	if outputDir == "" {
+		return
+	}
+	for deletedKey, record := range deleted {
+		if strings.ToLower(NormalizeRootPath(record.OutputDir)) == outputDir {
+			delete(deleted, deletedKey)
+		}
+	}
 }
 
 // InferUserDataDirFromArtifactPath reconstructs the app-managed user-data root
@@ -136,9 +266,17 @@ func ListCacheSnapshots(userDataDir string) ([]CacheSnapshot, error) {
 // crawl artifacts. Roots are deliberately bounded by depth and entry count so
 // a UI refresh cannot turn into an unbounded disk scan.
 func DiscoverCacheSnapshots(userDataDir string, roots []string) ([]CacheSnapshot, error) {
+	cacheIndexMu.Lock()
+	defer cacheIndexMu.Unlock()
+
 	existing, indexErr := ListCacheSnapshots(userDataDir)
 	if indexErr != nil {
 		existing = []CacheSnapshot{}
+	}
+	existing = removeSnapshotsForMissingOutputDirs(userDataDir, existing)
+	deleted, deletedErr := readDeletedCacheSnapshots(userDataDir)
+	if deletedErr != nil {
+		return nil, deletedErr
 	}
 
 	scanRoots := append([]string{}, roots...)
@@ -166,6 +304,9 @@ func DiscoverCacheSnapshots(userDataDir string, roots []string) ([]CacheSnapshot
 
 	merged := make(map[string]CacheSnapshot, len(existing)+len(candidates))
 	for _, item := range existing {
+		if isDeletedCacheSnapshot(item, deleted) {
+			continue
+		}
 		if key := strings.TrimSpace(item.CacheKey); key != "" {
 			merged[key] = item
 		}
@@ -173,6 +314,18 @@ func DiscoverCacheSnapshots(userDataDir string, roots []string) ([]CacheSnapshot
 	for _, candidate := range candidates {
 		snapshot, ok := buildDiscoveredCacheSnapshot(candidate)
 		if !ok {
+			continue
+		}
+		if isDeletedCacheSnapshot(snapshot, deleted) {
+			continue
+		}
+		if !snapshotOutputDirExists(snapshot.OutputDir) {
+			// A user may remove a prior crawl output directory outside JavFlow.
+			// Its copied application cache must not keep reappearing as a usable
+			// history entry. Only app-managed artifacts are cleaned here.
+			if snapshotOutputDirMissing(snapshot.OutputDir) {
+				_ = removeManagedArtifactDir(userDataDir, candidate.dir)
+			}
 			continue
 		}
 		key := strings.TrimSpace(snapshot.CacheKey)
@@ -296,6 +449,9 @@ func filterUsableCacheSnapshots(userDataDir string, items []CacheSnapshot) []Cac
 	filtered := make([]CacheSnapshot, 0, len(items))
 	artifactRoot := NormalizeRootPath(filepath.Join(userDataDir, "crawl-artifacts"))
 	for _, item := range items {
+		if !snapshotOutputDirExists(item.OutputDir) {
+			continue
+		}
 		outputDir := NormalizeRootPath(item.OutputDir)
 		if artifactRoot != "" {
 			if relative, err := filepath.Rel(artifactRoot, outputDir); err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
@@ -308,6 +464,81 @@ func filterUsableCacheSnapshots(userDataDir string, items []CacheSnapshot) []Cac
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func snapshotOutputDirExists(outputDir string) bool {
+	normalized := NormalizeRootPath(outputDir)
+	if normalized == "" {
+		return false
+	}
+	info, err := os.Stat(normalized)
+	return err == nil && info.IsDir()
+}
+
+func snapshotOutputDirMissing(outputDir string) bool {
+	normalized := NormalizeRootPath(outputDir)
+	if normalized == "" {
+		return true
+	}
+	info, err := os.Stat(normalized)
+	if os.IsNotExist(err) {
+		return true
+	}
+	return err == nil && !info.IsDir()
+}
+
+// removeSnapshotsForMissingOutputDirs clears only app-managed cache folders
+// for snapshots whose user-selected crawl output root no longer exists.
+func removeSnapshotsForMissingOutputDirs(userDataDir string, items []CacheSnapshot) []CacheSnapshot {
+	filtered := make([]CacheSnapshot, 0, len(items))
+	for _, item := range items {
+		if !snapshotOutputDirMissing(item.OutputDir) {
+			filtered = append(filtered, item)
+			continue
+		}
+		_ = removeSnapshotArtifacts(userDataDir, item)
+	}
+	return filtered
+}
+
+func removeSnapshotArtifacts(userDataDir string, item CacheSnapshot) error {
+	roots := []string{ResolveInternalArtifactRoot(userDataDir, item.OutputDir)}
+	if strings.EqualFold(strings.TrimSpace(item.Source), "crawler-history") {
+		roots = append(roots, filepath.Dir(firstExistingFile(item.FilmDataPath, item.CrawlProfilePath, item.OrganizerCodesPath)))
+	}
+	seen := map[string]struct{}{}
+	var firstErr error
+	for _, root := range roots {
+		normalized := NormalizeRootPath(root)
+		if normalized == "" {
+			continue
+		}
+		key := strings.ToLower(normalized)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := removeManagedArtifactDir(userDataDir, normalized); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func removeManagedArtifactDir(userDataDir string, dir string) error {
+	artifactRoot := NormalizeRootPath(filepath.Join(userDataDir, "crawl-artifacts"))
+	normalizedDir := NormalizeRootPath(dir)
+	if artifactRoot == "" || normalizedDir == "" {
+		return nil
+	}
+	relative, err := filepath.Rel(artifactRoot, normalizedDir)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	if err := os.RemoveAll(normalizedDir); err != nil {
+		return fmt.Errorf("删除快照产物目录失败 %s: %w", normalizedDir, err)
+	}
+	return nil
 }
 
 type discoveredArtifactSet struct {
@@ -505,6 +736,11 @@ func upsertCacheSnapshotUnlocked(userDataDir string, snapshot CacheSnapshot) err
 	if snapshot.CacheKey == "" {
 		return nil
 	}
+	deleted, err := readDeletedCacheSnapshots(userDataDir)
+	if err != nil {
+		return err
+	}
+	forgetDeletedCacheSnapshot(snapshot, deleted)
 
 	filtered := make([]CacheSnapshot, 0, len(items)+1)
 	for _, item := range items {
@@ -519,6 +755,9 @@ func upsertCacheSnapshotUnlocked(userDataDir string, snapshot CacheSnapshot) err
 	filtered = append(filtered, snapshot)
 	normalizeCacheSnapshots(filtered)
 
+	if err := writeDeletedCacheSnapshots(userDataDir, deleted); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(indexPath), 0o755); err != nil {
 		return err
 	}
@@ -612,6 +851,9 @@ func sanitizeSnapshotName(value string) string {
 // RemoveCacheSnapshot deletes one snapshot entry and its internal artifact
 // directory. Visible user output files are left untouched.
 func RemoveCacheSnapshot(userDataDir string, cacheKey string) (int, error) {
+	cacheIndexMu.Lock()
+	defer cacheIndexMu.Unlock()
+
 	items, err := ListCacheSnapshots(userDataDir)
 	if err != nil {
 		return 0, err
@@ -623,18 +865,24 @@ func RemoveCacheSnapshot(userDataDir string, cacheKey string) (int, error) {
 	}
 
 	removed := 0
+	deleted, err := readDeletedCacheSnapshots(userDataDir)
+	if err != nil {
+		return 0, err
+	}
 	filtered := make([]CacheSnapshot, 0, len(items))
 	for _, item := range items {
 		if strings.TrimSpace(item.CacheKey) == trimmedKey {
 			removed++
-			root := ResolveInternalArtifactRoot(userDataDir, item.OutputDir)
-			if strings.EqualFold(strings.TrimSpace(item.Source), "crawler-history") {
-				root = filepath.Dir(firstExistingFile(item.FilmDataPath, item.CrawlProfilePath, item.OrganizerCodesPath))
+			deleted[deletedSnapshotKey(item.CacheKey)] = deletedCacheSnapshot{
+				CacheKey:  strings.TrimSpace(item.CacheKey),
+				OutputDir: NormalizeRootPath(item.OutputDir),
+				DeletedAt: time.Now().UTC().Format(time.RFC3339),
 			}
-			if root != "" {
-				if err := os.RemoveAll(root); err != nil {
-					return 0, fmt.Errorf("删除快照产物目录失败 %s: %w", root, err)
-				}
+			// Completed runs keep both an immutable history folder and a stable
+			// current-snapshot alias. Remove both so discovery cannot recreate the
+			// row immediately after the user deletes it.
+			if err := removeSnapshotArtifacts(userDataDir, item); err != nil {
+				return 0, err
 			}
 			continue
 		}
@@ -644,6 +892,9 @@ func RemoveCacheSnapshot(userDataDir string, cacheKey string) (int, error) {
 	if err := writeCacheIndex(userDataDir, filtered); err != nil {
 		return 0, err
 	}
+	if err := writeDeletedCacheSnapshots(userDataDir, deleted); err != nil {
+		return 0, err
+	}
 	return removed, nil
 }
 
@@ -651,6 +902,9 @@ func RemoveCacheSnapshot(userDataDir string, cacheKey string) (int, error) {
 // per-output internal artifact directories, but does not touch user-chosen
 // visible output folders.
 func ClearAllCacheSnapshots(userDataDir string) (int, error) {
+	cacheIndexMu.Lock()
+	defer cacheIndexMu.Unlock()
+
 	items, err := ListCacheSnapshots(userDataDir)
 	if err != nil {
 		return 0, err
@@ -672,6 +926,23 @@ func ClearAllCacheSnapshots(userDataDir string) (int, error) {
 		}
 	}
 
+	deleted, err := readDeletedCacheSnapshots(userDataDir)
+	if err != nil {
+		return 0, err
+	}
+	deletedAt := time.Now().UTC().Format(time.RFC3339)
+	for _, item := range items {
+		if key := deletedSnapshotKey(item.CacheKey); key != "" {
+			deleted[key] = deletedCacheSnapshot{
+				CacheKey:  strings.TrimSpace(item.CacheKey),
+				OutputDir: NormalizeRootPath(item.OutputDir),
+				DeletedAt: deletedAt,
+			}
+		}
+	}
+	if err := writeDeletedCacheSnapshots(userDataDir, deleted); err != nil {
+		return 0, err
+	}
 	if err := writeCacheIndex(userDataDir, []CacheSnapshot{}); err != nil {
 		return 0, err
 	}

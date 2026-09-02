@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"javflow/internal/contracts/crawlartifact"
@@ -55,7 +57,7 @@ func TestImportFromOutputReadsAllCodesFromHiddenJSONBeforeVisibleJSON(t *testing
 	}
 }
 
-func TestImportFromOutputPreservesProfileCountAsCurrentTotal(t *testing.T) {
+func TestImportFromOutputPreservesRawTargetCountAsBaseline(t *testing.T) {
 	userDataDir := t.TempDir()
 	outputDir := t.TempDir()
 
@@ -74,8 +76,8 @@ func TestImportFromOutputPreservesProfileCountAsCurrentTotal(t *testing.T) {
 		"completedAt":    "2026-01-01T00:00:00Z",
 		"actressName":    "演员一",
 		"crawlURL":       "https://example.com/star/abc",
-		"targetCount":    2,
-		"completedCount": 2,
+		"targetCount":    251,
+		"completedCount": 249,
 		"itemsPerPage":   30,
 		"totalPages":     1,
 		"outputDir":      outputDir,
@@ -95,14 +97,17 @@ func TestImportFromOutputPreservesProfileCountAsCurrentTotal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Subscription.BaselineCount != 3 {
-		t.Fatalf("expected 3 baseline codes, got %d", result.Subscription.BaselineCount)
+	if result.Subscription.BaselineCount != 251 {
+		t.Fatalf("expected raw target baseline 251, got %d", result.Subscription.BaselineCount)
 	}
-	if result.Subscription.CurrentTotal != 2 {
-		t.Fatalf("expected currentTotal=2 (profile count), got %d", result.Subscription.CurrentTotal)
+	if len(result.Subscription.BaselineCodes) != 3 {
+		t.Fatalf("expected 3 unique baseline codes, got %#v", result.Subscription.BaselineCodes)
 	}
-	if result.Subscription.CurrentObservedCount != 3 {
-		t.Fatalf("expected currentObservedCount=3 (max of count and baseline), got %d", result.Subscription.CurrentObservedCount)
+	if result.Subscription.CurrentTotal != 249 {
+		t.Fatalf("expected currentTotal=249 (completed count), got %d", result.Subscription.CurrentTotal)
+	}
+	if result.Subscription.CurrentObservedCount != 251 {
+		t.Fatalf("expected currentObservedCount=251 (raw baseline), got %d", result.Subscription.CurrentObservedCount)
 	}
 }
 
@@ -118,5 +123,41 @@ func TestRepeatedImportsMergeEveryHistoricalJSONCode(t *testing.T) {
 	}
 	if len(second.BaselineCodes) != 3 {
 		t.Fatalf("expected historical code union, got %#v", second.BaselineCodes)
+	}
+}
+
+func TestImportFromFilmDataPreservesRawDuplicateRecordCount(t *testing.T) {
+	userDataDir := t.TempDir()
+	outputDir := t.TempDir()
+	var payload strings.Builder
+	payload.WriteString("[")
+	for index := 0; index < 251; index++ {
+		if index > 0 {
+			payload.WriteString(",")
+		}
+		code := "AAA-001"
+		if index == 249 {
+			code = "AAA-002"
+		}
+		if index == 250 {
+			code = "AAA-003"
+		}
+		payload.WriteString(`{"title":"` + code + `","actress":["演员一"],"sourceLink":"https://example.test/` + code + `-` + strconv.Itoa(index) + `"}`)
+	}
+	payload.WriteString("]")
+	if err := os.WriteFile(filepath.Join(outputDir, crawlartifact.CrawlFilmDataFile), []byte(payload.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(runtimepaths.Paths{UserData: userDataDir}, nil)
+	result, err := service.ImportFromOutput(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Subscription.BaselineCount != 251 {
+		t.Fatalf("expected raw baseline count 251, got %d", result.Subscription.BaselineCount)
+	}
+	if len(result.Subscription.BaselineCodes) != 3 {
+		t.Fatalf("expected 3 unique comparison codes, got %#v", result.Subscription.BaselineCodes)
 	}
 }

@@ -17,6 +17,58 @@ describe('magnetContentValidation', () => {
     assert.ok(result.summary.includes('主视频'));
   });
 
+  it('rejects a torrent whose video files contain multiple film codes', () => {
+    const result = classifyMagnetMetadataFiles(
+      [
+        { path: '140403 SNIS-129.avi', length: 1.4 * 1024 * 1024 * 1024 },
+        { path: '130907 SOE-992.avi', length: 1.8 * 1024 * 1024 * 1024 },
+        { path: '140807 SNIS-205.mkv', length: 1.6 * 1024 * 1024 * 1024 }
+      ],
+      'SNIS-205'
+    );
+
+    assert.strictEqual(result.accepted, false);
+    assert.ok(result.reason.includes('多个不同番号'));
+    assert.ok(result.summary.includes('SNIS-129'));
+    assert.ok(result.summary.includes('SOE-992'));
+  });
+
+  it('accepts split files that belong to the same film code', () => {
+    const result = classifyMagnetMetadataFiles(
+      [
+        { path: 'SNIS-147A.mkv', length: 1.6 * 1024 * 1024 * 1024 },
+        { path: 'SNIS-147B.mkv', length: 1.5 * 1024 * 1024 * 1024 },
+        { path: 'SNIS-147-COVER.jpg', length: 512 * 1024 }
+      ],
+      'SNIS-147'
+    );
+
+    assert.strictEqual(result.accepted, true);
+  });
+
+  it('rejects a smaller second video when it has a different film code', () => {
+    const result = classifyMagnetMetadataFiles(
+      [
+        { path: 'SNIS-147.mkv', length: 2 * 1024 * 1024 * 1024 },
+        { path: 'SOE-992.mp4', length: 8 * 1024 * 1024 }
+      ],
+      'SNIS-147'
+    );
+
+    assert.strictEqual(result.accepted, false);
+    assert.ok(result.reason.includes('多个不同番号'));
+  });
+
+  it('rejects a verified torrent when its code does not match the target', () => {
+    const result = classifyMagnetMetadataFiles(
+      [{ path: 'SOE-992.avi', length: 1.6 * 1024 * 1024 * 1024 }],
+      'SNIS-205'
+    );
+
+    assert.strictEqual(result.accepted, false);
+    assert.ok(result.reason.includes('目标不符'));
+  });
+
   it('rejects magnets that contain dangerous ad or installer files', () => {
     const result = classifyMagnetMetadataFiles([
       { path: 'HMN-002/HMN-002.mp4', length: 3 * 1024 * 1024 * 1024 },
@@ -28,7 +80,7 @@ describe('magnetContentValidation', () => {
     assert.ok(result.reason.includes('广告/安装类文件'));
   });
 
-  it('falls back to the first unverified candidate when no candidate passes validation', async () => {
+  it('does not retain an unverified candidate when strict validation cannot confirm it', async () => {
     const candidates = [
       {
         magnetLink: 'magnet:?xt=urn:btih:AAA&dn=FIRST',
@@ -66,10 +118,10 @@ describe('magnetContentValidation', () => {
       }
     });
 
-    assert.deepStrictEqual(kept, [candidates[1]]);
+    assert.deepStrictEqual(kept, []);
   });
 
-  it('keeps the current candidate once validation becomes unverified instead of scanning deeper candidates', async () => {
+  it('skips an unverified candidate and uses the next verified candidate', async () => {
     const candidates = [
       {
         magnetLink: 'magnet:?xt=urn:btih:AAA&dn=FIRST',
@@ -109,8 +161,8 @@ describe('magnetContentValidation', () => {
       }
     });
 
-    assert.deepStrictEqual(kept, [candidates[0]]);
-    assert.deepStrictEqual(inspected, ['FIRST']);
+    assert.deepStrictEqual(kept, [candidates[1]]);
+    assert.deepStrictEqual(inspected, ['FIRST', 'SECOND']);
   });
 
   it('steps down to the next-largest candidate when the current largest candidate is rejected as ad content', async () => {
@@ -155,5 +207,52 @@ describe('magnetContentValidation', () => {
 
     assert.deepStrictEqual(kept, [candidates[1]]);
     assert.deepStrictEqual(inspected, ['atom336-fhd-mp4', '[Thz]ATOM-336']);
+  });
+
+  it('keeps only verified candidates in all-magnet mode', async () => {
+    const candidates = [
+      {
+        magnetLink: 'magnet:?xt=urn:btih:AAA&dn=VERIFIED',
+        size: 4096,
+        displayName: 'VERIFIED'
+      },
+      {
+        magnetLink: 'magnet:?xt=urn:btih:BBB&dn=UNKNOWN',
+        size: 3072,
+        displayName: 'UNKNOWN'
+      },
+      {
+        magnetLink: 'magnet:?xt=urn:btih:CCC&dn=OUTSIDE-WINDOW',
+        size: 2048,
+        displayName: 'OUTSIDE-WINDOW'
+      }
+    ];
+
+    const kept = await filterMagnetCandidatesByContent({
+      title: 'HMN-005',
+      candidates,
+      enabled: true,
+      keepAll: true,
+      maxInspectCount: 2,
+      inspectCandidate: async (candidate) => {
+        if (candidate.displayName === 'VERIFIED') {
+          return {
+            candidate,
+            status: 'accepted',
+            reason: '',
+            summary: '主视频文件完整'
+          };
+        }
+
+        return {
+          candidate,
+          status: 'unverified',
+          reason: 'Timeout',
+          summary: '读取超时'
+        };
+      }
+    });
+
+    assert.deepStrictEqual(kept, [candidates[0]]);
   });
 });

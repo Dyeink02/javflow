@@ -43,6 +43,7 @@ const (
 // crawl parsing or organizer execution code.
 type Paths struct {
 	RootPath           string `json:"rootPath"`
+	ArtifactRootPath   string `json:"artifactRootPath"`
 	WaitingDir         string `json:"waitingDir"`
 	UnmatchedDir       string `json:"unmatchedDir"`
 	ToDeleteDir        string `json:"toDeleteDir"`
@@ -60,24 +61,41 @@ type Paths struct {
 }
 
 func (s *Service) ResolvePaths(rootPath string) Paths {
+	return s.ResolvePathsForInput(rootPath, "")
+}
+
+// ResolvePathsForInput keeps ALL media operations and the unified log folder
+// under rootPath. Logs/reports always live in `<rootPath>/logs` so the
+// "打开日志文件夹" buttons and the run-time writers resolve to the same
+// directory regardless of which crawl/snapshot input is selected. Only the
+// resume-state directory stays beside the selected crawl/snapshot input,
+// because discovered-codes state is tied to that input.
+func (s *Service) ResolvePathsForInput(rootPath string, artifactRootPath string) Paths {
 	normalizedRootPath := crawlartifact.NormalizeRootPath(rootPath)
+	normalizedArtifactRootPath := crawlartifact.NormalizeRootPath(artifactRootPath)
+	if normalizedArtifactRootPath == "" {
+		normalizedArtifactRootPath = normalizedRootPath
+	}
+	logsPath := filepath.Join(normalizedRootPath, logsDirName)
+	statePath := filepath.Join(normalizedArtifactRootPath, stateDirName)
 
 	return Paths{
 		RootPath:           normalizedRootPath,
+		ArtifactRootPath:   normalizedArtifactRootPath,
 		WaitingDir:         filepath.Join(normalizedRootPath, waitingDirName),
 		UnmatchedDir:       filepath.Join(normalizedRootPath, unmatchedDirName),
 		ToDeleteDir:        filepath.Join(normalizedRootPath, toDeleteDirName),
 		IntroAdDir:         filepath.Join(normalizedRootPath, introAdDirName),
-		LogsDir:            filepath.Join(normalizedRootPath, logsDirName),
-		StateDir:           filepath.Join(normalizedRootPath, stateDirName),
-		RenameMapPath:      filepath.Join(normalizedRootPath, renameMapName),
-		UnmatchedPath:      filepath.Join(normalizedRootPath, unmatchedName),
-		AdRiskCodesPath:    filepath.Join(normalizedRootPath, adRiskCodesName),
-		AdRiskDetailPath:   filepath.Join(normalizedRootPath, adRiskDetailName),
-		AdRiskMagnetsPath:  filepath.Join(normalizedRootPath, adRiskMagnetsName),
-		MissingMagnetsPath: filepath.Join(normalizedRootPath, missingMagnetsName),
-		RescueReportPath:   filepath.Join(normalizedRootPath, rescueReportName),
-		RenameHistoryPath:  filepath.Join(normalizedRootPath, stateDirName, renameHistoryName),
+		LogsDir:            logsPath,
+		StateDir:           statePath,
+		RenameMapPath:      filepath.Join(logsPath, renameMapName),
+		UnmatchedPath:      filepath.Join(logsPath, unmatchedName),
+		AdRiskCodesPath:    filepath.Join(logsPath, adRiskCodesName),
+		AdRiskDetailPath:   filepath.Join(logsPath, adRiskDetailName),
+		AdRiskMagnetsPath:  filepath.Join(logsPath, adRiskMagnetsName),
+		MissingMagnetsPath: filepath.Join(logsPath, missingMagnetsName),
+		RescueReportPath:   filepath.Join(logsPath, rescueReportName),
+		RenameHistoryPath:  filepath.Join(statePath, renameHistoryName),
 	}
 }
 
@@ -94,7 +112,9 @@ func (s *Service) ResolveTargetPath(rootPath string, kind string) string {
 		return paths.IntroAdDir
 	case "logs":
 		return paths.LogsDir
-	case "reports", "root", "":
+	case "reports":
+		return paths.LogsDir
+	case "root", "":
 		return paths.RootPath
 	default:
 		return paths.RootPath

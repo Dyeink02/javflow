@@ -17,7 +17,6 @@ import (
 	"javflow/internal/adlearning"
 	"javflow/internal/antiblock"
 	"javflow/internal/appupdate"
-	"javflow/internal/avsubscription"
 	"javflow/internal/avsubscriptionv2"
 	"javflow/internal/bridge"
 	"javflow/internal/crawlfetch"
@@ -39,7 +38,6 @@ import (
 	"javflow/internal/runtimecache"
 	"javflow/internal/settings"
 	"javflow/internal/sidecar"
-	"javflow/internal/subcrawl"
 	"javflow/internal/subcrawlv2"
 )
 
@@ -73,7 +71,6 @@ func NewApp(repoRoot string) *App {
 		Store:          store,
 	})
 	crawlFetchService := createCrawlFetchService(store)
-	avSubscriptionService := avsubscription.NewService(paths)
 	avSubscriptionV2Service := avsubscriptionv2.NewService(paths, crawlFetchService)
 	organizerService := organizer.NewService(paths)
 	// Actor lookup reuses the already-configured crawl fetch service only when
@@ -81,7 +78,6 @@ func NewApp(repoRoot string) *App {
 	// owned by crawlfetch/crawlrequest.
 	actressLookupService := actresslookup.NewServiceWithAliasCache(paths.UserData, crawlFetchService)
 	actressRankingService := actressranking.NewService()
-	subCrawlService := subcrawl.NewService(bus, paths, avSubscriptionService)
 	adLearningService := adlearning.NewService(paths)
 	antiBlockService := antiblock.NewService()
 	crawlQualityService := crawlquality.NewService()
@@ -115,7 +111,6 @@ func NewApp(repoRoot string) *App {
 		store,
 		appUpdateService,
 		paths,
-		avSubscriptionService,
 		dialogs,
 		manager,
 		bus,
@@ -135,7 +130,6 @@ func NewApp(repoRoot string) *App {
 		crawlTaskService,
 		crawlFetchService,
 		crawlRunnerService,
-		subCrawlService,
 		avSubscriptionV2Service,
 		subCrawlV2Service,
 		libraryMetadataService,
@@ -301,7 +295,6 @@ func buildBridgeDependencies(
 	store *settings.Store,
 	appUpdateService *appupdate.Service,
 	paths runtimepaths.Paths,
-	avSubscriptions *avsubscription.Service,
 	dialogs *desktop.Service,
 	manager *sidecar.Manager,
 	bus *events.Bus,
@@ -321,7 +314,6 @@ func buildBridgeDependencies(
 	crawlTaskService *crawltask.Service,
 	crawlFetchService *crawlfetch.Service,
 	crawlRunnerService *crawlrunner.Runner,
-	subCrawlService *subcrawl.Service,
 	avSubscriptionsV2 *avsubscriptionv2.Service,
 	subCrawlV2Service *subcrawlv2.Service,
 	libraryMetadataService *librarymetadata.Service,
@@ -329,7 +321,6 @@ func buildBridgeDependencies(
 	return bridge.Dependencies{
 		Store:             store,
 		AppUpdate:         appUpdateService,
-		AVSubscriptions:   avSubscriptions,
 		Dialogs:           dialogs,
 		Manager:           manager,
 		Bus:               bus,
@@ -350,7 +341,6 @@ func buildBridgeDependencies(
 		CrawlTask:         crawlTaskService,
 		CrawlFetch:        crawlFetchService,
 		CrawlRunner:       crawlRunnerService,
-		SubCrawl:          subCrawlService,
 		AVSubscriptionsV2: avSubscriptionsV2,
 		SubCrawlV2:        subCrawlV2Service,
 		LibraryMetadata:   libraryMetadataService,

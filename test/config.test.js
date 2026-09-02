@@ -1,5 +1,14 @@
 ﻿const assert = require('assert');
 
+describe('ConfigManager magnet-content validation default', () => {
+  it('keeps magnet content validation disabled unless explicitly enabled', () => {
+    const ConfigManager = require('../dist/core/config').default;
+    const manager = new ConfigManager();
+
+    assert.strictEqual(manager.getConfig().magnetContentValidation, false);
+  });
+});
+
 describe('ConfigManager proxy precedence', () => {
   it('keeps the detected system proxy when the manual proxy input is invalid', async () => {
     const systemProxyModule = require('../dist/utils/systemProxy');

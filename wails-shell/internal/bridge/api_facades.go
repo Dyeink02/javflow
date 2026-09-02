@@ -24,7 +24,6 @@ import (
 	"javflow/internal/adlearning"
 	"javflow/internal/antiblock"
 	"javflow/internal/appupdate"
-	"javflow/internal/avsubscription"
 	"javflow/internal/avsubscriptionv2"
 	"javflow/internal/crawlfetch"
 	"javflow/internal/crawlquality"
@@ -44,7 +43,6 @@ import (
 	"javflow/internal/runtimecache"
 	"javflow/internal/settings"
 	"javflow/internal/sidecar"
-	"javflow/internal/subcrawl"
 	"javflow/internal/subcrawlv2"
 )
 
@@ -67,12 +65,10 @@ type runtimeFacade struct {
 // These operations share target-shaping logic and are usually debugged as one
 // functional area.
 type lookupFacade struct {
-	avSubscriptions   *avsubscription.Service
 	avSubscriptionsV2 *avsubscriptionv2.Service
 	actressLookup     *actresslookup.Service
 	actressRanking    *actressranking.Service
 	antiBlock         *antiblock.Service
-	subCrawl          *subcrawl.Service
 	subCrawlV2        *subcrawlv2.Service
 }
 
@@ -115,7 +111,6 @@ type crawlFacade struct {
 type Dependencies struct {
 	Store             *settings.Store
 	AppUpdate         *appupdate.Service
-	AVSubscriptions   *avsubscription.Service
 	AVSubscriptionsV2 *avsubscriptionv2.Service
 	Dialogs           *desktop.Service
 	Manager           *sidecar.Manager
@@ -137,7 +132,6 @@ type Dependencies struct {
 	CrawlTask         *crawltask.Service
 	CrawlFetch        *crawlfetch.Service
 	CrawlRunner       *crawlrunner.Runner
-	SubCrawl          *subcrawl.Service
 	SubCrawlV2        *subcrawlv2.Service
 	LibraryMetadata   *librarymetadata.Service
 }
@@ -158,12 +152,10 @@ func (deps Dependencies) runtimeFacade() runtimeFacade {
 
 func (deps Dependencies) lookupFacade() lookupFacade {
 	return lookupFacade{
-		avSubscriptions:   deps.AVSubscriptions,
 		avSubscriptionsV2: deps.AVSubscriptionsV2,
 		actressLookup:     deps.ActressLookup,
 		actressRanking:    deps.ActressRanking,
 		antiBlock:         deps.AntiBlock,
-		subCrawl:          deps.SubCrawl,
 		subCrawlV2:        deps.SubCrawlV2,
 	}
 }

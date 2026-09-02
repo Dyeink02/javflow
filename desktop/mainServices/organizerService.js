@@ -130,6 +130,26 @@ function createOrganizerService({ fs, path }) {
     return MANAGED_TOP_DIRS.has(raw) || MANAGED_TOP_DIRS_LOWER.has(raw.toLowerCase());
   }
 
+  function isOperationalLogPath(targetPath) {
+    const normalized = normalizeRootPath(targetPath);
+    if (!normalized) {
+      return false;
+    }
+    const normalizedLower = normalized.replace(/\\/g, '/').toLowerCase();
+    // path.extname('run.log.txt') is '.txt'; suffix checks cover both
+    // ordinary logs and the compatibility task-log double extension.
+    if (normalizedLower.endsWith('.log') || normalizedLower.endsWith('.log.txt')) {
+      return true;
+    }
+    const baseName = path.basename(normalized).toLowerCase();
+    if (baseName.includes('日志') || baseName.includes('运行日志') || baseName.includes('debug-log')) {
+      return true;
+    }
+    return normalized
+      .split(path.sep)
+      .some((part) => ['log', 'logs', '日志', '运行日志', '运行日志文件'].includes(String(part || '').trim().toLowerCase()));
+  }
+
   function toSafeInteger(value, fallback, minimum = 0) {
     const parsed = Number.parseInt(String(value ?? '').trim(), 10);
     if (!Number.isFinite(parsed)) {
@@ -848,6 +868,8 @@ function createOrganizerService({ fs, path }) {
       return 0;
     }
 
+    const logsDir = path.join(rootPath, 'logs');
+    await ensureDirectory(logsDir);
     let removedCount = 0;
     for (const fileName of LEGACY_REPORT_FILE_NAMES) {
       const legacyPath = path.join(rootPath, fileName);
@@ -856,9 +878,15 @@ function createOrganizerService({ fs, path }) {
         continue;
       }
 
-      await fs.promises.rm(legacyPath, { force: true }).catch(() => {});
+      // Historical reports are still user-visible logs. Archive them under
+      // logs instead of deleting them during organizer startup.
+      const archivedPath = await moveWithUnique(legacyPath, path.join(logsDir, fileName)).catch(() => '');
+      if (!archivedPath) {
+        emitLog(onLog, 'warn', `历史报告归档失败，已保留原文件：${legacyPath}`);
+        continue;
+      }
       removedCount += 1;
-      emitLog(onLog, 'info', `Removed legacy report: ${legacyPath}`);
+      emitLog(onLog, 'info', `历史报告已归档到日志目录：${archivedPath}`);
     }
 
     return removedCount;
@@ -925,6 +953,9 @@ function createOrganizerService({ fs, path }) {
       for (const entry of entries) {
         const entryPath = path.join(currentPath, entry.name);
         if (entry.isFile()) {
+          if (isOperationalLogPath(entryPath)) {
+            continue;
+          }
           const relativePath = path.relative(rootPath, entryPath);
           files.push({
             path: entryPath,
@@ -1111,6 +1142,16 @@ function createOrganizerService({ fs, path }) {
         continue;
       }
 
+      // A leftover directory may contain user files or logs that were not
+      // classified in this run. Only empty directories are safe to remove in
+      // the compatibility cleanup pass; recursive deletion belongs exclusively
+      // to the already-validated pending-delete path in renamePhase.js.
+      const remainingEntries = await fs.promises.readdir(sourceDir, { withFileTypes: true }).catch(() => null);
+      if (!Array.isArray(remainingEntries) || remainingEntries.length > 0) {
+        emitLog(options.onLog, 'info', `残留目录含未确认内容，已保留：${sourceDir}`);
+        continue;
+      }
+
       const removed = await removeDirectoryWithRetry(sourceDir, { maxAttempts: 5 });
       if (removed) {
         removedDirs += 1;
@@ -1133,6 +1174,12 @@ function createOrganizerService({ fs, path }) {
         );
         if (hasProtectedSource) {
           emitLog(options.onLog, 'warn', `根目录二次清理已跳过：${sourceDir}（存在移动失败的视频）`);
+          continue;
+        }
+
+        const remainingEntries = await fs.promises.readdir(sourceDir, { withFileTypes: true }).catch(() => null);
+        if (!Array.isArray(remainingEntries) || remainingEntries.length > 0) {
+          emitLog(options.onLog, 'info', `根目录二次清理已保留含未确认内容的目录：${sourceDir}`);
           continue;
         }
 
@@ -1160,7 +1207,7 @@ function createOrganizerService({ fs, path }) {
       const shouldRenameByFilmCode = Boolean(item && item.renameByFilmCode && item.filmCode);
       if (!shouldRenameByFilmCode) {
         const originalName = path.basename(String((item && item.src) || '').trim());
-        outputNames[index] = originalName || `UNNAMED_${index + 1}`;
+        outputNames[index] = sanitizeOutputFileName(originalName, `UNNAMED_${index + 1}`);
         return;
       }
 
@@ -1184,13 +1231,30 @@ function createOrganizerService({ fs, path }) {
 
       const useSuffix = indexes.length > 1;
       indexes.forEach((candidateIndex, sequence) => {
-        const extension = path.extname(candidates[candidateIndex].src).toLowerCase();
+        const rawExtension = path.extname(path.basename(String(candidates[candidateIndex].src || ''))).toLowerCase();
+        const extension = /^\.[a-z0-9]{1,8}$/.test(rawExtension) ? rawExtension : '';
         const suffix = useSuffix ? formatSuffix(strategy, sequence) : '';
-        outputNames[candidateIndex] = `${filmCode}${suffix}${extension}`;
+        outputNames[candidateIndex] = sanitizeOutputFileName(
+          `${filmCode}${suffix}${extension}`,
+          `UNNAMED_${candidateIndex + 1}${extension}`
+        );
       });
     });
 
     return outputNames;
+  }
+
+  function sanitizeOutputFileName(value, fallback) {
+    let name = path.basename(String(value || '').trim());
+    name = name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '');
+    if (!name || name === '.' || name === '..') {
+      name = String(fallback || '').trim() || 'UNNAMED';
+    }
+    const stem = name.replace(/\.[^.]*$/, '').toUpperCase();
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(stem)) {
+      name = `_${name}`;
+    }
+    return name;
   }
 
   function formatBytesToGB(bytes) {
@@ -1752,6 +1816,7 @@ function createOrganizerService({ fs, path }) {
       path,
       dryRun,
       adFileAction,
+      batchDelete: Boolean(options.batchDelete),
       paths,
       candidates: phaseJudgeResult.candidates,
       pendingDelete: phaseJudgeResult.pendingDelete,

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"javflow/internal/crawlidentity"
 )
 
 // magnet.go owns magnet-link extraction, normalization, and ranking from raw
@@ -33,6 +35,12 @@ var (
 	magnetLinkPattern = regexp.MustCompile(`(?i)magnet:\?[^"'\s<>]*xt=urn:btih:[A-F0-9]+(?:&[^"'\s<>]*)*`)
 	sizeTokenPattern  = regexp.MustCompile(`(?i)\d+(\.\d+)?[GM]B`)
 	magnetDNPattern   = regexp.MustCompile(`(?i)[?&]dn=([^&]+)`)
+	// A collection magnet often puts several independent JAV codes in its
+	// display name (for example "BF-271,BF-272,...,SNIS-009"). Keep this
+	// detector deliberately local to magnet policy so ordinary film identity
+	// parsing is not broadened just to handle a bad candidate.
+	filmCodeTokenPattern    = regexp.MustCompile(`(?i)\b[A-Z]{2,12}-?\d{1,8}[A-Z]*\b`)
+	collectionMarkerPattern = regexp.MustCompile(`(?i)(?:合集|大合集|全集|全套|全系列|collection|complete\s*(?:series|collection)|best\s*of|box\s*set|pack)`)
 )
 
 type ParsedMagnetCandidate struct {
@@ -105,11 +113,14 @@ func GetMagnetDisplayName(magnetLink string) string {
 
 func ApplyMagnetExcludeFilter(candidates []ParsedMagnetCandidate, rawKeywords string) []ParsedMagnetCandidate {
 	keywords := GetMagnetExcludeKeywords(rawKeywords)
-	if len(keywords) == 0 || len(candidates) == 0 {
+	if len(candidates) == 0 {
 		return candidates
 	}
 	result := make([]ParsedMagnetCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
+		if IsCollectionMagnetCandidate(candidate) {
+			continue
+		}
 		displayName := strings.ToLower(candidate.DisplayName)
 		magnetText := strings.ToLower(candidate.MagnetLink)
 		matched := false
@@ -124,6 +135,34 @@ func ApplyMagnetExcludeFilter(candidates []ParsedMagnetCandidate, rawKeywords st
 		}
 	}
 	return result
+}
+
+// IsCollectionMagnetCandidate identifies aggregate/box-set magnets that must
+// never win the normal "largest magnet" selection for one film. A candidate
+// is considered aggregate when its display name contains two or more distinct
+// film codes, or an explicit collection marker. This is intentionally
+// independent of the user's keyword list because a single bad aggregate can
+// otherwise poison an otherwise valid crawl.
+func IsCollectionMagnetCandidate(candidate ParsedMagnetCandidate) bool {
+	name := strings.TrimSpace(candidate.DisplayName)
+	if name == "" {
+		name = GetMagnetDisplayName(candidate.MagnetLink)
+	}
+	if name == "" {
+		return false
+	}
+	if collectionMarkerPattern.MatchString(name) {
+		return true
+	}
+
+	seen := map[string]struct{}{}
+	for _, rawCode := range filmCodeTokenPattern.FindAllString(name, -1) {
+		code := crawlidentity.NormalizeFilmID(rawCode)
+		if code != "" {
+			seen[code] = struct{}{}
+		}
+	}
+	return len(seen) >= 2
 }
 
 func ExtractMagnetLinks(responseBody string) []string {
