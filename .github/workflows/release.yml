@@ -64,69 +64,15 @@ jobs:
         shell: pwsh
         run: choco install nsis --no-progress --yes
 
-      - name: Prepare portable package
+      - name: Prepare portable and installer packages
         shell: pwsh
         run: |
-          # Use git tag version (strips 'v' prefix) for artifact naming
           $version = '${{ github.ref_name }}' -replace '^v', ''
-          $staging = "release-staging\JavFlow-Portable-$version"
-          New-Item -ItemType Directory -Force -Path $staging | Out-Null
-
-          # Copy EXE
           $exeSource = "wails-shell\build\bin\javflow.exe"
           if (-not (Test-Path $exeSource)) {
             Write-Error "EXE not found at $exeSource"
             exit 1
           }
-          Copy-Item $exeSource "$staging\javflow.exe"
-
-          # The Wails renderer is embedded in the EXE. The files below are
-          # still required by the retained Node compatibility lane, including
-          # the Cloudflare/age-verification path. Keep them in the portable
-          # package so an in-place ZIP update does not produce a partial app.
-          Copy-Item -Recurse "desktop" "$staging\desktop"
-          Copy-Item -Recurse "dist" "$staging\dist"
-          Copy-Item "package.json" "$staging\package.json"
-          Copy-Item "package-lock.json" "$staging\package-lock.json"
-
-          $nodePath = (Get-Command node -ErrorAction Stop).Source
-          New-Item -ItemType Directory -Force -Path "$staging\runtime\node" | Out-Null
-          Copy-Item $nodePath "$staging\runtime\node\node.exe"
-
-          Push-Location $staging
-          try {
-            npm ci --omit=dev --ignore-scripts
-            if ($LASTEXITCODE -ne 0) {
-              throw "无法为便携包安装生产依赖，退出码：$LASTEXITCODE"
-            }
-          } finally {
-            Pop-Location
-          }
-
-          # Create ZIP
-          $zipName = "JavFlow-Portable-$version.zip"
-          Compress-Archive -Path "$staging\*" -DestinationPath "release-staging\$zipName"
-
-          # Generate SHA-256
-          $hash = (Get-FileHash "release-staging\$zipName" -Algorithm SHA256).Hash
-          "$hash  $zipName" | Out-File -Encoding ascii "release-staging\$zipName.sha256"
-
-          # Also publish the standalone EXE as a lightweight fallback asset.
-          # The updater prefers the portable ZIP; the EXE keeps the direct
-          # executable update path working when only the binary changed.
-          Copy-Item $exeSource "release-staging\javflow.exe"
-          $exeHash = (Get-FileHash "release-staging\javflow.exe" -Algorithm SHA256).Hash
-          "$exeHash  javflow.exe" | Out-File -Encoding ascii "release-staging\javflow.exe.sha256"
-
-          Write-Output "EXE path: $exeSource"
-          Write-Output "ZIP: release-staging\$zipName"
-          Write-Output "SHA256: $hash"
-
-      - name: Prepare installer package
-        shell: pwsh
-        run: |
-          $version = '${{ github.ref_name }}' -replace '^v', ''
-          $exeSource = "wails-shell\build\bin\javflow.exe"
           $releaseExe = "wails-shell\release\javflow.exe"
           New-Item -ItemType Directory -Force -Path "wails-shell\release" | Out-Null
           Copy-Item $exeSource $releaseExe -Force
@@ -134,30 +80,37 @@ jobs:
           $env:JAVFLOW_BUILD_VERSION = $version
           node scripts/build-wails-dual-packages.js
 
+          $packageDirectory = "wails-shell\release\packages"
+          $portableName = "JavFlow-Portable-$version.exe"
+          $portableSource = "$packageDirectory\JavFlow-Lite-Direct-$version.exe"
           $installerName = "JavFlow-Installer-$version.exe"
-          $installerSource = "wails-shell\release\packages\$installerName"
-          if (-not (Test-Path $installerSource)) {
-            Write-Error "Installer not found at $installerSource"
-            exit 1
+          $installerSource = "$packageDirectory\$installerName"
+          foreach ($artifactPath in @($portableSource, $installerSource)) {
+            if (-not (Test-Path $artifactPath)) {
+              Write-Error "Release artifact not found at $artifactPath"
+              exit 1
+            }
           }
 
+          New-Item -ItemType Directory -Force -Path "release-staging" | Out-Null
+          Copy-Item $portableSource "release-staging\$portableName"
           Copy-Item $installerSource "release-staging\$installerName"
-          $installerHash = (Get-FileHash "release-staging\$installerName" -Algorithm SHA256).Hash
-          "$installerHash  $installerName" | Out-File -Encoding ascii "release-staging\$installerName.sha256"
 
+          # Keep this exact file name for pre-0.4.41 clients that select
+          # javflow.exe when applying their legacy online update.
+          Copy-Item $exeSource "release-staging\javflow.exe"
+
+          Write-Output "Portable: release-staging\$portableName"
           Write-Output "Installer: release-staging\$installerName"
-          Write-Output "SHA256: $installerHash"
+          Write-Output "Legacy update asset: release-staging\javflow.exe"
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda  # v2.2.1
         with:
           files: |
-            release-staging/*.zip
-            release-staging/*.zip.sha256
+            release-staging/JavFlow-Portable-*.exe
             release-staging/JavFlow-Installer-*.exe
-            release-staging/JavFlow-Installer-*.exe.sha256
             release-staging/javflow.exe
-            release-staging/javflow.exe.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
