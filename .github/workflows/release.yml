@@ -60,6 +60,10 @@ jobs:
           $env:JAVFLOW_BUILD_VERSION = $version
           node scripts/patch-exe-metadata.mjs
 
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress --yes
+
       - name: Prepare portable package
         shell: pwsh
         run: |
@@ -118,12 +122,40 @@ jobs:
           Write-Output "ZIP: release-staging\$zipName"
           Write-Output "SHA256: $hash"
 
+      - name: Prepare installer package
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          $exeSource = "wails-shell\build\bin\javflow.exe"
+          $releaseExe = "wails-shell\release\javflow.exe"
+          New-Item -ItemType Directory -Force -Path "wails-shell\release" | Out-Null
+          Copy-Item $exeSource $releaseExe -Force
+
+          $env:JAVFLOW_BUILD_VERSION = $version
+          node scripts/build-wails-dual-packages.js
+
+          $installerName = "JavFlow-Installer-$version.exe"
+          $installerSource = "wails-shell\release\packages\$installerName"
+          if (-not (Test-Path $installerSource)) {
+            Write-Error "Installer not found at $installerSource"
+            exit 1
+          }
+
+          Copy-Item $installerSource "release-staging\$installerName"
+          $installerHash = (Get-FileHash "release-staging\$installerName" -Algorithm SHA256).Hash
+          "$installerHash  $installerName" | Out-File -Encoding ascii "release-staging\$installerName.sha256"
+
+          Write-Output "Installer: release-staging\$installerName"
+          Write-Output "SHA256: $installerHash"
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda  # v2.2.1
         with:
           files: |
             release-staging/*.zip
             release-staging/*.zip.sha256
+            release-staging/JavFlow-Installer-*.exe
+            release-staging/JavFlow-Installer-*.exe.sha256
             release-staging/javflow.exe
             release-staging/javflow.exe.sha256
           generate_release_notes: true
