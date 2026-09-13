@@ -1,6 +1,15 @@
 // Package actressranking serves normalized actress ranking data from online and
 // local sources.
 //
+// Ownership summary:
+//   1) hold the compressed, verified annual-ranking snapshots (2021-2025)
+//   2) decode the snapshot defensively without changing cache precedence
+//   3) merge each verified year into its own standard cache bucket
+//
+// File map for maintainers:
+//   1) compressed annual snapshot payload
+//   2) bucket-preserving merge into the first-run cache
+//
 // bundledAnnualHistoryBase64 is a gzip-compressed snapshot of the verified
 // annual actress rankings: official FANZA rental 2024/2025 (100 rows each)
 // and the AVfan historical lane 2021/2022/2023 (90 rows each, the source's

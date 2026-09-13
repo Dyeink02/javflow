@@ -26,7 +26,7 @@
   const FALLBACK_SHARED_TEXT = {
     APP_INFO: {
       title: 'JavFlow',
-      version: '0.4.41',
+      version: '0.4.42',
       subtitle: '基于开源项目：raawaa',
       eyebrow: 'Windows EXE',
       defaultBaseUrl: 'https://www.javbus.com'
@@ -120,7 +120,7 @@
     { version: '0.4.31', summary: '演员搜索、订阅与视频整理工作流优化' },
     { version: '0.4.32', summary: '代理配置提示优化与媒体库刮削稳定性修正' },
     { version: '0.4.40', summary: '流程减负、演员图鉴榜单与订阅稳定性提升' },
-    { version: '0.4.41', summary: '安装与升级体系重构，日志保护与清理性能优化' }
+    { version: '0.4.42', summary: '安装与升级体系重构，日志保护与清理性能优化' }
   ],
     UI_TEXT_SOURCE: {
       hero: {
@@ -488,7 +488,7 @@
   const UI_TEXT = deepMerge(
     {
       appTitle: appInfo.title || 'JAV自动化整理归纳视频软件',
-      version: appInfo.version || '0.4.41',
+      version: appInfo.version || '0.4.42',
       source: {
         href: appInfo.sourceUrl || 'https://www.javbus.com/star/okq',
         name: appInfo.sourceName || '三上悠亜'
