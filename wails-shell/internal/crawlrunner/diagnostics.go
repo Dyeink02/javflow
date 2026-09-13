@@ -141,8 +141,8 @@ func (r *Runner) restorePersistedOutputState() {
 		}
 	}
 
-	if len(records) > r.filmCount {
-		r.filmCount = len(records)
+	if count := int64(len(records)); count > r.filmCount.Load() {
+		r.filmCount.Store(count)
 	}
 }
 
@@ -424,7 +424,7 @@ func (r *Runner) expectedReviewTotal() int {
 	}
 
 	recon := r.tracker.BuildReconciliation()
-	return common.MaxInt(recon.ExpectedEntryCount, common.MaxInt(r.filmsQueued, r.filmCount))
+	return common.MaxInt(recon.ExpectedEntryCount, common.MaxInt(int(r.filmsQueued.Load()), int(r.filmCount.Load())))
 }
 
 func normalizePageDuplicateIDs(items []string) []string {
@@ -645,28 +645,50 @@ func (r *Runner) stateDetails(status RunnerStatus) map[string]any {
 	// frontend state controller. They are the structured replacement for the old
 	// JS-side "read logs and guess state" flow.
 	return map[string]any{
-		"duplicateItems":       duplicateItems,
-		"duplicateItemsTotal":  len(duplicateItems),
-		"duplicateCount":       breakdown.Duplicates,
-		"unfinishedItems":      unfinishedItems,
-		"unfinishedItemsTotal": len(unfinishedItems),
-		"missingItems":         unfinishedItems,
-		"missingItemsTotal":    len(unfinishedItems),
-		"pageGapItems":         pageGapItems,
-		"pageGapItemsTotal":    len(pageGapItems),
-		"filteredItems":        filteredItems,
-		"filteredItemsTotal":   len(filteredItems),
-		"filteredItemIds":      filteredItems,
-		"filteredCount":        breakdown.Filtered,
-		"completedItems":       completedItems,
-		"completedItemsTotal":  completedCount,
-		"completedItemIds":     completedItems,
-		"failedDetails":        cloneFailedDetails(failedDetails),
-		"failedDetailsTotal":   failedDetailsTotal,
-		"failedCount":          breakdown.Failed,
-		"totalItems":           breakdown.Total,
-		"completedCount":       completedCount,
+		"duplicateItems":                duplicateItems,
+		"duplicateItemsTotal":           len(duplicateItems),
+		"duplicateCount":                breakdown.Duplicates,
+		"unfinishedItems":               unfinishedItems,
+		"unfinishedItemsTotal":          len(unfinishedItems),
+		"missingItems":                  unfinishedItems,
+		"missingItemsTotal":             len(unfinishedItems),
+		"pageGapItems":                  pageGapItems,
+		"pageGapItemsTotal":             len(pageGapItems),
+		"filteredItems":                 filteredItems,
+		"filteredItemsTotal":            len(filteredItems),
+		"filteredItemIds":               filteredItems,
+		"filteredByFilmCodeItemIds":     r.filteredFilmCodeItems(),
+		"filteredByActressCountItemIds": r.filteredActressItems(),
+		"filteredByReleaseDateCodes":    r.releaseDateFilteredCodes(),
+		"filteredCount":                 breakdown.Filtered,
+		"completedItems":                completedItems,
+		"completedItemsTotal":           completedCount,
+		"completedItemIds":              completedItems,
+		"failedDetails":                 cloneFailedDetails(failedDetails),
+		"failedDetailsTotal":            failedDetailsTotal,
+		"failedCount":                   breakdown.Failed,
+		"totalItems":                    breakdown.Total,
+		"completedCount":                completedCount,
 	}
+}
+
+// configFilteredIDSet returns the union of operator-config filtered item IDs
+// (film-code / actress-count) plus writer-level release-date filtered codes.
+// Shared by the validation report and the final state so both use one
+// "intentional exclusion" definition.
+func (r *Runner) configFilteredIDSet() map[string]struct{} {
+	filteredSet := make(map[string]struct{})
+	for _, id := range r.filteredItems() {
+		filteredSet[strings.ToUpper(id)] = struct{}{}
+	}
+	if r.writer != nil {
+		for _, entry := range r.writer.FilteredFilmCodeEntries() {
+			if strings.Contains(entry.Reason, "releaseDate") {
+				filteredSet[strings.ToUpper(entry.Code)] = struct{}{}
+			}
+		}
+	}
+	return filteredSet
 }
 
 func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport, error) {
@@ -708,6 +730,21 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 	}
 
 	recon := r.tracker.BuildReconciliation()
+	filteredSet := r.configFilteredIDSet()
+	expectedNotPersisted := excludeItemIDs(recon.ExpectedButNotPersistedIDs, filteredSet)
+	expectedNotQueued := excludeItemIDs(recon.ExpectedButNotQueuedIDs, filteredSet)
+	failedDetails, _ := r.reviewFailedDetails(true)
+	failedIDSet := make(map[string]struct{})
+	for _, detail := range failedDetails {
+		if detail.Item == "" {
+			continue
+		}
+		if _, ok := filteredSet[strings.ToUpper(detail.Item)]; ok {
+			continue
+		}
+		failedIDSet[detail.Item] = struct{}{}
+	}
+	failedDetailsTotal := len(failedIDSet)
 	lowConfidencePages := make([]int, 0)
 	for _, audit := range r.pageAudits {
 		if audit.ConfidenceScore < 60 {
@@ -715,11 +752,10 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 		}
 	}
 
-	_, failedDetailsTotal := r.reviewFailedDetails(true)
 	passed := duplicateCount == 0 &&
 		invalidRecordCount == 0 &&
-		len(recon.ExpectedButNotPersistedIDs) == 0 &&
-		len(recon.ExpectedButNotQueuedIDs) == 0 &&
+		len(expectedNotPersisted) == 0 &&
+		len(expectedNotQueued) == 0 &&
 		len(recon.ProcessedButNotPersistedIDs) == 0 &&
 		len(lowConfidencePages) == 0 &&
 		failedDetailsTotal == 0
@@ -730,8 +766,8 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 			"结果二次校验失败：重复 %d 条，异常 %d 条，缺失 %d 条，入队缺口 %d 条，已处理未落盘 %d 条，低可信分页 %d 页，失败详情 %d 条。",
 			duplicateCount,
 			invalidRecordCount,
-			len(recon.ExpectedButNotPersistedIDs),
-			len(recon.ExpectedButNotQueuedIDs),
+			len(expectedNotPersisted),
+			len(expectedNotQueued),
 			len(recon.ProcessedButNotPersistedIDs),
 			len(lowConfidencePages),
 			failedDetailsTotal,
@@ -746,13 +782,13 @@ func (r *Runner) buildValidationReport() (*crawltaskstate.ResultValidationReport
 		InvalidRecordCount:            invalidRecordCount,
 		ExpectedItemCount:             len(recon.ExpectedIDs),
 		PersistedItemCount:            len(recon.PersistedIDs),
-		MissingFromQueueCount:         len(recon.ExpectedButNotPersistedIDs),
-		ExpectedButNotQueuedCount:     len(recon.ExpectedButNotQueuedIDs),
+		MissingFromQueueCount:         len(expectedNotPersisted),
+		ExpectedButNotQueuedCount:     len(expectedNotQueued),
 		ProcessedButNotPersistedCount: len(recon.ProcessedButNotPersistedIDs),
 		UniqueMagnetCount:             len(uniqueMagnets),
 		LowConfidencePageCount:        len(lowConfidencePages),
-		MissingItems:                  append([]string(nil), recon.ExpectedButNotPersistedIDs...),
-		ExpectedButNotQueuedItems:     append([]string(nil), recon.ExpectedButNotQueuedIDs...),
+		MissingItems:                  expectedNotPersisted,
+		ExpectedButNotQueuedItems:     expectedNotQueued,
 		ProcessedButNotPersistedItems: append([]string(nil), recon.ProcessedButNotPersistedIDs...),
 		LowConfidencePages:            append([]int(nil), lowConfidencePages...),
 		Passed:                        passed,

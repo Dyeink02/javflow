@@ -117,3 +117,4 @@ secrets*.json
 # ---- User-confirmed exclusions ----
 /demo-variants/
 /pending-fixes.md
+/wails-shell/tmp/

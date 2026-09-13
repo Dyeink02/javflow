@@ -36,8 +36,8 @@ type DetailRecoveryMessages struct {
 }
 
 type PageLockRetryTracker struct {
-	LastSampleCount int
-	HasLastSample   bool
+	LastSampleCount  int
+	HasLastSample    bool
 	StagnantAttempts int
 }
 

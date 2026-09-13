@@ -37,11 +37,12 @@
   function collectActressAtlasElements(scope) {
     return {
       atlasSearch: scope.getElementById('atlas-search'), atlasSearchButton: scope.getElementById('atlas-search-button'),
-      atlasProxy: scope.getElementById('atlas-proxy'), atlasProxySave: scope.getElementById('atlas-proxy-save'), atlasProxyStatus: scope.getElementById('atlas-proxy-status'), atlasProxyStatusDetail: scope.getElementById('atlas-proxy-status-detail'), atlasProxyIndicator: scope.getElementById('atlas-proxy-indicator'),
+      atlasProxy: scope.getElementById('atlas-proxy'), atlasProxySave: scope.getElementById('atlas-proxy-save'), atlasProxyStatus: scope.getElementById('atlas-proxy-status'), atlasProxyStatusDetail: scope.getElementById('atlas-proxy-status-detail'), atlasProxyIndicator: scope.getElementById('atlas-proxy-indicator'), atlasNodeStatus: scope.getElementById('atlas-node-status'),
       atlasSearchSummary: scope.getElementById('atlas-search-summary'), atlasSource: scope.getElementById('atlas-source'),
       atlasModeMonthlyButton: scope.getElementById('atlas-mode-monthly'), atlasModeAnnualButton: scope.getElementById('atlas-mode-annual'),
       atlasYear: scope.getElementById('atlas-year'), atlasMonth: scope.getElementById('atlas-month'),
       atlasMonthField: scope.getElementById('atlas-month-field'), atlasRefresh: scope.getElementById('atlas-refresh'),
+      atlasHistorySave: scope.getElementById('atlas-history-save'), atlasHistoryBackfill: scope.getElementById('atlas-history-backfill'),
       atlasRankingTotal: scope.getElementById('atlas-ranking-total'), atlasRankingNotice: scope.getElementById('atlas-ranking-notice'),
       atlasRankingList: scope.getElementById('atlas-ranking-list'), atlasRankingFooter: scope.getElementById('atlas-ranking-footer'),
         atlasDetailEmpty: scope.getElementById('atlas-detail-empty'), atlasDetail: scope.getElementById('atlas-detail'), atlasActivityLogPanel: scope.getElementById('atlas-activity-log-panel'),
@@ -112,6 +113,9 @@
       filteredBox: scope.getElementById('filtered-box'),
       filteredItemsView: scope.getElementById('filtered-items'),
       filteredTotalView: scope.getElementById('filtered-total'),
+      actressFilteredBox: scope.getElementById('actress-filtered-box'),
+      actressFilteredItemsView: scope.getElementById('actress-filtered-items'),
+      actressFilteredTotalView: scope.getElementById('actress-filtered-total'),
       completedBox: scope.getElementById('completed-box'),
       completedItemsView: scope.getElementById('completed-items'),
       completedTotalView: scope.getElementById('completed-total'),

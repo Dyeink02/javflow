@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -259,5 +260,37 @@ func TestInspectTargetFallsBackToResolveByName(t *testing.T) {
 
 	if profile.ResolvedBase != server.URL+"/star/okq" {
 		t.Fatalf("expected resolved URL from search result, got %s", profile.ResolvedBase)
+	}
+}
+
+func TestResolveTargetCanSkipCollidingAliasForExplicitSelection(t *testing.T) {
+	userData := t.TempDir()
+	if err := os.WriteFile(userData+"/actress-aliases.user.json", []byte(`[{"canonical":"另一位演员","aliases":["森沢かな"],"source":"test","confidence":"test"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/searchstar/森沢かな":
+			_, _ = writer.Write([]byte(`<html><body><a class="avatar-box" href="/star/morisawa"><img title="森沢かな" /></a></body></html>`))
+		case "/star/morisawa":
+			_, _ = writer.Write([]byte(buildStarPageHTML("森沢かな", 18, 42, 18)))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	service := NewServiceWithAliasCache(userData)
+	profile, err := service.ResolveTarget(ResolveOptions{
+		ActressName:   "森沢かな",
+		PreferredBase: server.URL,
+		FallbackBases: []string{server.URL},
+		SkipAliasResolution: true,
+	})
+	if err != nil {
+		t.Fatalf("explicit selection should ignore colliding alias: %v", err)
+	}
+	if profile.ResolvedBase != server.URL+"/star/morisawa" || profile.ResolvedActressName != "森沢かな" {
+		t.Fatalf("unexpected fallback profile: %+v", profile)
 	}
 }

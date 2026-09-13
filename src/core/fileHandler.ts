@@ -41,8 +41,17 @@ class FileHandler {
   private readonly flushDelayMs = 1200;
   private actressCountFilterThreshold = 0;
   private filmCodeFilterThreshold = '';
+  private minReleaseDate = '';
+  private magnetOutputCount = 0;
 
-  constructor(outputDir: string, options: { actressCountFilterThreshold?: number; filmCodeFilterThreshold?: string } = {}) {
+  constructor(
+    outputDir: string,
+    options: {
+      actressCountFilterThreshold?: number;
+      filmCodeFilterThreshold?: string;
+      minReleaseDate?: string;
+    } = {}
+  ) {
     if (typeof outputDir !== 'string' || outputDir.trim() === '') {
       throw new Error(`Invalid output directory provided: "${outputDir}".`);
     }
@@ -55,11 +64,17 @@ class FileHandler {
         : 0
     );
     this.filmCodeFilterThreshold = this.normalizeFilmCodeFilterThreshold(options.filmCodeFilterThreshold);
+    this.minReleaseDate = String(options.minReleaseDate || '').trim();
     this.jsonFilename = 'filmData.json';
     this.magnetFilename = 'magnet-links.txt';
     this.unfinishedFilename = UNFINISHED_REPORT_FILENAME;
     this.backupDir = this.resolveBackupDir(outputDir);
     void this.ensureOutputDirExists();
+  }
+
+  /** Actual magnet-links.txt line count from the latest flush. */
+  getMagnetOutputCount() {
+    return this.magnetOutputCount;
   }
 
   private async ensureOutputDirExists(): Promise<void> {
@@ -287,7 +302,7 @@ class FileHandler {
     const uniqueMagnets = Array.from(
       new Set(
         data
-          .filter((film) => !film.filteredByActressCount && !film.filteredByFilmCode)
+          .filter((film) => !film.filteredByActressCount && !film.filteredByFilmCode && !film.filteredByReleaseDate)
           .flatMap((film) =>
             (film.magnetLinks || [])
               .map((magnet) => magnet.link?.trim())
@@ -298,6 +313,7 @@ class FileHandler {
 
     this.createLatestBackup(magnetPath);
     fs.writeFileSync(magnetPath, uniqueMagnets.join('\n'), 'utf8');
+    this.magnetOutputCount = uniqueMagnets.length;
     if (!hadExistingFile) {
       this.createLatestBackup(magnetPath);
     }
@@ -484,14 +500,18 @@ class FileHandler {
     const filteredByActressCount =
       this.actressCountFilterThreshold > 0 && actressCount > this.actressCountFilterThreshold;
     const filteredByFilmCode = this.isFilmCodeFiltered(data.title);
+    const releaseDate = data.releaseDate?.trim() || undefined;
+    const filteredByReleaseDate = this.isReleaseDateFiltered(releaseDate);
 
-    let filterReason: string | undefined;
-    if (filteredByActressCount && filteredByFilmCode) {
-      filterReason = 'actress-count,film-code';
-    } else if (filteredByActressCount) {
-      filterReason = 'actress-count';
-    } else if (filteredByFilmCode) {
-      filterReason = 'film-code';
+    const reasons: string[] = [];
+    if (filteredByActressCount) {
+      reasons.push('actress-count');
+    }
+    if (filteredByFilmCode) {
+      reasons.push('film-code');
+    }
+    if (filteredByReleaseDate) {
+      reasons.push('release-date');
     }
 
     return {
@@ -500,18 +520,35 @@ class FileHandler {
       coverImage: data.coverImage?.trim() || undefined,
       category: this.mergeUniqueText(data.category || [], []),
       actress,
+      releaseDate,
       actressCount,
       filteredByActressCount,
       filteredByFilmCode,
-      filterReason,
+      filteredByReleaseDate,
+      filterReason: reasons.length > 0 ? reasons.join(',') : undefined,
       magnetLinks: this.mergeMagnetLinks(data.magnetLinks || [], []),
       backupMagnetLinks: this.mergeMagnetLinks(data.backupMagnetLinks || data.magnetLinks || [], [])
     };
   }
 
+  // 发行日期过滤：记录日期早于配置的最低日期时排除（只影响磁力输出，
+  // 记录本身保留在 filmData.json 供审计）。两侧都归一成纯数字后按字典序比较。
+  private isReleaseDateFiltered(releaseDate: unknown): boolean {
+    if (!this.minReleaseDate) {
+      return false;
+    }
+    const recordDigits = String(releaseDate || '').replace(/\D+/g, '');
+    const minDigits = this.minReleaseDate.replace(/\D+/g, '');
+    if (!recordDigits || !minDigits) {
+      return false;
+    }
+    return recordDigits.padEnd(8, '0') < minDigits.padEnd(8, '0');
+  }
+
   private normalizeFilmCodeFilterThreshold(value: unknown): string {
+    // 兼容英文逗号、中文逗号、顿号、中英分号与空白分隔，与整理板块的番号过滤口径一致。
     return String(value || '')
-      .split(',')
+      .split(/[,，、;；\s]+/)
       .map((part) => part.trim())
       .filter((part) => part.length > 0)
       .join(',');

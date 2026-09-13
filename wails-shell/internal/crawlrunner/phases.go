@@ -39,11 +39,11 @@ var knownPhases = func() map[PhaseKey]bool {
 // currently lightweight reconciliation steps; keep this plan explicit so those
 // phases can be made fully active without changing the frontend contract.
 type ExecutionPlan struct {
-	PhaseKeys           []PhaseKey              `json:"phaseKeys"`
-	NextPhaseByKey      map[PhaseKey]PhaseKey   `json:"nextPhaseByKey"`
-	InitialPhaseKey     PhaseKey                `json:"initialPhaseKey"`
-	FinalPhaseKey       PhaseKey                `json:"finalPhaseKey"`
-	StopRedirectPhaseKey PhaseKey               `json:"stopRedirectPhaseKey"`
+	PhaseKeys            []PhaseKey            `json:"phaseKeys"`
+	NextPhaseByKey       map[PhaseKey]PhaseKey `json:"nextPhaseByKey"`
+	InitialPhaseKey      PhaseKey              `json:"initialPhaseKey"`
+	FinalPhaseKey        PhaseKey              `json:"finalPhaseKey"`
+	StopRedirectPhaseKey PhaseKey              `json:"stopRedirectPhaseKey"`
 }
 
 func DefaultExecutionPlan() ExecutionPlan {

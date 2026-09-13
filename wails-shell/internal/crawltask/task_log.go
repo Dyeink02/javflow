@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,13 @@ import (
 // 3) human-facing line normalization and section rendering
 
 const (
-	taskLogPrefix      = "运行日志"
-	taskLogTitle       = "JavFlow 任务日志"
-	taskLogKeyPrefix   = "[重点] "
-	taskLogStatePrefix = "状态"
+	taskLogPrefix         = "爬虫"
+	crawlLogPrefix        = "爬虫"
+	subscriptionLogPrefix = "订阅"
+	taskLogRetentionCount = 10
+	taskLogTitle          = "JavFlow 任务日志"
+	taskLogKeyPrefix      = "[重点] "
+	taskLogStatePrefix    = "状态"
 )
 
 var (
@@ -88,7 +92,6 @@ type taskLogWriter struct {
 	logDir           string
 	sessionLogPath   string
 	latestLogPath    string
-	dailyLogPath     string
 	sessionID        string
 
 	lastTaskStateSignature string
@@ -122,17 +125,20 @@ func (w *taskLogWriter) initialize(outputDir string, payload map[string]any, now
 		logDir = runPaths.LogDir
 	}
 	sessionID := now.Format("20060102-150405")
-	sessionLogPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.txt", taskLogPrefix, sessionID))
-	latestLogPath := filepath.Join(logDir, "运行日志.txt")
-	moduleName := strings.TrimSpace(filepath.Base(logDir))
-	if moduleName == "" || strings.EqualFold(moduleName, crawlartifact.DefaultLogDirName) {
-		moduleName = "JAV爬取"
+	// 单份日志策略：每次运行只写一个「模块-启动时间.txt」快照文件。
+	// 爬虫与订阅复用同一写入器，靠 subscriptionTask 标记区分前缀；
+	// latestLogPath 与会话文件同路径，质量摘要等消费方无需感知变化。
+	logPrefix := crawlLogPrefix
+	if subscribed, ok := payload["subscriptionTask"].(bool); ok && subscribed {
+		logPrefix = subscriptionLogPrefix
 	}
-	dailyLogPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.txt", moduleName, now.Format("2006年1月2日")))
+	sessionLogPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.txt", logPrefix, sessionID))
+	latestLogPath := sessionLogPath
 
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, err
 	}
+	pruneTaskLogFiles(logDir, logPrefix, taskLogRetentionCount)
 
 	headerLines := []string{
 		taskLogTitle,
@@ -140,17 +146,16 @@ func (w *taskLogWriter) initialize(outputDir string, payload map[string]any, now
 		fmt.Sprintf("输出目录: %s", outputDir),
 		fmt.Sprintf("起始地址: %s", cleanString(payload["base"])),
 		fmt.Sprintf("运行方案: %s", firstNonEmpty(cleanString(payload["demoLabel"]), cleanString(payload["demoMode"]), "AED")),
-		"------------------------------------------------------------",
 	}
+	// 抓取配置快照：把用户当次的全部抓取设置写进日志头，排查问题时
+	// 无需再回问操作者当时的勾选与过滤条件。
+	if configLine := buildCrawlConfigLine(payload); configLine != "" {
+		headerLines = append(headerLines, fmt.Sprintf("抓取配置: %s", configLine))
+	}
+	headerLines = append(headerLines, "------------------------------------------------------------")
 	header := strings.Join(headerLines, "\r\n") + "\r\n"
 
 	if err := common.WriteUTF8TextFile(sessionLogPath, header); err != nil {
-		return nil, err
-	}
-	if err := common.WriteUTF8TextFile(latestLogPath, header); err != nil {
-		return nil, err
-	}
-	if err := common.AppendUTF8TextFile(dailyLogPath, header); err != nil {
 		return nil, err
 	}
 
@@ -159,7 +164,6 @@ func (w *taskLogWriter) initialize(outputDir string, payload map[string]any, now
 	w.logDir = logDir
 	w.sessionLogPath = sessionLogPath
 	w.latestLogPath = latestLogPath
-	w.dailyLogPath = dailyLogPath
 	w.sessionID = sessionID
 	w.lastTaskStateSignature = ""
 	w.lastTaskStateAt = time.Time{}
@@ -248,25 +252,52 @@ func (w *taskLogWriter) shouldWriteTaskState(status string, message string) bool
 func (w *taskLogWriter) appendLine(line string) error {
 	w.mu.Lock()
 	sessionLogPath := w.sessionLogPath
-	latestLogPath := w.latestLogPath
-	dailyLogPath := w.dailyLogPath
 	w.mu.Unlock()
 
-	if sessionLogPath == "" || latestLogPath == "" {
+	if sessionLogPath == "" {
 		return nil
 	}
 
 	payload := strings.TrimRight(line, "\r\n") + "\r\n"
-	for _, targetPath := range []string{sessionLogPath, latestLogPath, dailyLogPath} {
-		if targetPath == "" {
-			continue
-		}
-		if err := common.AppendUTF8TextFile(targetPath, payload); err != nil {
-			return err
-		}
+	if err := common.AppendUTF8TextFile(sessionLogPath, payload); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+// pruneTaskLogFiles keeps only the newest `keep` log files of one module
+// prefix (by modification time) so one-run-per-file naming cannot grow the
+// logs directory without bound.
+func pruneTaskLogFiles(logDir string, prefix string, keep int) {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+	type logFile struct {
+		name    string
+		modTime time.Time
+	}
+	matches := make([]logFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) || !strings.HasSuffix(entry.Name(), ".txt") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		matches = append(matches, logFile{name: filepath.Join(logDir, entry.Name()), modTime: info.ModTime()})
+	}
+	if len(matches) <= keep {
+		return
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].modTime.After(matches[j].modTime)
+	})
+	for _, stale := range matches[keep:] {
+		_ = os.Remove(stale.name)
+	}
 }
 
 func shouldWriteTaskLogEntry(level string, message string) bool {
@@ -329,4 +360,55 @@ func formatTaskLogLineStamp(value string) string {
 		return parsed.Local().Format("2006-01-02 15:04:05")
 	}
 	return strings.TrimSpace(value)
+}
+
+// buildCrawlConfigLine renders the operator's crawl settings into one compact
+// log line so an output folder is self-describing when a troubleshooting
+// report comes back without the original form state.
+func buildCrawlConfigLine(payload map[string]any) string {
+	stringOf := func(key string) string { return strings.TrimSpace(cleanString(payload[key])) }
+	onOff := func(key string) string {
+		if enabled, ok := payload[key].(bool); ok && enabled {
+			return "开"
+		}
+		return "关"
+	}
+	numberOr := func(key string, fallback string) string {
+		if raw, ok := payload[key].(float64); ok && raw > 0 {
+			return fmt.Sprintf("%.0f", raw)
+		}
+		return fallback
+	}
+
+	parts := make([]string, 0, 12)
+	if proxy := stringOf("proxy"); proxy != "" {
+		parts = append(parts, "代理="+proxy)
+	} else {
+		// 显式标明直连模式，避免“看起来像漏记了代理”。
+		parts = append(parts, "代理=直连（未配置）")
+	}
+	if limit := numberOr("limit", ""); limit != "" {
+		parts = append(parts, "目标数量="+limit)
+	}
+	if keywords := stringOf("magnetExcludeKeywords"); keywords != "" {
+		parts = append(parts, "磁力过滤词="+keywords)
+	}
+	if releaseDate := stringOf("minReleaseDate"); releaseDate != "" {
+		parts = append(parts, "过滤发行日期="+releaseDate)
+	}
+	if threshold := numberOr("actressCountFilterThreshold", ""); threshold != "" {
+		parts = append(parts, "过滤演员数量="+threshold)
+	}
+	if codes := stringOf("filmCodeFilterThreshold"); codes != "" {
+		parts = append(parts, "过滤番号="+codes)
+	}
+	parts = append(parts,
+		"Cloudflare绕过="+onOff("cloudflare"),
+		"跳过无磁力影片="+onOff("nomag"),
+		"磁力全部爬取="+onOff("allmag"),
+		"仅抓取影片信息="+onOff("metadataOnly"),
+		"跳过图片下载="+onOff("nopic"),
+		"磁力严格校验="+onOff("magnetContentValidation"),
+	)
+	return strings.Join(parts, " | ")
 }

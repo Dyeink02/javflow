@@ -57,6 +57,10 @@ func applyCrawlerSettingsPayload(currentSettings map[string]any, payload map[str
 			currentSettings[field.key] = boolValue(payload[field.key], fallback)
 		}
 	}
+	// Result reconciliation is mandatory for every JAV crawl. Keep legacy
+	// settings files compatible while preventing an old false value from
+	// disabling the final integrity pass.
+	currentSettings["secondValidation"] = true
 }
 
 func (a *API) saveCrawlerSettings(payload map[string]any) error {

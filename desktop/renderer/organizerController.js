@@ -501,14 +501,15 @@
       if (elements.organizerAdFileActionMove && elements.organizerAdFileActionMove.checked) {
         return 'move-to-delete';
       }
-      return 'move-to-delete';
+      // 默认模式为「直接删除广告文件」（批量删除默认勾选）。
+      return 'delete-directly';
     }
 
     function normalizeAdFileAction(rawValue) {
       if (progressSchema && typeof progressSchema.normalizeAdFileAction === 'function') {
         return progressSchema.normalizeAdFileAction(rawValue);
       }
-      return String(rawValue || '').trim() === 'delete-directly' ? 'delete-directly' : 'move-to-delete';
+      return String(rawValue || '').trim() === 'move-to-delete' ? 'move-to-delete' : 'delete-directly';
     }
 
     function getAdFileActionLabel(action) {
@@ -1072,7 +1073,13 @@
             elements.organizerAlistUrl.value = String(settings.organizerAlistBaseURL || '');
           }
           if (elements.organizerBatchDelete) {
-            elements.organizerBatchDelete.checked = Boolean(settings.organizerBatchDelete);
+            // 未保存过该设置的用户默认勾选；显式保存过 false 的尊重其选择。
+            elements.organizerBatchDelete.checked =
+              settings.organizerBatchDelete === undefined ? true : Boolean(settings.organizerBatchDelete);
+            // 程序化恢复不触发 change 事件，这里显式同步批量删除的可用/勾选状态。
+            if (typeof updateBatchDeleteState === 'function') {
+              updateBatchDeleteState();
+            }
           }
           if (elements.organizerDeleteInterval) {
             elements.organizerDeleteInterval.value = String(toSafeInteger(settings.organizerDeleteIntervalMs, 500, 100));

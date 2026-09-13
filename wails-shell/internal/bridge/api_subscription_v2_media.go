@@ -187,6 +187,15 @@ func cacheSubscriptionMedia(ctx context.Context, imageURLs []string, mediaDir st
 // application filename. Callers may supply the page URL as Referer when a
 // cover provider rejects unreferenced image requests.
 func cacheNamedSubscriptionMedia(ctx context.Context, client *http.Client, imageURL, referer, mediaDir, fileStem string) (string, error) {
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		return "", err
+	}
+	// Cached media is immutable for the current actor/work identity. Reusing it
+	// prevents every detail render or cover prefetch from downloading the same
+	// bytes again, and keeps local thumbnails independent from provider limits.
+	if cachedURL := cachedSubscriptionMediaURL(mediaDir, fileStem); cachedURL != "" {
+		return cachedURL, nil
+	}
 	contents, extension, err := downloadSubscriptionMedia(ctx, client, imageURL, referer)
 	if err != nil {
 		return "", err
@@ -196,6 +205,17 @@ func cacheNamedSubscriptionMedia(ctx context.Context, client *http.Client, image
 		return "", err
 	}
 	return subscriptionMediaAssetURL(mediaDir, filePath), nil
+}
+
+func cachedSubscriptionMediaURL(mediaDir, fileStem string) string {
+	for _, extension := range []string{".jpg", ".png", ".webp", ".gif", ".avif"} {
+		filePath := filepath.Join(mediaDir, fileStem+extension)
+		info, err := os.Stat(filePath)
+		if err == nil && !info.IsDir() && info.Size() > 0 {
+			return subscriptionMediaAssetURL(mediaDir, filePath)
+		}
+	}
+	return ""
 }
 
 func subscriptionMediaHTTPClient(proxyValue string) (*http.Client, error) {

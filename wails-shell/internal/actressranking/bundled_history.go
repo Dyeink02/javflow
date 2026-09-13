@@ -7,14 +7,14 @@
 // - keep source fetching, parsing, and UI routing outside this file
 //
 // Ownership summary:
-// 1) hold the compressed, verified AVfan historical snapshot
+// 1) hold compressed, verified monthly-ranking snapshots with source identity
 // 2) decode it safely without changing user cache precedence
-// 3) merge only the AVfan cache bucket into the standard cache shape
+// 3) merge each verified snapshot into its own standard cache bucket
 //
 // File map for maintainers:
 // 1) compressed snapshot payload
 // 2) defensive decode path
-// 3) AVfan bucket merge into first-run cache
+// 3) source-preserving bucket merge into first-run cache
 package actressranking
 
 import (
@@ -151,7 +151,18 @@ func mergeBundledMonthlyHistory(cache *cacheFile) {
 	if cache == nil {
 		return
 	}
-	compressed, err := base64.StdEncoding.DecodeString(bundledMonthlyHistoryBase64)
+	mergeBundledHistorySource(cache, bundledMonthlyHistoryBase64, "avfan")
+	mergeBundledHistorySource(cache, bundledFANZAVideoArchiveBase64, "localHistory")
+}
+
+// mergeBundledHistorySource retains the data source's own bucket. In
+// particular, archived FANZA Video rankings must never be promoted to the
+// DVD official/AVfan lanes just because they cover the same calendar month.
+func mergeBundledHistorySource(cache *cacheFile, encodedSnapshot string, bucketID string) {
+	if cache == nil || encodedSnapshot == "" || bucketID == "" {
+		return
+	}
+	compressed, err := base64.StdEncoding.DecodeString(encodedSnapshot)
 	if err != nil {
 		return
 	}
@@ -168,7 +179,7 @@ func mergeBundledMonthlyHistory(cache *cacheFile) {
 	if err := json.Unmarshal(payload, &bundled); err != nil {
 		return
 	}
-	if source, ok := bundled.Sources["avfan"]; ok {
-		cache.Sources["avfan"] = mergeSourceCache(cache.Sources["avfan"], source)
+	if source, ok := bundled.Sources[bucketID]; ok {
+		cache.Sources[bucketID] = mergeSourceCache(cache.Sources[bucketID], source)
 	}
 }

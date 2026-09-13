@@ -61,14 +61,14 @@ var (
 		"https://www.cdnbus.bond",
 	}
 	actressLookupMirrorHosts = map[string]struct{}{
-		"javbus.com":       {},
-		"www.javbus.com":   {},
-		"busjav.cyou":      {},
-		"www.busjav.cyou":  {},
-		"fanbus.bond":      {},
-		"www.fanbus.bond":  {},
-		"cdnbus.bond":      {},
-		"www.cdnbus.bond":  {},
+		"javbus.com":      {},
+		"www.javbus.com":  {},
+		"busjav.cyou":     {},
+		"www.busjav.cyou": {},
+		"fanbus.bond":     {},
+		"www.fanbus.bond": {},
+		"cdnbus.bond":     {},
+		"www.cdnbus.bond": {},
 	}
 )
 
@@ -101,6 +101,11 @@ type ResolveOptions struct {
 	PreferredBase string
 	FallbackBases []string
 	Proxy         string
+	// SkipAliasResolution is used only after an explicit target URL was
+	// supplied and direct inspection needs a name-search fallback. The URL
+	// already identifies the selected directory, so a colliding local alias
+	// must not block that fallback search.
+	SkipAliasResolution bool
 	// EnrichProfile controls the optional second-source profile lookup. It is
 	// enabled by the actor-detail UI, but remains opt-in for crawl/subscription
 	// target resolution so a background workflow does not make extra requests.
@@ -847,12 +852,14 @@ func (s *Service) ResolveTargetContext(parent context.Context, options ResolveOp
 		return subscriptiontarget.TargetProfile{}, fmt.Errorf("缺少女优名称，无法填充抓取信息。")
 	}
 	aliasResolution := actressalias.Resolution{Query: requestedName, MatchKind: "missing"}
-	resolvedName, resolvedAlias, aliasErr := s.resolveAliasQuery(requestedName)
-	if aliasErr != nil {
-		return subscriptiontarget.TargetProfile{}, aliasErr
+	if !options.SkipAliasResolution {
+		resolvedName, resolvedAlias, aliasErr := s.resolveAliasQuery(requestedName)
+		if aliasErr != nil {
+			return subscriptiontarget.TargetProfile{}, aliasErr
+		}
+		actressName = resolvedName
+		aliasResolution = resolvedAlias
 	}
-	actressName = resolvedName
-	aliasResolution = resolvedAlias
 
 	origins := buildBaseOrigins(options)
 	lookupErrors := make([]string, 0, len(origins))
@@ -960,7 +967,12 @@ func (s *Service) InspectTargetContext(parent context.Context, options ResolveOp
 		return subscriptiontarget.TargetProfile{}, err
 	}
 
-	profile, resolveErr := s.ResolveTargetContext(inspectContext, options)
+	// The caller supplied an explicit target URL, so a local alias collision is
+	// not actionable here. Search the original displayed name directly if the
+	// explicit page was unavailable.
+	fallbackOptions := options
+	fallbackOptions.SkipAliasResolution = true
+	profile, resolveErr := s.ResolveTargetContext(inspectContext, fallbackOptions)
 	if resolveErr != nil {
 		return subscriptiontarget.TargetProfile{}, fmt.Errorf("%s；%s", err.Error(), resolveErr.Error())
 	}

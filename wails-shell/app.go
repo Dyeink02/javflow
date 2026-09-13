@@ -65,6 +65,7 @@ func NewApp(repoRoot string) *App {
 		}
 		return app.ctx
 	})
+
 	store := settings.NewStore(paths)
 	appUpdateService := appupdate.NewService(appupdate.ServiceOptions{
 		CurrentVersion: appupdate.ProductVersion(),
@@ -77,7 +78,7 @@ func NewApp(repoRoot string) *App {
 	// a JAV site returns a verification page. The recovery implementation stays
 	// owned by crawlfetch/crawlrequest.
 	actressLookupService := actresslookup.NewServiceWithAliasCache(paths.UserData, crawlFetchService)
-	actressRankingService := actressranking.NewService()
+	actressRankingService := actressranking.NewServiceWithEmitter(bus)
 	adLearningService := adlearning.NewService(paths)
 	antiBlockService := antiblock.NewService()
 	crawlQualityService := crawlquality.NewService()

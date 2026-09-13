@@ -16,7 +16,9 @@ describe('progressSchema shared contract', () => {
 
   it('normalizes ad file action and builds shared progress payloads', () => {
     assert.strictEqual(progressSchema.normalizeAdFileAction('delete-directly'), 'delete-directly');
-    assert.strictEqual(progressSchema.normalizeAdFileAction('anything-else'), 'move-to-delete');
+    // 默认广告处理方式为「直接删除广告文件」，仅显式保存过 move-to-delete 才回退。
+    assert.strictEqual(progressSchema.normalizeAdFileAction('anything-else'), 'delete-directly');
+    assert.strictEqual(progressSchema.normalizeAdFileAction('move-to-delete'), 'move-to-delete');
 
     const payload = progressSchema.createProgress('learning', 'matching', {
       processedVideos: 3

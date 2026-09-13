@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"javflow/internal/common"
@@ -63,10 +64,12 @@ type Runner struct {
 	// request timeouts. It is set once per Run and must not be reused across runs.
 	runCtx context.Context
 
-	pageIndex                int
-	filmCount                int
-	filmsQueued              int
-	filmsAttempted           int
+	pageIndex int
+	// filmsQueued/filmsAttempted/filmCount 由队列 worker goroutine 经事件回调并发
+	// 更新，也被状态保存/统计在其它 goroutine 读取，必须用 atomic 避免计数丢失。
+	filmsQueued              atomic.Int64
+	filmsAttempted           atomic.Int64
+	filmCount                atomic.Int64
 	expectedItemsPerPage     *int
 	pageAudits               []PageAudit
 	startedAt                string
@@ -207,8 +210,8 @@ func (r *Runner) statsForStatus(status RunnerStatus) *RunnerStats {
 	filteredItems := r.filteredItems()
 	filteredActressItems := r.filteredActressItems()
 	return &RunnerStats{
-		Queued:                 r.filmsQueued,
-		Attempted:              r.filmsAttempted,
+		Queued:                 int(r.filmsQueued.Load()),
+		Attempted:              int(r.filmsAttempted.Load()),
 		Completed:              completed,
 		TotalItems:             breakdown.Total,
 		FilteredItemsCount:     breakdown.Filtered,
@@ -317,9 +320,9 @@ func (r *Runner) applyRestoredState() {
 	if state.ExpectedItemsPerPage != nil {
 		r.expectedItemsPerPage = state.ExpectedItemsPerPage
 	}
-	r.filmsQueued = state.FilmsQueued
-	r.filmsAttempted = state.FilmsAttempted
-	r.filmCount = state.FilmCount
+	r.filmsQueued.Store(int64(state.FilmsQueued))
+	r.filmsAttempted.Store(int64(state.FilmsAttempted))
+	r.filmCount.Store(int64(state.FilmCount))
 	r.pageAudits = convertRestoredPageAudits(state.PageAudits)
 	r.validationReport = cloneValidationReport(state.ValidationReport)
 	if r.filteredActressItemIDs == nil {
@@ -484,7 +487,7 @@ func (r *Runner) executeQueueSetup(runnerRef any) error {
 		},
 	})
 	r.queueRunner.On(crawlqueue.EventDetailPageStart, func(event crawlqueue.QueueEvent) {
-		r.filmsAttempted++
+		r.filmsAttempted.Add(1)
 	})
 	r.queueRunner.On(crawlqueue.EventDetailPageFailed, func(event crawlqueue.QueueEvent) {
 		link := ""
@@ -504,7 +507,7 @@ func (r *Runner) executeQueueSetup(runnerRef any) error {
 		r.emitLog("warn", "detail page failed: "+reason)
 	})
 	r.queueRunner.On(crawlqueue.EventFilmDataSaved, func(event crawlqueue.QueueEvent) {
-		r.filmCount = r.writer.RecordCount()
+		r.filmCount.Store(int64(r.writer.RecordCount()))
 	})
 	r.queueRunner.Start()
 	return nil
@@ -589,7 +592,7 @@ func (r *Runner) processDetailTask(ctx context.Context, task crawlqueue.DetailPa
 		r.tracker.MarkSkipped(itemID)
 	}
 	r.clearDetailFailure(detailURL)
-	r.filmCount = r.writer.RecordCount()
+	r.filmCount.Store(int64(r.writer.RecordCount()))
 
 	return nil
 }
@@ -735,7 +738,7 @@ func (r *Runner) skipFilmCodeFilteredLink(link, itemID string) {
 	if itemID != "" {
 		r.tracker.MarkPersisted("", itemID)
 	}
-	r.filmCount = r.writer.RecordCount()
+	r.filmCount.Store(int64(r.writer.RecordCount()))
 }
 
 // recordActressCountFiltered tracks the item ID for operator-facing filtered
@@ -1063,7 +1066,7 @@ func (r *Runner) executeIndexDiscovery(runnerRef any) error {
 			}
 		}
 
-		limitDecision := resolveIndexQueueLimit(r.config.Limit, r.filmsQueued, len(newLinks))
+		limitDecision := resolveIndexQueueLimit(r.config.Limit, int(r.filmsQueued.Load()), len(newLinks))
 		if limitDecision.ShouldStopBeforeQueue {
 			r.emitLog("info", "target limit reached before queueing new details")
 			shouldStopIndexing = true
@@ -1136,7 +1139,7 @@ func (r *Runner) enqueueDetailLinksWithMode(links []string, countAsQueued bool) 
 					continue
 				}
 				r.tracker.MarkQueued(link, itemID)
-				r.filmsQueued++
+				r.filmsQueued.Add(1)
 			}
 			r.skipFilmCodeFilteredLink(link, itemID)
 			continue
@@ -1146,7 +1149,7 @@ func (r *Runner) enqueueDetailLinksWithMode(links []string, countAsQueued bool) 
 				continue
 			}
 			r.tracker.MarkQueued(link, itemID)
-			r.filmsQueued++
+			r.filmsQueued.Add(1)
 		}
 
 		tasks = append(tasks, crawlqueue.DetailPageTask{Link: link})
@@ -1458,7 +1461,17 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 	// 未完成报告面向人工复盘，因此优先写结论、缺口、失败详情和可恢复项。
 	recon := r.tracker.BuildReconciliation()
 	entryCount := r.expectedReviewTotal()
-	uncaptured := r.tracker.GetUncapturedItems()
+	filteredItems := r.filteredItems()
+	filteredSet := r.configFilteredIDSet()
+	releaseDateFilteredCount := 0
+	if r.writer != nil {
+		for _, entry := range r.writer.FilteredFilmCodeEntries() {
+			if strings.Contains(entry.Reason, "releaseDate") {
+				releaseDateFilteredCount++
+			}
+		}
+	}
+	uncaptured := excludeItemIDs(r.tracker.GetUncapturedItems(), filteredSet)
 	pageGapLines := r.buildPageGapLines()
 	failedDetails, failedDetailsTotal := r.reviewFailedDetails(true)
 	duplicateItems := r.reviewDuplicateItems()
@@ -1485,6 +1498,8 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 	if duplicateEntryCount > 0 {
 		lines = append(lines, fmt.Sprintf("# 站点重复条目：%d", duplicateEntryCount))
 	}
+	lines = append(lines, fmt.Sprintf("# 配置过滤：%d（番号 %d / 演员数 %d / 发行日期 %d）",
+		len(filteredItems)+releaseDateFilteredCount, len(r.filteredFilmCodeItems()), len(r.filteredActressItems()), releaseDateFilteredCount))
 	lines = append(lines, fmt.Sprintf("# 低可信分页：%d", lowConfidenceCount))
 
 	lines = append(lines, "# 已定位未完成番号")
@@ -1525,14 +1540,14 @@ func (r *Runner) writeUnfinishedReport(final FinalStateOutput) error {
 		lines = append(lines, pageGapLines...)
 	}
 
-	filteredItems := r.filteredItems()
 	if len(filteredItems) > 0 {
 		lines = append(lines, "# 过滤影片番号（演员数量或番号过滤）")
 		lines = append(lines, filteredItems...)
 	}
 
-	if len(recon.ExpectedButNotQueuedIDs) > 0 {
-		lines = append(lines, fmt.Sprintf("# 入队缺口：%d", len(recon.ExpectedButNotQueuedIDs)))
+	filteredQueueGaps := excludeItemIDs(recon.ExpectedButNotQueuedIDs, filteredSet)
+	if len(filteredQueueGaps) > 0 {
+		lines = append(lines, fmt.Sprintf("# 入队缺口：%d", len(filteredQueueGaps)))
 	}
 	if r.validationReport != nil && strings.TrimSpace(r.validationReport.Summary) != "" {
 		lines = append(lines, "# 二次校验摘要："+strings.TrimSpace(r.validationReport.Summary))
@@ -1585,7 +1600,35 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 	// 最终状态汇总只做数据收束，不再反推执行过程。
 	// 这里产出的结论会被质量摘要、未完成报告和前端状态面板同时消费。
 	recon := r.tracker.BuildReconciliation()
-	_, failedCount := r.reviewFailedDetails(true)
+	// 用户配置过滤（番号/演员数/发行日期）是主动排除，不是失败：
+	// 从所有缺口集合中剔除，并作为独立的过滤计数进入汇报。
+	filteredItems := r.filteredItems()
+	filteredSet := r.configFilteredIDSet()
+	// 发行日期过滤发生在 writer 层（记录不落盘），按 reason 从 writer 取回，
+	// 一并计入用户配置过滤并从缺口集合中剔除。
+	releaseDateFilteredCount := 0
+	if r.writer != nil {
+		for _, entry := range r.writer.FilteredFilmCodeEntries() {
+			if strings.Contains(entry.Reason, "releaseDate") {
+				releaseDateFilteredCount++
+			}
+		}
+	}
+	queueGapIDs := excludeItemIDs(recon.ExpectedButNotQueuedIDs, filteredSet)
+	unresolvedIDs := excludeItemIDs(recon.ExpectedButNotPersistedIDs, filteredSet)
+	unfinishedIDs := excludeItemIDs(r.tracker.GetUncapturedItems(), filteredSet)
+	failedDetails, _ := r.reviewFailedDetails(true)
+	failedIDSet := make(map[string]struct{})
+	for _, detail := range failedDetails {
+		if _, ok := filteredSet[strings.ToUpper(detail.Item)]; ok {
+			continue
+		}
+		if detail.Item == "" {
+			continue
+		}
+		failedIDSet[detail.Item] = struct{}{}
+	}
+	failedCount := len(failedIDSet)
 	duplicateItems := r.reviewDuplicateItems()
 	duplicateEntryCount := r.reviewDuplicateEntryCount()
 
@@ -1602,25 +1645,57 @@ func (r *Runner) determineFinalState() FinalStateOutput {
 	}
 
 	return BuildFinalState(FinalStateInput{
-		UnresolvedCount:         len(recon.ExpectedButNotPersistedIDs),
-		QueueGapCount:           len(recon.ExpectedButNotQueuedIDs),
-		ProcessedGapCount:       len(recon.ProcessedButNotPersistedIDs),
-		FailedCount:             failedCount,
-		LowConfidencePageCount:  lowConfCount,
-		DuplicateExpectedCount:  len(duplicateItems),
-		DuplicateItemIDs:        duplicateItems,
-		DuplicateItemSummary:    BuildDuplicateItemSummary(duplicateItems, 6),
-		UnfinishedItems:         r.tracker.GetUncapturedItems(),
-		ExpectedEntryCount:      r.expectedReviewTotal(),
-		RawDuplicateEntryCount:  duplicateEntryCount,
-		DuplicateSummary:        BuildDuplicateItemSummary(duplicateItems, 4),
-		ConfiguredTargetCount:   r.config.Limit,
-		ValidationPassed:        validationPassed,
-		SecondValidationEnabled: r.config.SecondValidation,
-		CompletedCount:          r.effectiveCompletedCount(StatusCompleted),
-		SkippedByPolicyCount:    len(recon.SkippedItemIDs),
-		ExpectedUniqueCount:     len(recon.ExpectedIDs),
+		UnresolvedCount:                len(unresolvedIDs),
+		QueueGapCount:                  len(queueGapIDs),
+		ProcessedGapCount:              len(recon.ProcessedButNotPersistedIDs),
+		FailedCount:                    failedCount,
+		LowConfidencePageCount:         lowConfCount,
+		DuplicateExpectedCount:         len(duplicateItems),
+		DuplicateItemIDs:               duplicateItems,
+		DuplicateItemSummary:           BuildDuplicateItemSummary(duplicateItems, 6),
+		UnfinishedItems:                unfinishedIDs,
+		ExpectedEntryCount:             r.expectedReviewTotal(),
+		RawDuplicateEntryCount:         duplicateEntryCount,
+		DuplicateSummary:               BuildDuplicateItemSummary(duplicateItems, 4),
+		ConfiguredTargetCount:          r.config.Limit,
+		ValidationPassed:               validationPassed,
+		SecondValidationEnabled:        r.config.SecondValidation,
+		CompletedCount:                 r.effectiveCompletedCount(StatusCompleted),
+		SkippedByPolicyCount:           len(recon.SkippedItemIDs),
+		ExpectedUniqueCount:            len(recon.ExpectedIDs),
+		ConfigFilteredCount:            len(filteredItems) + releaseDateFilteredCount,
+		ConfigFilteredFilmCodeCount:    len(r.filteredFilmCodeItems()),
+		ConfigFilteredActressCount:     len(r.filteredActressItems()),
+		ConfigFilteredReleaseDateCount: releaseDateFilteredCount,
+		FinalMagnetOutputCount:         r.writerMagnetOutputCount(),
 	})
+}
+
+// writerMagnetOutputCount reports the exact magnet-links.txt line count for
+// the final report tail. Zero when the writer is unavailable (unit setups).
+func (r *Runner) writerMagnetOutputCount() int {
+	if r.writer == nil {
+		return 0
+	}
+	return r.writer.MagnetOutputCount()
+}
+
+// excludeItemIDs returns the ids that are not present in the excluded set.
+func excludeItemIDs(ids []string, excluded map[string]struct{}) []string {
+	if len(excluded) == 0 {
+		return ids
+	}
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := excluded[id]; ok {
+			continue
+		}
+		result = append(result, id)
+	}
+	return result
 }
 
 func (r *Runner) createPageAudit(pageNumber int, pageURL string, expectedCount *int, actualCount int, retryCount int, validationPassed bool, isLastTargetPage bool, duplicateEntryCount int, duplicateItemIDs []string) PageAudit {
@@ -1852,9 +1927,9 @@ func (r *Runner) buildSnapshot(status RunnerStatus, message string, mode crawlex
 		},
 		PageIndex:            r.pageIndex,
 		ExpectedItemsPerPage: cloneIntPointer(r.expectedItemsPerPage),
-		FilmsQueued:          r.filmsQueued,
-		FilmsAttempted:       r.filmsAttempted,
-		FilmCount:            r.filmCount,
+		FilmsQueued:          int(r.filmsQueued.Load()),
+		FilmsAttempted:       int(r.filmsAttempted.Load()),
+		FilmCount:            int(r.filmCount.Load()),
 		ExpectedDetailLinks:  r.tracker.ExpectedDetailLinks(),
 		QueuedDetailLinks:    r.tracker.QueuedDetailLinks(),
 		ProcessedDetailLinks: r.tracker.ProcessedDetailLinks(),
@@ -1975,4 +2050,20 @@ func convertDuplicateGroups(groups []DuplicateGroup) []crawltaskstate.DuplicateE
 		})
 	}
 	return result
+}
+
+// releaseDateFilteredCodes returns the codes excluded by the release-date
+// filter (writer-level artifacts, classified by reason).
+func (r *Runner) releaseDateFilteredCodes() []string {
+	if r.writer == nil {
+		return nil
+	}
+	codes := make([]string, 0)
+	for _, entry := range r.writer.FilteredFilmCodeEntries() {
+		if strings.Contains(entry.Reason, "releaseDate") {
+			codes = append(codes, entry.Code)
+		}
+	}
+	sort.Strings(codes)
+	return codes
 }

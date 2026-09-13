@@ -25,7 +25,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"javflow/internal/common"
 )
+
+const recordedMonthlyHistoryFilename = "recorded-monthly-rankings.json"
+
+type recordedMonthlyHistoryFile struct {
+	Version int      `json:"version"`
+	Records []Result `json:"records"`
+}
 
 func listJSONFiles(directoryPath string) []string {
 	normalized := strings.TrimSpace(directoryPath)
@@ -206,6 +215,94 @@ func toHistoryRecords(payload any) []map[string]any {
 	default:
 		return nil
 	}
+}
+
+func historyWriteDirectory(directories []string) string {
+	for _, directoryPath := range directories {
+		if normalized := strings.TrimSpace(directoryPath); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
+}
+
+// SaveMonthlyHistory keeps a user-confirmed monthly snapshot outside the
+// replaceable source cache. An existing period is deliberately never
+// overwritten: the first saved record is the user's historical evidence when
+// the upstream site later removes that month.
+func (s *Service) SaveMonthlyHistory(data Result, directories []string) (Result, bool, error) {
+	directoryPath := historyWriteDirectory(directories)
+	if directoryPath == "" {
+		return Result{}, false, fmt.Errorf("本地榜单历史目录不可用")
+	}
+
+	snapshot := normalizeResultMetadata(data)
+	if snapshot.Mode != "monthly" || snapshot.PeriodYear <= 0 || snapshot.PeriodMonth < 1 || snapshot.PeriodMonth > 12 {
+		return Result{}, false, fmt.Errorf("只能保存有效的月榜")
+	}
+	if !snapshot.Complete {
+		return Result{}, false, fmt.Errorf("当前月榜仅有 %d/%d 位，未保存不完整榜单", snapshot.Total, snapshot.ExpectedTotal)
+	}
+
+	originalSource := strings.TrimSpace(snapshot.OriginSourceName)
+	if originalSource == "" {
+		originalSource = strings.TrimSpace(snapshot.SourceName)
+	}
+	if originalSource == "" {
+		originalSource = "未知来源"
+	}
+	snapshot.SourceName = fmt.Sprintf("用户保存月榜（原始来源：%s）", originalSource)
+	snapshot.OriginSourceName = originalSource
+	snapshot.Mode = "monthly"
+	snapshot.AvailableYears = []int{snapshot.PeriodYear}
+	snapshot.AvailableMonths = []int{snapshot.PeriodMonth}
+	snapshot.RequestedSource = ""
+	snapshot.RequestedSourceLabel = ""
+	snapshot.ResolvedSource = ""
+	snapshot.ResolvedSourceLabel = ""
+	snapshot.FromCache = false
+	snapshot.Stale = false
+	snapshot.Notice = ""
+	snapshot.ErrorMessage = ""
+	snapshot.FallbackUsed = false
+	if strings.TrimSpace(snapshot.FetchedAt) == "" {
+		snapshot.FetchedAt = time.Now().Format(time.RFC3339)
+	}
+
+	if err := os.MkdirAll(directoryPath, 0o755); err != nil {
+		return Result{}, false, err
+	}
+	filePath := filepath.Join(directoryPath, recordedMonthlyHistoryFilename)
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	payload := recordedMonthlyHistoryFile{Version: 1, Records: []Result{}}
+	if raw, err := os.ReadFile(filePath); err == nil {
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return Result{}, false, fmt.Errorf("无法读取已保存的月榜历史：%w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return Result{}, false, err
+	}
+	if payload.Version <= 0 {
+		payload.Version = 1
+	}
+
+	for _, existing := range payload.Records {
+		if existing.Mode == "monthly" && existing.PeriodYear == snapshot.PeriodYear && existing.PeriodMonth == snapshot.PeriodMonth {
+			return existing, true, nil
+		}
+	}
+	payload.Records = append(payload.Records, snapshot)
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return Result{}, false, err
+	}
+	if err := common.WriteFileAtomic(filePath, encoded, 0o644); err != nil {
+		return Result{}, false, err
+	}
+	return snapshot, false, nil
 }
 
 func mergeHistoryDirectoriesIntoCache(cache *cacheFile, directories []string) {

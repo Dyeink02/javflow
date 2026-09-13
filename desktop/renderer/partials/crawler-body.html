@@ -141,12 +141,6 @@
             </label>
 
             <label class="toggle-card">
-              <input id="secondValidation" type="checkbox" />
-              <span data-ui-text="toggles.secondValidationTitle"></span>
-              <small data-ui-text="toggles.secondValidationHelp"></small>
-            </label>
-
-            <label class="toggle-card">
               <input id="nomag" type="checkbox" />
               <span data-ui-text="toggles.nomagTitle"></span>
               <small data-ui-text="toggles.nomagHelp"></small>
@@ -330,11 +324,20 @@
               </div>
               <div id="filtered-box" class="state-card">
                 <div class="state-card-header">
-                  <span class="state-card-title" data-ui-text="state.filteredLabel">过滤影片番号</span>
+                  <span class="state-card-title" data-ui-text="state.filteredLabel">过滤影片番号/发行日期</span>
                   <span id="filtered-total" class="state-card-count" style="background:rgba(125,211,252,0.12);color:#bae6fd;">0</span>
                 </div>
                 <div id="filtered-items" class="state-card-body">
                   <span class="state-chip chip-filtered">暂无过滤影片番号</span>
+                </div>
+              </div>
+              <div id="actress-filtered-box" class="state-card">
+                <div class="state-card-header">
+                  <span class="state-card-title" data-ui-text="state.actressFilteredLabel">过滤演员数影片</span>
+                  <span id="actress-filtered-total" class="state-card-count" style="background:rgba(125,211,252,0.12);color:#bae6fd;">0</span>
+                </div>
+                <div id="actress-filtered-items" class="state-card-body">
+                  <span class="state-chip chip-filtered">暂无过滤演员数影片</span>
                 </div>
               </div>
               <div id="completed-box" class="state-card">

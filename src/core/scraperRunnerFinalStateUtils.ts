@@ -34,6 +34,12 @@ export interface FinalStateBuildInput {
   completedCount: number;
   skippedByPolicyCount: number;
   expectedUniqueCount: number;
+  /** Entries excluded by operator-configured filters (番号/演员数/发行日期)。 */
+  configFilteredCount: number;
+  configFilteredFilmCodeCount: number;
+  configFilteredActressCount: number;
+  configFilteredReleaseDateCount: number;
+  finalMagnetOutputCount: number;
 }
 
 function buildSkippedMessage(skippedByPolicyCount: number): string {
@@ -44,6 +50,14 @@ function buildSkippedMessage(skippedByPolicyCount: number): string {
   return `；按当前配置跳过无磁力影片 ${skippedByPolicyCount} 条`;
 }
 
+function buildFilteredMessage(configFilteredCount: number): string {
+  if (configFilteredCount <= 0) {
+    return '';
+  }
+
+  return `；按当前配置过滤 ${configFilteredCount} 条`;
+}
+
 function buildFinishedMessage(input: FinalStateBuildInput): string {
   const {
     secondValidationEnabled,
@@ -51,21 +65,23 @@ function buildFinishedMessage(input: FinalStateBuildInput): string {
     rawDuplicateEntryCount,
     expectedEntryCount,
     duplicateSummary,
-    expectedUniqueCount
+    expectedUniqueCount,
+    configFilteredCount
   } = input;
 
   const validationText = secondValidationEnabled ? '，已二次校验完成' : '';
   const skippedText = buildSkippedMessage(skippedByPolicyCount);
+  const filteredText = buildFilteredMessage(configFilteredCount);
 
   if (rawDuplicateEntryCount > 0) {
     return (
       `抓取任务已完成${validationText}。` +
       `站点原始条目 ${expectedEntryCount} 条，其中重复番号 ${rawDuplicateEntryCount} 条（${duplicateSummary}），` +
-      `按唯一番号完成 ${expectedUniqueCount} 条${skippedText}。`
+      `按唯一番号完成 ${expectedUniqueCount} 条${filteredText}${skippedText}。`
     );
   }
 
-  return `抓取任务已完成${validationText}${skippedText}。`;
+  return `抓取任务已完成${validationText}${filteredText}${skippedText}。`;
 }
 
 function pushMessage(target: string[], message: string): void {
@@ -96,14 +112,22 @@ export function buildFinalRunnerState(
     secondValidationEnabled,
     completedCount,
     skippedByPolicyCount,
-    expectedUniqueCount
+    expectedUniqueCount,
+    configFilteredCount,
+    configFilteredFilmCodeCount,
+    configFilteredActressCount,
+    configFilteredReleaseDateCount,
+    finalMagnetOutputCount
   } = input;
 
   const unfinishedPreview = unfinishedItems.slice(0, 6).join('、');
   const targetShortfall =
     configuredTargetCount > 0 ? Math.max(configuredTargetCount - expectedEntryCount, 0) : 0;
-  const completionTargetCount =
+  // 完成目标口径：目标 - 站点重复 - 用户配置过滤，并以站点实际唯一番号数封顶。
+  const completionTargetCountBase =
     configuredTargetCount > 0 ? Math.max(0, configuredTargetCount - rawDuplicateEntryCount) : expectedUniqueCount;
+  const availableUniqueCount = Math.max(0, expectedUniqueCount - configFilteredCount);
+  const completionTargetCount = Math.min(completionTargetCountBase, availableUniqueCount);
   const resolvedCount = completedCount + skippedByPolicyCount;
   const completionShortfall = Math.max(completionTargetCount - resolvedCount, 0);
   const hasGap =
@@ -112,14 +136,15 @@ export function buildFinalRunnerState(
     processedGapCount > 0 ||
     failedCount > 0 ||
     lowConfidencePageCount > 0 ||
-    targetShortfall > 0 ||
     completionShortfall > 0 ||
     !validationPassed;
+
+  const outputTail = `最终实际输出番号 ${input.finalMagnetOutputCount} 条`;
 
   if (!hasGap) {
     return {
       status: 'completed',
-      message: buildFinishedMessage(input)
+      message: `${buildFinishedMessage(input)} ${outputTail}。`
     };
   }
 
@@ -143,6 +168,21 @@ export function buildFinalRunnerState(
     }
   } else if (rawDuplicateEntryCount > 0 && duplicateSummary) {
     pushMessage(messages, `站点原始分页存在 ${rawDuplicateEntryCount} 条重复番号（${duplicateSummary}）`);
+  }
+
+  if (configFilteredCount > 0) {
+    const breakdownParts = [];
+    if (configFilteredFilmCodeCount > 0) {
+      breakdownParts.push(`过滤影片番号 ${configFilteredFilmCodeCount} 条`);
+    }
+    if (configFilteredActressCount > 0) {
+      breakdownParts.push(`过滤演员数影片 ${configFilteredActressCount} 条`);
+    }
+    if (configFilteredReleaseDateCount > 0) {
+      breakdownParts.push(`过滤发行日期 ${configFilteredReleaseDateCount} 条`);
+    }
+    const breakdownText = breakdownParts.length > 0 ? `（${breakdownParts.join('、')}）` : '';
+    pushMessage(messages, `按当前配置过滤 ${configFilteredCount} 条${breakdownText}，不计入抓取结果`);
   }
 
   if (completionShortfall > 0) {
@@ -190,7 +230,10 @@ export function buildFinalRunnerState(
     pushMessage(messages, '输出结果二次校验未通过');
   }
 
-  if (duplicateItemIds.length > 0) {
+  // 目标缺口消息里已带重复番号说明时，尾部不再重复播报。
+  const duplicateAlreadyShown =
+    targetShortfall > 0 && rawDuplicateEntryCount > 0 && Boolean(duplicateSummary);
+  if (duplicateItemIds.length > 0 && !duplicateAlreadyShown) {
     pushMessage(messages, `发现 ${duplicateItemIds.length} 条重复番号（${duplicateItemSummary}）`);
   } else if (duplicateExpectedCount > 0 && rawDuplicateEntryCount === 0) {
     pushMessage(messages, `发现 ${duplicateExpectedCount} 条重复分页编号`);
@@ -198,6 +241,6 @@ export function buildFinalRunnerState(
 
   return {
     status: 'incomplete',
-    message: `任务未完成：${messages.join('；')}。`
+    message: `任务未完成：${messages.join('；')} ${outputTail}。`
   };
 }

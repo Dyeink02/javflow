@@ -41,13 +41,14 @@ class ConfigManager {
       strictSSL: DEFAULT_CONFIG.strictSSL,
       proxy: undefined,
       useCloudflareBypass: false,
-      secondValidation: false,
+      secondValidation: true,
       taskTemplate: 'balanced',
       magnetExcludeKeywords: '',
       magnetContentValidation: false,
       supplementMagnetTopN: 3,
       actressCountFilterThreshold: 0,
       filmCodeFilterThreshold: '',
+      minReleaseDate: '',
       demoMode: 'base',
       demoLabel: '',
       productDisplayName: 'JavFlow',
@@ -91,6 +92,7 @@ class ConfigManager {
       supplementMagnetTopN: options.supplementMagnetTopN,
       actressCountFilterThreshold: options.actressCountFilterThreshold,
       filmCodeFilterThreshold: options.filmCodeFilterThreshold,
+      minReleaseDate: options.minReleaseDate,
       strictSSL:
         Object.prototype.hasOwnProperty.call(options, 'strictSSL') && options.strictSSL === false
           ? false
@@ -147,6 +149,7 @@ class ConfigManager {
     );
 
     this.config.filmCodeFilterThreshold = this.normalizeFilmCodeFilterThreshold(options.filmCodeFilterThreshold);
+    this.config.minReleaseDate = String(options.minReleaseDate ?? this.config.minReleaseDate ?? '').trim();
     logger.info(
       `ConfigManager film code filter=${this.config.filmCodeFilterThreshold} input=${String(options.filmCodeFilterThreshold ?? '')}`
     );
@@ -179,9 +182,10 @@ class ConfigManager {
       this.config.useCloudflareBypass = options.cloudflare;
     }
 
-    if (typeof options.secondValidation === 'boolean') {
-      this.config.secondValidation = options.secondValidation;
-    }
+    // The desktop JAV workflow always reconciles its final result. Retain the
+    // option in the public shape for old callers, but do not allow a stale
+    // configuration payload to turn this integrity check off.
+    this.config.secondValidation = true;
 
     if (this.hasValue(options.taskTemplate)) {
       this.config.taskTemplate = String(options.taskTemplate);
@@ -314,8 +318,9 @@ class ConfigManager {
       return '';
     }
 
+    // 兼容英文逗号、中文逗号、顿号、中英分号与空白分隔，与整理板块的番号过滤口径一致。
     return String(value)
-      .split(',')
+      .split(/[,，、;；\s]+/)
       .map((part) => part.trim())
       .filter((part) => part.length > 0)
       .join(',');

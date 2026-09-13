@@ -37,6 +37,16 @@ type FinalStateInput struct {
 	CompletedCount          int
 	SkippedByPolicyCount    int
 	ExpectedUniqueCount     int
+	// ConfigFilteredCount counts entries excluded by operator-configured
+	// filters (film-code substring, actress-count threshold, release-date).
+	// They are intentional exclusions: never failures, never completion gaps.
+	ConfigFilteredCount            int
+	ConfigFilteredFilmCodeCount    int
+	ConfigFilteredActressCount     int
+	ConfigFilteredReleaseDateCount int
+	// FinalMagnetOutputCount is the exact magnet line count written to
+	// magnet-links.txt — what the operator actually walks away with.
+	FinalMagnetOutputCount int
 }
 
 type FinalState struct {
@@ -50,9 +60,16 @@ func BuildFinalState(input FinalStateInput) FinalState {
 		targetShortfall = maxInt(input.ConfiguredTargetCount-input.ExpectedEntryCount, 0)
 	}
 
+	// 完成目标的口径：目标条数 - 站点重复 - 用户配置过滤，再以站点实际
+	// 提供的唯一番号数封顶（站点本身条目不足时，不把“站点没有的内容”
+	// 算成抓取失败）。
 	completionTargetCount := input.ExpectedUniqueCount
 	if input.ConfiguredTargetCount > 0 {
 		completionTargetCount = maxInt(input.ConfiguredTargetCount-input.RawDuplicateEntryCount, 0)
+	}
+	availableUniqueCount := maxInt(input.ExpectedUniqueCount-input.ConfigFilteredCount, 0)
+	if completionTargetCount > availableUniqueCount {
+		completionTargetCount = availableUniqueCount
 	}
 
 	resolvedCount := input.CompletedCount + input.SkippedByPolicyCount
@@ -63,22 +80,22 @@ func BuildFinalState(input FinalStateInput) FinalState {
 		input.ProcessedGapCount > 0 ||
 		input.FailedCount > 0 ||
 		input.LowConfidencePageCount > 0 ||
-		targetShortfall > 0 ||
 		completionShortfall > 0 ||
 		!input.ValidationPassed
 
 	// completed / incomplete 仍然是内部状态机值；
 	// 这里负责把“是否真正补齐目标”翻译成统一的对外中文文案。
+	outputTail := fmt.Sprintf("最终实际输出番号 %d 条", input.FinalMagnetOutputCount)
 	if !hasGap {
 		return FinalState{
 			Status:  "completed",
-			Message: buildFinishedMessage(input),
+			Message: buildFinishedMessage(input) + " " + outputTail + "。",
 		}
 	}
 
 	messages := make([]string, 0, 12)
 	if input.ValidationPassed && input.SecondValidationEnabled {
-	pushFinalStateMessage(&messages, "输出结果已通过二次校验，但目标条数仍未补齐")
+		pushFinalStateMessage(&messages, "输出结果已通过二次校验，但目标条数仍未补齐")
 	}
 
 	if targetShortfall > 0 {
@@ -111,6 +128,26 @@ func BuildFinalState(input FinalStateInput) FinalState {
 			fmt.Sprintf("站点原始分页存在 %d 条重复番号（%s）", input.RawDuplicateEntryCount, input.DuplicateSummary),
 		)
 	}
+	if input.ConfigFilteredCount > 0 {
+		breakdownParts := make([]string, 0, 3)
+		if input.ConfigFilteredFilmCodeCount > 0 {
+			breakdownParts = append(breakdownParts, fmt.Sprintf("过滤影片番号 %d 条", input.ConfigFilteredFilmCodeCount))
+		}
+		if input.ConfigFilteredActressCount > 0 {
+			breakdownParts = append(breakdownParts, fmt.Sprintf("过滤演员数影片 %d 条", input.ConfigFilteredActressCount))
+		}
+		if input.ConfigFilteredReleaseDateCount > 0 {
+			breakdownParts = append(breakdownParts, fmt.Sprintf("过滤发行日期 %d 条", input.ConfigFilteredReleaseDateCount))
+		}
+		breakdownText := ""
+		if len(breakdownParts) > 0 {
+			breakdownText = fmt.Sprintf("（%s）", strings.Join(breakdownParts, "、"))
+		}
+		pushFinalStateMessage(
+			&messages,
+			fmt.Sprintf("按当前配置过滤 %d 条%s，不计入抓取结果", input.ConfigFilteredCount, breakdownText),
+		)
+	}
 
 	if completionShortfall > 0 {
 		if input.ConfiguredTargetCount > 0 {
@@ -132,7 +169,7 @@ func BuildFinalState(input FinalStateInput) FinalState {
 			pushFinalStateMessage(&messages, fmt.Sprintf("完成结果仍比理论目标少 %d 条", completionShortfall))
 		}
 	} else if input.SkippedByPolicyCount > 0 {
-			pushFinalStateMessage(&messages, fmt.Sprintf("已按当前配置跳过 %d 条无磁力影片", input.SkippedByPolicyCount))
+		pushFinalStateMessage(&messages, fmt.Sprintf("已按当前配置跳过 %d 条无磁力影片", input.SkippedByPolicyCount))
 	}
 
 	if len(input.UnfinishedItems) > 0 {
@@ -168,7 +205,9 @@ func BuildFinalState(input FinalStateInput) FinalState {
 	if !input.ValidationPassed {
 		pushFinalStateMessage(&messages, "输出结果二次校验未通过")
 	}
-	if len(input.DuplicateItemIDs) > 0 {
+	// 目标缺口消息里已带“其中重复番号 N 条（…）”时，尾部不再重复播报。
+	dupAlreadyShown := targetShortfall > 0 && input.RawDuplicateEntryCount > 0 && input.DuplicateSummary != ""
+	if len(input.DuplicateItemIDs) > 0 && !dupAlreadyShown {
 		pushFinalStateMessage(
 			&messages,
 			fmt.Sprintf("发现 %d 条重复番号（%s）", len(input.DuplicateItemIDs), input.DuplicateItemSummary),
@@ -179,7 +218,7 @@ func BuildFinalState(input FinalStateInput) FinalState {
 
 	return FinalState{
 		Status:  "incomplete",
-		Message: "任务未完成：" + joinMessages(messages),
+		Message: "任务未完成：" + joinMessages(messages) + " " + outputTail + "。",
 	}
 }
 
@@ -189,20 +228,29 @@ func buildFinishedMessage(input FinalStateInput) string {
 		validationText = "，已二次校验完成"
 	}
 	skippedText := buildSkippedMessage(input.SkippedByPolicyCount)
+	filteredText := ""
+	if input.ConfigFilteredCount > 0 {
+		filteredText = fmt.Sprintf("；按当前配置过滤 %d 条（番号 %d / 演员数 %d / 发行日期 %d）",
+			input.ConfigFilteredCount,
+			input.ConfigFilteredFilmCodeCount,
+			input.ConfigFilteredActressCount,
+			input.ConfigFilteredReleaseDateCount)
+	}
 
 	if input.RawDuplicateEntryCount > 0 {
 		return fmt.Sprintf(
-			"抓取任务已完成%s。站点原始条目 %d 条，其中重复番号 %d 条（%s），按唯一番号完成 %d 条%s。",
+			"抓取任务已完成%s。站点原始条目 %d 条，其中重复番号 %d 条（%s），按唯一番号完成 %d 条%s%s。",
 			validationText,
 			input.ExpectedEntryCount,
 			input.RawDuplicateEntryCount,
 			input.DuplicateSummary,
 			input.ExpectedUniqueCount,
+			filteredText,
 			skippedText,
 		)
 	}
 
-	return fmt.Sprintf("抓取任务已完成%s%s。", validationText, skippedText)
+	return fmt.Sprintf("抓取任务已完成%s%s%s。", validationText, filteredText, skippedText)
 }
 
 func buildSkippedMessage(skippedByPolicyCount int) string {

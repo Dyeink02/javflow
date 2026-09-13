@@ -9,15 +9,18 @@ package bridge
 // 1) bounded Actor Atlas work-cover cache
 // 2) local media route conversion for the selected actor detail page
 
-// This file owns the Actor Atlas-only conversion from remote JAV work covers
-// to app-served media. It intentionally does not persist crawler, NFO, or
-// subscription records; the cache is a display aid for the current detail
-// page only.
+// This file owns the Actor Atlas-only conversion from remote portraits and JAV
+// work covers to app-served media. It intentionally does not persist crawler,
+// NFO, or subscription records; these files are display caches in user data.
 
 import (
 	"context"
 	"crypto/sha1"
+	"embed"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -26,15 +29,329 @@ import (
 	"time"
 
 	"javflow/internal/actresslookup"
+	"javflow/internal/actressranking"
 	"javflow/internal/contracts/subscriptiontarget"
 )
+
+// 内嵌榜单头像：随 EXE 发布的基线头像库（按源 URL 哈希命名的 avatar-*.jpg）。
+// 启动后释放到用户数据媒体目录，榜单头像即本地秒开，无需联网下载。
+//
+//go:embed data/atlas-avatars
+var embeddedAtlasAvatars embed.FS
+
+const embeddedAtlasAvatarsRoot = "data/atlas-avatars"
+
+// ensureEmbeddedAtlasAvatarsExtracted releases any embedded baseline avatar
+// that is not yet present in the user-data media directory. Runtime downloads
+// are never overwritten; extraction only fills missing files. The operation is
+// idempotent (one stat per embedded file), so no once-guard is needed — a once
+// guard would silently skip extraction for any media directory other than the
+// first caller's.
+var (
+	atlasAvatarNameIndexMu sync.Mutex
+	atlasAvatarNameIndex   map[string]string
+)
+
+func normalizeAtlasAvatarNameKey(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if idx := strings.IndexAny(key, "（("); idx > 0 {
+		key = strings.TrimSpace(key[:idx])
+	}
+	return key
+}
+
+// atlasAvatarFileByName resolves an actress display name to an embedded
+// baseline avatar file. New month listings may reference different portrait
+// URL variants, but the actress name is stable across periods, so the name
+// index keeps cross-source avatar reuse working.
+func atlasAvatarFileByName(name string) string {
+	atlasAvatarNameIndexMu.Lock()
+	defer atlasAvatarNameIndexMu.Unlock()
+	if atlasAvatarNameIndex == nil {
+		atlasAvatarNameIndex = map[string]string{}
+		payload, err := fs.ReadFile(embeddedAtlasAvatars, embeddedAtlasAvatarsRoot+"/index.json")
+		if err != nil {
+			return ""
+		}
+		var rawIndex map[string]string
+		if err := json.Unmarshal(payload, &rawIndex); err != nil {
+			return ""
+		}
+		for indexedName, fileName := range rawIndex {
+			key := strings.ToLower(strings.TrimSpace(indexedName))
+			if key == "" || strings.TrimSpace(fileName) == "" {
+				continue
+			}
+			atlasAvatarNameIndex[key] = fileName
+			// Official names may carry a former name in parentheses. Keep the
+			// base name as a secondary key so either display form resolves the
+			// same embedded portrait.
+			baseKey := normalizeAtlasAvatarNameKey(key)
+			if baseKey != "" {
+				if _, exists := atlasAvatarNameIndex[baseKey]; !exists {
+					atlasAvatarNameIndex[baseKey] = fileName
+				}
+			}
+		}
+	}
+	key := strings.ToLower(strings.TrimSpace(name))
+	if fileName := atlasAvatarNameIndex[key]; fileName != "" {
+		return fileName
+	}
+	return atlasAvatarNameIndex[normalizeAtlasAvatarNameKey(key)]
+}
+
+func ensureEmbeddedAtlasAvatarsExtracted(mediaDir string) {
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		return
+	}
+	entries, err := fs.ReadDir(embeddedAtlasAvatars, embeddedAtlasAvatarsRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == "index.json" {
+			continue
+		}
+		target := filepath.Join(mediaDir, entry.Name())
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		payload, readErr := fs.ReadFile(embeddedAtlasAvatars, embeddedAtlasAvatarsRoot+"/"+entry.Name())
+		if readErr != nil {
+			continue
+		}
+		_ = os.WriteFile(target, payload, 0o644)
+	}
+}
 
 const (
 	// One visible page (8) plus the next three pages (24) are accepted in one
 	// bridge call. The worker itself still caps network concurrency at three.
 	actressAtlasWorkCoverLimit       = 24
 	actressAtlasWorkCoverParallelism = 3
+	actressAtlasRankingAvatarLimit   = 100
+	actressAtlasRankingParallelism   = 5
 )
+
+// cacheActressAtlasRankingAvatars converts the ranking's remote portraits to
+// same-origin application media URLs. Ranking results are intentionally passed
+// in by the renderer: this keeps source selection and historical ranking cache
+// ownership inside actressranking while the bridge owns only media transport.
+// The cache is keyed by source URL, so the same actor shared by several
+// historical periods is stored once.
+func (a *API) cacheActressAtlasRankingAvatars(ctx context.Context, items []actressranking.RankingItem, proxyValue string) ([]actressranking.RankingItem, int, int, error) {
+	updated := append([]actressranking.RankingItem(nil), items...)
+	if a == nil || a.runtime.paths.UserData == "" || len(updated) == 0 {
+		return updated, 0, 0, nil
+	}
+	if len(updated) > actressAtlasRankingAvatarLimit {
+		updated = updated[:actressAtlasRankingAvatarLimit]
+	}
+	mediaDir := filepath.Join(a.runtime.paths.UserData, "subscriptions-v2", "media", "atlas-ranking")
+	ensureEmbeddedAtlasAvatarsExtracted(mediaDir)
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		return updated, 0, 0, err
+	}
+	client, err := newSubscriptionMediaHTTPClient(proxyValue)
+	if err != nil {
+		return updated, 0, 0, err
+	}
+
+	// Collapse duplicate portraits before starting workers. This both avoids
+	// duplicate downloads and prevents two goroutines writing the same file.
+	bySource := make(map[string][]int, len(updated))
+	for index, item := range updated {
+		if strings.HasPrefix(item.ImageURL, "data:") {
+			// 已内联的头像不进入下载/回写流程，保持 data URL 原样。
+			continue
+		}
+		source := strings.TrimSpace(item.SourceImageURL)
+		if source == "" && !isLocalSubscriptionMediaURL(item.ImageURL) {
+			source = strings.TrimSpace(item.ImageURL)
+		}
+		if source == "" {
+			continue
+		}
+		bySource[source] = append(bySource[source], index)
+	}
+	if len(bySource) == 0 {
+		return updated, 0, 0, nil
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+	type avatarJob struct {
+		source  string
+		indexes []int
+	}
+	jobs := make([]avatarJob, 0, len(bySource))
+	for source, indexes := range bySource {
+		jobs = append(jobs, avatarJob{source: source, indexes: indexes})
+	}
+	semaphore := make(chan struct{}, actressAtlasRankingParallelism)
+	var workers sync.WaitGroup
+	var mu sync.Mutex
+	cachedCount := 0
+	failedCount := 0
+	for _, job := range jobs {
+		job := job
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-timeoutCtx.Done():
+				mu.Lock()
+				failedCount += len(job.indexes)
+				mu.Unlock()
+				return
+			}
+
+			localURL := findActressAtlasRankingAvatar(mediaDir, job.source)
+			var cacheErr error
+			if localURL == "" {
+				fileStem := actressAtlasRankingAvatarStem(job.source)
+				localURL, cacheErr = cacheNamedSubscriptionMedia(timeoutCtx, client, job.source, "", mediaDir, fileStem)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if cacheErr != nil || localURL == "" {
+				failedCount += len(job.indexes)
+				return
+			}
+			for _, index := range job.indexes {
+				updated[index].SourceImageURL = job.source
+				updated[index].ImageURL = localURL
+				cachedCount++
+			}
+		}()
+	}
+	workers.Wait()
+	return updated, cachedCount, failedCount, nil
+}
+
+func isLocalSubscriptionMediaURL(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	return err == nil && parsed.Scheme == "" && strings.HasPrefix(parsed.Path, subscriptionMediaURLPrefix)
+}
+
+func actressAtlasRankingAvatarStem(source string) string {
+	sum := sha1.Sum([]byte(strings.TrimSpace(source)))
+	return fmt.Sprintf("avatar-%x", sum[:8])
+}
+
+// resolveActressRankingAvatarURLs rewrites ranking portraits to the cached
+// same-origin media route whenever the avatar file already exists locally.
+// Cached periods then render instantly from disk instead of re-entering the
+// avatar download flow on every month switch.
+func (a *API) resolveActressRankingAvatarURLs(items []actressranking.RankingItem) []actressranking.RankingItem {
+	if a == nil || a.runtime.paths.UserData == "" {
+		return items
+	}
+	mediaDir := filepath.Join(a.runtime.paths.UserData, "subscriptions-v2", "media", "atlas-ranking")
+	ensureEmbeddedAtlasAvatarsExtracted(mediaDir)
+	if len(items) == 0 {
+		return items
+	}
+	for index := range items {
+		source := strings.TrimSpace(items[index].ImageURL)
+		var inline string
+		if source != "" && strings.HasPrefix(source, subscriptionMediaURLPrefix) {
+			// Older cache entries may already contain a local route. Read that
+			// file directly so WebView2 never has to resolve a stale route.
+			if avatarFile := findActressAtlasLocalMediaFile(mediaDir, source); avatarFile != "" {
+				inline = inlineImageDataURL(avatarFile)
+			}
+		} else if source != "" {
+			if avatarFile := findActressAtlasRankingAvatarFile(mediaDir, source); avatarFile != "" {
+				inline = inlineImageDataURL(avatarFile)
+			}
+		}
+		if inline == "" {
+			nameFile := atlasAvatarFileByName(items[index].ActressName)
+			if nameFile == "" {
+				continue
+			}
+			// 新月份的图片 URL 形式可能变化，但演员名不变：
+			// 按名字命中内嵌基线库，跨数据源/跨月也能复用同一张头像。
+			inline = inlineImageDataURL(filepath.Join(mediaDir, nameFile))
+		}
+		if inline == "" {
+			continue
+		}
+		if strings.TrimSpace(items[index].SourceImageURL) == "" && source != "" {
+			items[index].SourceImageURL = source
+		}
+		items[index].ImageURL = inline
+	}
+	return items
+}
+
+// findActressAtlasLocalMediaFile validates a previously serialized local
+// subscription-media route and returns its file only within atlas-ranking.
+func findActressAtlasLocalMediaFile(mediaDir, rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme != "" {
+		return ""
+	}
+	prefix := subscriptionMediaURLPrefix + filepath.Base(mediaDir) + "/"
+	if !strings.HasPrefix(parsed.Path, prefix) {
+		return ""
+	}
+	filePath := filepath.Join(mediaDir, filepath.Base(parsed.Path))
+	info, err := os.Stat(filePath)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return filePath
+}
+
+// findActressAtlasRankingAvatarFile returns the on-disk path of the cached
+// ranking avatar for the given source URL, or "" when not cached yet.
+func findActressAtlasRankingAvatarFile(mediaDir, source string) string {
+	stem := actressAtlasRankingAvatarStem(source)
+	for _, extension := range []string{".jpg", ".png", ".webp", ".gif", ".avif"} {
+		filePath := filepath.Join(mediaDir, stem+extension)
+		if _, err := os.Stat(filePath); err == nil {
+			return filePath
+		}
+	}
+	return ""
+}
+
+// inlineImageDataURL encodes a local image as a base64 data URL so the
+// renderer never issues a network request for baseline portraits.
+func inlineImageDataURL(filePath string) string {
+	payload, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+	mimeType := "image/jpeg"
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".png":
+		mimeType = "image/png"
+	case ".webp":
+		mimeType = "image/webp"
+	case ".gif":
+		mimeType = "image/gif"
+	case ".avif":
+		mimeType = "image/avif"
+	}
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(payload))
+}
+
+func findActressAtlasRankingAvatar(mediaDir, source string) string {
+	stem := actressAtlasRankingAvatarStem(source)
+	for _, extension := range []string{".jpg", ".png", ".webp", ".gif", ".avif"} {
+		filePath := filepath.Join(mediaDir, stem+extension)
+		if _, err := os.Stat(filePath); err == nil {
+			return subscriptionMediaAssetURL(mediaDir, filePath)
+		}
+	}
+	return ""
+}
 
 // cacheActressAtlasWorkCovers preserves the original source URL whenever a
 // download fails, but replaces successful cover URLs with the same-origin

@@ -12,7 +12,7 @@
 // 2) shared output/log filename defaults
 // 3) exported app-info payload registry
 (function registerDesktopAppInfo(globalScope) {
-  const APP_VERSION = '0.4.41';
+  const APP_VERSION = '0.4.42';
   const injectedVersion = String(globalScope.__JAVFLOW_BUILD_VERSION__ || '').trim();
   const runtimeVersion = /^\d+\.\d+\.\d+$/.test(injectedVersion) ? injectedVersion : APP_VERSION;
   const APP_TITLE = 'JavFlow';

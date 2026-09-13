@@ -24,7 +24,8 @@ class ResultValidator {
    */
   public static validateOutput(
     outputDir: string,
-    snapshot: TaskStateSnapshot | null = null
+    snapshot: TaskStateSnapshot | null = null,
+    configFilteredIds: string[] = []
   ): ResultValidationReport {
     const filmDataPath = path.join(outputDir, 'filmData.json');
     const records = this.loadRecords(filmDataPath);
@@ -54,7 +55,12 @@ class ResultValidator {
     }
 
     const reconciliation = this.getSnapshotReconciliation(snapshot);
-    const missingItems = reconciliation.expectedButNotPersistedIds;
+    // 用户配置过滤（番号/演员数/发行日期）是主动排除：从缺口集合中剔除，
+    // 不再让过滤条目触发“二次校验未通过”。
+    const filteredIdSet = new Set(configFilteredIds);
+    const notConfigFiltered = (ids: string[]) => ids.filter((id) => !filteredIdSet.has(id));
+    const missingItems = notConfigFiltered(reconciliation.expectedButNotPersistedIds);
+    const expectedButNotQueuedIds = notConfigFiltered(reconciliation.expectedButNotQueuedIds);
     const lowConfidencePages =
       snapshot?.pageAudits
         ?.filter((item) => {
@@ -74,7 +80,7 @@ class ResultValidator {
       duplicateCount === 0 &&
       invalidRecordCount === 0 &&
       missingItems.length === 0 &&
-      reconciliation.expectedButNotQueuedIds.length === 0 &&
+      expectedButNotQueuedIds.length === 0 &&
       reconciliation.processedButNotPersistedIds.length === 0 &&
       lowConfidencePages.length === 0;
 
@@ -87,12 +93,12 @@ class ResultValidator {
       expectedItemCount: reconciliation.expectedIds.length,
       persistedItemCount: reconciliation.persistedIds.length,
       missingFromQueueCount: missingItems.length,
-      expectedButNotQueuedCount: reconciliation.expectedButNotQueuedIds.length,
+      expectedButNotQueuedCount: expectedButNotQueuedIds.length,
       processedButNotPersistedCount: reconciliation.processedButNotPersistedIds.length,
       uniqueMagnetCount: uniqueMagnets.size,
       lowConfidencePageCount: lowConfidencePages.length,
       missingItems,
-      expectedButNotQueuedItems: reconciliation.expectedButNotQueuedIds,
+      expectedButNotQueuedItems: expectedButNotQueuedIds,
       processedButNotPersistedItems: reconciliation.processedButNotPersistedIds,
       lowConfidencePages,
       passed,

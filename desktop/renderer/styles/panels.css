@@ -85,6 +85,9 @@
 .duplicate-chip {
   background: rgba(186, 128, 255, 0.18);
   color: #ecd7ff;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .page-gap-chip {

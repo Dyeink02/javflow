@@ -125,6 +125,7 @@ class ScraperRunner extends events_1.EventEmitter {
         this.persistedFilmIds = new Set();
         this.filteredByActressCountItemIds = new Set();
         this.filteredByFilmCodeItemIds = new Set();
+        this.filteredByReleaseDateItemIds = new Set();
         this.pageAudits = [];
         this.validationReport = null;
         this.taskStateManager = null;
@@ -284,6 +285,7 @@ class ScraperRunner extends events_1.EventEmitter {
         this.persistedFilmIds.clear();
         this.filteredByActressCountItemIds.clear();
         this.filteredByFilmCodeItemIds.clear();
+        this.filteredByReleaseDateItemIds.clear();
         this.reportedFilteredItemIds.clear();
         this.completedItemIds.clear();
         this.pageAudits = [];
@@ -1707,7 +1709,12 @@ class ScraperRunner extends events_1.EventEmitter {
         this.emitState('running', '正在进行结果二次校验。', this.getStats());
         this.persistTaskState('开始结果二次校验', 'running', '正在进行结果二次校验。');
         const snapshot = this.buildTaskSnapshot('running', '正在进行结果二次校验。');
-        this.validationReport = resultValidator_1.default.validateOutput(this.config.output, snapshot);
+        const configFilteredIds = [
+            ...this.filteredByActressCountItemIds,
+            ...this.filteredByFilmCodeItemIds,
+            ...this.filteredByReleaseDateItemIds
+        ];
+        this.validationReport = resultValidator_1.default.validateOutput(this.config.output, snapshot, configFilteredIds);
         this.taskStateManager.saveValidationReport(this.validationReport);
         this.logInfo(this.validationReport.summary);
         this.emitState('running', '已二次校验完成。', this.getStats());
@@ -1916,6 +1923,7 @@ class ScraperRunner extends events_1.EventEmitter {
         const rawTitle = String(filmData.title || '').trim();
         const filteredByActressCount = Boolean(filmData.filteredByActressCount);
         const filteredByFilmCode = Boolean(filmData.filteredByFilmCode);
+        const filteredByReleaseDate = Boolean(filmData.filteredByReleaseDate);
         const actressCount = Number(filmData.actressCount || 0);
         const actressThreshold = Number(this.config?.actressCountFilterThreshold || 0);
         const filmCodeThreshold = String(this.config?.filmCodeFilterThreshold || '');
@@ -1934,16 +1942,34 @@ class ScraperRunner extends events_1.EventEmitter {
         }
         const filmId = this.extractFilmId(filmData.sourceLink || filmData.title || '');
         const hasMagnets = Array.isArray(filmData.magnetLinks) && filmData.magnetLinks.length > 0;
-        const isCompleted = hasMagnets && !filteredByActressCount && !filteredByFilmCode;
+        const isCompleted = hasMagnets && !filteredByActressCount && !filteredByFilmCode && !filteredByReleaseDate;
         if (filmId) {
             this.persistedFilmIds.add(filmId);
             this.persistedItemIds.add(filmId);
             this.skippedByPolicyItemIds.delete(filmId);
             if (filteredByActressCount) {
                 this.filteredByActressCountItemIds.add(filmId);
+                if (detailIdentity) {
+                    this.filteredByActressCountItemIds.add(detailIdentity);
+                }
             }
             else {
                 this.filteredByActressCountItemIds.delete(filmId);
+                if (detailIdentity) {
+                    this.filteredByActressCountItemIds.delete(detailIdentity);
+                }
+            }
+            if (filteredByReleaseDate) {
+                this.filteredByReleaseDateItemIds.add(filmId);
+                if (detailIdentity) {
+                    this.filteredByReleaseDateItemIds.add(detailIdentity);
+                }
+            }
+            else {
+                this.filteredByReleaseDateItemIds.delete(filmId);
+                if (detailIdentity) {
+                    this.filteredByReleaseDateItemIds.delete(detailIdentity);
+                }
             }
             if (filteredByFilmCode) {
                 this.filteredByFilmCodeItemIds.add(filmId);
@@ -2046,9 +2072,14 @@ class ScraperRunner extends events_1.EventEmitter {
         const reconciliation = this.buildReconciliation();
         const expectedButNotQueued = new Set(reconciliation.expectedButNotQueuedIds || []);
         const explicitItems = new Set(Array.from(this.failedDetailMap.values()).map((detail) => detail.item));
+        const configFilteredIds = new Set([
+            ...this.filteredByActressCountItemIds,
+            ...this.filteredByFilmCodeItemIds,
+            ...this.filteredByReleaseDateItemIds
+        ]);
         const inferredDetails = [];
         for (const item of this.getUncapturedItems()) {
-            if (!item || explicitItems.has(item)) {
+            if (!item || explicitItems.has(item) || configFilteredIds.has(item)) {
                 continue;
             }
             const pendingTask = this.pendingRunningTaskMap.get(item);
@@ -2205,6 +2236,12 @@ class ScraperRunner extends events_1.EventEmitter {
         const filteredByActressCountItemIds = Array.from(this.filteredByActressCountItemIds);
         const filteredByFilmCodeItemIds = Array.from(this.filteredByFilmCodeItemIds);
         const completedItemIds = Array.from(this.completedItemIds);
+        const filteredByReleaseDateItemIds = Array.from(this.filteredByReleaseDateItemIds);
+        const filteredItemIds = Array.from(new Set([
+            ...filteredByActressCountItemIds,
+            ...filteredByFilmCodeItemIds,
+            ...filteredByReleaseDateItemIds
+        ]));
         return {
             queued: this.filmsQueued,
             attempted: this.filmsAttempted,
@@ -2212,11 +2249,13 @@ class ScraperRunner extends events_1.EventEmitter {
             pageIndex: this.pageIndex,
             filteredByActressCount: filteredByActressCountItemIds.length,
             filteredByFilmCode: filteredByFilmCodeItemIds.length,
+            filteredByReleaseDate: filteredByReleaseDateItemIds.length,
             completedItems: completedItemIds.length,
             filteredByActressCountItemIds,
             filteredByFilmCodeItemIds,
+            filteredByReleaseDateItemIds,
             completedItemIds,
-            filteredItemIds: filteredByActressCountItemIds
+            filteredItemIds
         };
     }
     buildTaskSnapshot(status, message, mode = 'full') {
@@ -2259,25 +2298,46 @@ class ScraperRunner extends events_1.EventEmitter {
         const reconciliation = this.buildReconciliation();
         const rawDuplicateGroups = reconciliation.rawDuplicateGroups || this.getRawDuplicateGroups();
         const allFailedDetails = this.getFailedDetails(true);
+        // 用户配置过滤（番号/演员数）是主动排除：从所有缺口集合中剔除，
+        // 并作为独立计数进入汇报，不再被误算成失败/缺口。
+        const filteredIdSet = new Set([
+            ...this.filteredByActressCountItemIds,
+            ...this.filteredByFilmCodeItemIds,
+            ...this.filteredByReleaseDateItemIds
+        ]);
+        const notConfigFiltered = (ids) => ids.filter((id) => !filteredIdSet.has(id));
+        const unfinishedItems = notConfigFiltered(this.getUncapturedItems());
+        const failedCount = allFailedDetails.filter((detail) => !filteredIdSet.has(detail.item)).length;
+        // 正常运行时 completedItemIds 已排除过滤项；手工/遗留状态只填了
+        // filmCount 时回退为 filmCount - 过滤并集。
+        const completedCount = this.completedItemIds.size > 0
+            ? this.completedItemIds.size
+            : Math.max(0, this.filmCount - filteredIdSet.size);
         return (0, scraperRunnerFinalStateUtils_1.buildFinalRunnerState)({
-            unresolvedCount: reconciliation.expectedButNotPersistedIds.length,
-            queueGapCount: reconciliation.expectedButNotQueuedIds.length,
+            unresolvedCount: notConfigFiltered(reconciliation.expectedButNotPersistedIds).length,
+            queueGapCount: notConfigFiltered(reconciliation.expectedButNotQueuedIds).length,
             processedGapCount: reconciliation.processedButNotPersistedIds.length,
-            failedCount: allFailedDetails.length,
+            failedCount,
             lowConfidencePageCount: this.getRecoverablePageAudits().length,
             duplicateExpectedCount: reconciliation.duplicateExpectedIds.length,
             duplicateItemIds: this.getDuplicateItemIds(),
             duplicateItemSummary: this.buildDuplicateItemSummary(),
-            unfinishedItems: this.getUncapturedItems(),
+            unfinishedItems,
             expectedEntryCount: reconciliation.expectedEntryCount || this.getExpectedEntryCount(),
             rawDuplicateEntryCount: reconciliation.rawDuplicateEntryCount || this.getRawDuplicateEntryCount(),
             duplicateSummary: this.buildRawDuplicateSummary(rawDuplicateGroups),
             configuredTargetCount: this.getConfiguredTargetEntryCount(),
             validationPassed: this.validationReport ? this.validationReport.passed : true,
             secondValidationEnabled: Boolean(this.config?.secondValidation),
-            completedCount: this.filmCount,
+            completedCount,
             skippedByPolicyCount: this.skippedByPolicyItemIds.size,
-            expectedUniqueCount: reconciliation.expectedIds.length
+            expectedUniqueCount: reconciliation.expectedIds.length,
+            configFilteredCount: filteredIdSet.size,
+            configFilteredFilmCodeCount: this.filteredByFilmCodeItemIds.size,
+            configFilteredActressCount: this.filteredByActressCountItemIds.size,
+            configFilteredReleaseDateCount: this.filteredByReleaseDateItemIds.size,
+            finalMagnetOutputCount:
+                this.queueManager?.getFileHandler()?.getMagnetOutputCount?.() ?? 0
         });
     }
     getUnfinishedReportLines(status, message) {

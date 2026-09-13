@@ -24,7 +24,19 @@ package actressranking
 import (
 	"strings"
 	"sync"
+	"time"
 )
+
+// RankingLogFunc is an optional progress sink supplied by the bridge. The
+// ranking service remains usable in tests and CLI tools when no sink is set.
+type RankingLogFunc func(level string, message string, details map[string]any)
+
+// EventEmitter is the narrow optional sink used when the ranking service is
+// embedded without the bridge callback (for example the Wails app bootstrap).
+// The service remains fully usable in tests with a nil emitter.
+type EventEmitter interface {
+	Emit(name string, payload any)
+}
 
 type rankingError struct {
 	message string
@@ -48,6 +60,7 @@ type Options struct {
 	ForceRefresh       bool
 	CacheFilePath      string
 	HistoryDirectories []string
+	Log                RankingLogFunc
 }
 
 type RankingItem struct {
@@ -55,9 +68,12 @@ type RankingItem struct {
 	ActressName string `json:"actressName"`
 	ProfileURL  string `json:"profileUrl,omitempty"`
 	ImageURL    string `json:"imageUrl,omitempty"`
-	LatestTitle string `json:"latestTitle,omitempty"`
-	LatestURL   string `json:"latestUrl,omitempty"`
-	WorksCount  *int   `json:"worksCount,omitempty"`
+	// SourceImageURL preserves the provider URL when ImageURL is rewritten to
+	// the same-origin application media route by the desktop bridge.
+	SourceImageURL string `json:"sourceImageUrl,omitempty"`
+	LatestTitle    string `json:"latestTitle,omitempty"`
+	LatestURL      string `json:"latestUrl,omitempty"`
+	WorksCount     *int   `json:"worksCount,omitempty"`
 }
 
 type Result struct {
@@ -74,6 +90,8 @@ type Result struct {
 	PeriodYear           int           `json:"periodYear"`
 	PeriodMonth          int           `json:"periodMonth"`
 	Total                int           `json:"total"`
+	ExpectedTotal        int           `json:"expectedTotal"`
+	Complete             bool          `json:"complete"`
 	AvailableYears       []int         `json:"availableYears"`
 	AvailableMonths      []int         `json:"availableMonths"`
 	FetchedAt            string        `json:"fetchedAt"`
@@ -127,15 +145,32 @@ type rankingContext struct {
 	Proxy            string
 	Cache            cacheFile
 	CacheFilePath    string
+	Log              RankingLogFunc
+}
+
+type sourceHealth struct {
+	Failures       int
+	UnavailableTil time.Time
 }
 
 // Service is the public ranking facade. cacheMu protects only the short cache
 // commit section, leaving slow remote fetches free to run concurrently.
 type Service struct {
-	browser *browserService
-	cacheMu sync.Mutex
+	browser  *browserService
+	cacheMu  sync.Mutex
+	healthMu sync.Mutex
+	health   map[string]sourceHealth
+	emitter  EventEmitter
 }
 
 func NewService() *Service {
-	return &Service{browser: newBrowserService()}
+	return newService(nil)
+}
+
+func NewServiceWithEmitter(emitter EventEmitter) *Service {
+	return newService(emitter)
+}
+
+func newService(emitter EventEmitter) *Service {
+	return &Service{browser: newBrowserService(), health: map[string]sourceHealth{}, emitter: emitter}
 }

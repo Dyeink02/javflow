@@ -78,7 +78,8 @@ class QueueManager {
         this.requestHandler = new requestHandler_1.default(config);
         this.fileHandler = new fileHandler_1.default(config.output, {
             actressCountFilterThreshold: config.actressCountFilterThreshold,
-            filmCodeFilterThreshold: config.filmCodeFilterThreshold
+            filmCodeFilterThreshold: config.filmCodeFilterThreshold,
+            minReleaseDate: config.minReleaseDate
         });
         this.prewarmRuntime();
         // 启动队列状态监控

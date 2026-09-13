@@ -43,9 +43,9 @@ type MachineOptions struct {
 }
 
 type StateMachine struct {
-	options     MachineOptions
-	statesByKey map[string]MachineState
-	orderedKeys []string
+	options      MachineOptions
+	statesByKey  map[string]MachineState
+	orderedKeys  []string
 	currentState string
 }
 

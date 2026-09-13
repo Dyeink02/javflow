@@ -218,4 +218,42 @@ describe('FileHandler', () => {
 
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
+
+  it('supports Chinese separators in the film-code filter', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jav-file-handler-film-code-filter-cn-'));
+    // 用户实际输入习惯：顿号/中文逗号/分号/空格混用，都必须正确拆分。
+    const handler = new FileHandler(outputDir, {
+      filmCodeFilterThreshold: 'VR、OFJE，ABC; DEF D'
+    });
+
+    await handler.writeFilmDataToFile({
+      title: 'SIVR-370 【VR】Sample',
+      sourceLink: 'https://www.javbus.com/SIVR-370',
+      category: ['VR'],
+      actress: ['A'],
+      magnetLinks: [{ link: 'magnet:?xt=urn:btih:sivr370', size: '3GB' }]
+    });
+
+    await handler.writeFilmDataToFile({
+      title: 'ABP-002 Sample',
+      sourceLink: 'https://www.javbus.com/ABP-002',
+      category: ['单体作品'],
+      actress: ['B'],
+      magnetLinks: [{ link: 'magnet:?xt=urn:btih:abp002', size: '2GB' }]
+    });
+
+    await handler.flush(true);
+
+    const records = JSON.parse(fs.readFileSync(path.join(outputDir, 'filmData.json'), 'utf8'));
+    const magnets = fs.readFileSync(path.join(outputDir, 'magnet-links.txt'), 'utf8').trim().split('\n');
+    const filteredRecord = records.find((item) => item.sourceLink === 'https://www.javbus.com/SIVR-370');
+
+    // 被过滤的影片保留在 filmData.json 作审计，但磁力不会写入 magnet-links.txt。
+    assert.strictEqual(records.length, 2);
+    assert.ok(filteredRecord);
+    assert.strictEqual(filteredRecord.filteredByFilmCode, true);
+    assert.deepStrictEqual(magnets, ['magnet:?xt=urn:btih:abp002']);
+
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  });
 });

@@ -74,6 +74,11 @@ type Writer struct {
 	flushEvery     int
 	metadata       ArtifactMetadata
 	minReleaseDate string
+	// outputDirsEnsured marks that the output/internal directories have been
+	// created. Directory creation is deferred to the first write so that the
+	// app-startup standby runner no longer creates folders for merely having a
+	// saved output path in settings.
+	outputDirsEnsured bool
 }
 
 // ArtifactMetadata captures the minimum stable crawl context needed to derive
@@ -103,26 +108,11 @@ func NewWriter(outputDir string) (*Writer, error) {
 // in the chosen output directory while redirecting bridge-only artifacts such as
 // crawl-profile.json / organizer-codes.json to an internal cache location.
 func NewWriterWithArtifactPaths(outputDir string, artifactPaths crawlartifact.CrawlOutputPaths) (*Writer, error) {
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, err
-	}
+	// 审计 H-16：目录创建推迟到首次写盘（ensureOutputDirsLocked）。
+	// 应用启动时会构造待命 Runner（设置里保存过输出目录），若在构造期建目录，
+	// 会出现“只是打开软件就生成输出文件夹”的现象。
 	if strings.TrimSpace(artifactPaths.OutputDir) == "" {
 		artifactPaths = crawlartifact.ResolveCrawlOutputPaths(outputDir)
-	}
-	if artifactDir := filepath.Dir(strings.TrimSpace(artifactPaths.CrawlProfilePath)); artifactDir != "" {
-		if err := os.MkdirAll(artifactDir, 0755); err != nil {
-			return nil, err
-		}
-	}
-	if artifactDir := filepath.Dir(strings.TrimSpace(artifactPaths.FilmDataPath)); artifactDir != "" {
-		if err := os.MkdirAll(artifactDir, 0755); err != nil {
-			return nil, err
-		}
-	}
-	if artifactDir := filepath.Dir(strings.TrimSpace(artifactPaths.OrganizerCodesPath)); artifactDir != "" {
-		if err := os.MkdirAll(artifactDir, 0755); err != nil {
-			return nil, err
-		}
 	}
 	w := &Writer{
 		outputDir:     outputDir,
@@ -452,9 +442,42 @@ func (w *Writer) OutputMagnetCount() int {
 // flushLocked persists the core artifacts plus derived cross-module handoff
 // files. If filmData, magnet-links, crawl-profile, and organizer-codes disagree,
 // inspect this write boundary first.
+// ensureOutputDirsLocked creates the output/internal artifact directories on
+// first write. Callers must hold w.mu.
+func (w *Writer) ensureOutputDirsLocked() error {
+	if w.outputDirsEnsured {
+		return nil
+	}
+	if err := os.MkdirAll(w.outputDir, 0755); err != nil {
+		return err
+	}
+	for _, key := range []string{"CrawlProfilePath", "FilmDataPath", "OrganizerCodesPath"} {
+		var artifactDir string
+		switch key {
+		case "CrawlProfilePath":
+			artifactDir = filepath.Dir(strings.TrimSpace(w.artifactPaths.CrawlProfilePath))
+		case "FilmDataPath":
+			artifactDir = filepath.Dir(strings.TrimSpace(w.artifactPaths.FilmDataPath))
+		case "OrganizerCodesPath":
+			artifactDir = filepath.Dir(strings.TrimSpace(w.artifactPaths.OrganizerCodesPath))
+		}
+		if artifactDir == "" {
+			continue
+		}
+		if err := os.MkdirAll(artifactDir, 0755); err != nil {
+			return err
+		}
+	}
+	w.outputDirsEnsured = true
+	return nil
+}
+
 func (w *Writer) flushLocked() error {
 	if !w.dirty && !w.metadataDirty {
 		return nil
+	}
+	if err := w.ensureOutputDirsLocked(); err != nil {
+		return err
 	}
 
 	runPaths := crawlartifact.ResolveCrawlRunPaths(w.outputDir)
@@ -523,11 +546,33 @@ func (w *Writer) RecordCount() int {
 	return len(w.records)
 }
 
+// MagnetOutputCount returns the exact number of magnet lines the current
+// records produce (the line count of magnet-links.txt).
+func (w *Writer) MagnetOutputCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	visible, _ := w.visibleRecordsLocked()
+	return len(w.buildMagnetLinesLocked(visible))
+}
+
+// FilteredFilmCodeEntries returns the operator-filter exclusions currently in
+// effect, classified by reason (film-code / actress-count / release-date) so
+// review surfaces can show them as separate categories.
+func (w *Writer) FilteredFilmCodeEntries() []crawlartifact.FilteredFilmCodeEntry {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, entries := w.visibleRecordsLocked()
+	return entries
+}
+
 func (w *Writer) WriteUnfinishedReport(lines []string) error {
 	path := crawlartifact.DefaultUnfinishedReportPath(w.outputDir)
 	if len(lines) == 0 {
 		_ = os.Remove(path)
 		return nil
+	}
+	if err := w.ensureOutputDirsLocked(); err != nil {
+		return err
 	}
 	seen := map[string]struct{}{}
 	unique := make([]string, 0, len(lines))

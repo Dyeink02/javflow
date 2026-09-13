@@ -56,6 +56,8 @@ var (
 
 var (
 	runLogPatterns = []string{
+		"爬虫-*.txt",
+		"订阅-*.txt",
 		"运行日志-*.txt",
 		"log-*.txt",
 	}

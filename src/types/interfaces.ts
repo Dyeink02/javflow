@@ -31,6 +31,7 @@ interface Config {
   supplementMagnetTopN?: number;
   actressCountFilterThreshold?: number;
   filmCodeFilterThreshold?: string;
+  minReleaseDate?: string;
   demoMode?: string;
   demoLabel?: string;
   productDisplayName?: string;
@@ -68,6 +69,7 @@ interface RuntimeOptions {
   supplementMagnetTopN?: number | string | null;
   actressCountFilterThreshold?: number | string | null;
   filmCodeFilterThreshold?: string | null;
+  minReleaseDate?: string | null;
   demoMode?: string | null;
   demoLabel?: string | null;
   productDisplayName?: string | null;
@@ -122,6 +124,7 @@ interface FilmData {
   actressCount?: number;
   filteredByActressCount?: boolean;
   filteredByFilmCode?: boolean;
+  filteredByReleaseDate?: boolean;
   filterReason?: string;
 }
 

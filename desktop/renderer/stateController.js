@@ -51,6 +51,8 @@
       failedItemsView,
       filteredItemsView,
       filteredTotalView,
+      actressFilteredItemsView,
+      actressFilteredTotalView,
       completedItemsView,
       completedTotalView,
       crawlStageStatus,
@@ -114,6 +116,8 @@
       failedItemsView,
       filteredItemsView,
       filteredTotalView,
+      actressFilteredItemsView,
+      actressFilteredTotalView,
       completedItemsView,
       completedTotalView,
       emptyTexts,
@@ -184,6 +188,10 @@
       // Go read model. The renderer only trims/presents it and should not
       // infer actress-filter business rules on its own.
       const filteredItems = normalizeItems(stats.filteredItemIds || stats.filteredItems || [], maxPanelItems);
+      const actressFilteredItems = normalizeItems(stats.filteredByActressCountItemIds || [], maxPanelItems);
+      const releaseDateItems = normalizeItems(stats.filteredByReleaseDateItemIds || stats.filteredByReleaseDateCodes || [], maxPanelItems);
+      const filmCodeItems = normalizeItems(stats.filteredByFilmCodeItemIds || [], maxPanelItems);
+      const codeDateItems = Array.from(new Set([...filmCodeItems, ...releaseDateItems]));
       // `filteredItemsCount` is the canonical de-duplicated total for every
       // filter (actress count, film-code/VR, and future item filters). The
       // actress-only count remains a legacy fallback for older state events.
@@ -222,6 +230,10 @@
       }
 
       reviewPanelRenderer.renderFilteredItems(filteredItems, filteredTotal);
+      reviewPanelRenderer.renderActressFilteredItems(
+        actressFilteredItems,
+        Number.isFinite(stats.filteredByActressCount) ? stats.filteredByActressCount : actressFilteredItems.length
+      );
       reviewPanelRenderer.renderCompletedItems(completedItems, completedTotal);
     }
 
@@ -282,6 +294,26 @@
             : state.completedItems)
       );
       reviewPanelRenderer.updateFailedDetails(state.failedDetails, state.failedDetailsTotal);
+      const actressFilteredState = normalizeItems(
+        state.filteredByActressCountItemIds || state.actressFilteredItems || [],
+        maxPanelItems
+      );
+      reviewPanelRenderer.updateActressFilteredItems(
+        actressFilteredState,
+        Number.isFinite(state.filteredByActressCount) ? state.filteredByActressCount : actressFilteredState.length
+      );
+      const releaseDateState = normalizeItems(
+        state.filteredByReleaseDateItemIds || state.filteredByReleaseDateCodes || [],
+        maxPanelItems
+      );
+      const filmCodeState = normalizeItems(state.filteredByFilmCodeItemIds || [], maxPanelItems);
+      const codeDateState = Array.from(new Set([...filmCodeState, ...releaseDateState]));
+      reviewPanelRenderer.updateFilteredItems(
+        codeDateState,
+        Number.isFinite(state.filteredByFilmCode) || Number.isFinite(state.filteredByReleaseDate)
+          ? filmCodeState.length + releaseDateState.length
+          : codeDateState.length
+      );
     }
 
     function isFinalStatus(status) {

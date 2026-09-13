@@ -92,6 +92,8 @@ func (a *API) startSubscriptionV2CrawlResult(payload map[string]any) (string, er
 			// Cloudflare/年龄检测压力，也会拖慢“更新后筛选”的收尾流程。
 			"nopic":                       true,
 			"magnetContentValidation":     false,
+			// 订阅触发的抓取走独立的「订阅-*.txt」任务日志，与手动爬虫分开。
+			"subscriptionTask":            true,
 			"magnetExcludeKeywords":       "",
 			"actressCountFilterThreshold": item.ActressCountFilterThreshold,
 			"goTaskController":            true,

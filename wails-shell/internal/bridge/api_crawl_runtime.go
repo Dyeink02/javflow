@@ -97,7 +97,7 @@ func (a *API) newGoNativeRunner(payload map[string]any, baseURL string, outputDi
 		Output:                      outputDir,
 		UserDataDir:                 a.runtime.store.UserDataDir(),
 		Search:                      crawlSearchFromPayload(payload),
-		SecondValidation:            boolValue(payload["secondValidation"], true),
+		SecondValidation:            true,
 		MagnetExcludeKeywords:       nonEmptyString(payload["magnetExcludeKeywords"]),
 		ActressCountFilterThreshold: intValue(payload["actressCountFilterThreshold"], 0),
 		FilmCodeFilterThreshold:     nonEmptyString(payload["filmCodeFilterThreshold"]),

@@ -43,6 +43,15 @@ type FinalStateInput struct {
 	CompletedCount          int
 	SkippedByPolicyCount    int
 	ExpectedUniqueCount     int
+	// ConfigFilteredCount is the number of site entries excluded by
+	// operator-configured filters (film-code substring, actress-count
+	// threshold, release-date filter). They are intentional exclusions and
+	// must never be reported as crawl failures or completion gaps.
+	ConfigFilteredCount            int
+	ConfigFilteredFilmCodeCount    int
+	ConfigFilteredActressCount     int
+	ConfigFilteredReleaseDateCount int
+	FinalMagnetOutputCount         int
 }
 
 type FinalStateOutput struct {
@@ -54,24 +63,29 @@ type FinalStateOutput struct {
 // status/message values.
 func BuildFinalState(input FinalStateInput) FinalStateOutput {
 	result := crawlexecution.BuildFinalState(crawlexecution.FinalStateInput{
-		UnresolvedCount:         input.UnresolvedCount,
-		QueueGapCount:           input.QueueGapCount,
-		ProcessedGapCount:       input.ProcessedGapCount,
-		FailedCount:             input.FailedCount,
-		LowConfidencePageCount:  input.LowConfidencePageCount,
-		DuplicateExpectedCount:  input.DuplicateExpectedCount,
-		DuplicateItemIDs:        input.DuplicateItemIDs,
-		DuplicateItemSummary:    input.DuplicateItemSummary,
-		UnfinishedItems:         input.UnfinishedItems,
-		ExpectedEntryCount:      input.ExpectedEntryCount,
-		RawDuplicateEntryCount:  input.RawDuplicateEntryCount,
-		DuplicateSummary:        input.DuplicateSummary,
-		ConfiguredTargetCount:   input.ConfiguredTargetCount,
-		ValidationPassed:        input.ValidationPassed,
-		SecondValidationEnabled: input.SecondValidationEnabled,
-		CompletedCount:          input.CompletedCount,
-		SkippedByPolicyCount:    input.SkippedByPolicyCount,
-		ExpectedUniqueCount:     input.ExpectedUniqueCount,
+		UnresolvedCount:                input.UnresolvedCount,
+		QueueGapCount:                  input.QueueGapCount,
+		ProcessedGapCount:              input.ProcessedGapCount,
+		FailedCount:                    input.FailedCount,
+		LowConfidencePageCount:         input.LowConfidencePageCount,
+		DuplicateExpectedCount:         input.DuplicateExpectedCount,
+		DuplicateItemIDs:               input.DuplicateItemIDs,
+		DuplicateItemSummary:           input.DuplicateItemSummary,
+		UnfinishedItems:                input.UnfinishedItems,
+		ExpectedEntryCount:             input.ExpectedEntryCount,
+		RawDuplicateEntryCount:         input.RawDuplicateEntryCount,
+		DuplicateSummary:               input.DuplicateSummary,
+		ConfiguredTargetCount:          input.ConfiguredTargetCount,
+		ValidationPassed:               input.ValidationPassed,
+		SecondValidationEnabled:        input.SecondValidationEnabled,
+		CompletedCount:                 input.CompletedCount,
+		SkippedByPolicyCount:           input.SkippedByPolicyCount,
+		ExpectedUniqueCount:            input.ExpectedUniqueCount,
+		ConfigFilteredCount:            input.ConfigFilteredCount,
+		ConfigFilteredFilmCodeCount:    input.ConfigFilteredFilmCodeCount,
+		ConfigFilteredActressCount:     input.ConfigFilteredActressCount,
+		ConfigFilteredReleaseDateCount: input.ConfigFilteredReleaseDateCount,
+		FinalMagnetOutputCount:         input.FinalMagnetOutputCount,
 	})
 
 	status := StatusIncomplete

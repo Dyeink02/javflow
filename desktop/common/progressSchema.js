@@ -43,7 +43,8 @@
   function normalizeAdFileAction(rawValue) {
     // Keep action normalization here so backend and renderer do not fork their
     // own tiny enums and later disagree on report/panel wording branches.
-    return String(rawValue || '').trim() === 'delete-directly' ? 'delete-directly' : 'move-to-delete';
+    // 默认广告处理方式为「直接删除广告文件」；仅显式保存过 move-to-delete 才回退。
+    return String(rawValue || '').trim() === 'move-to-delete' ? 'move-to-delete' : 'delete-directly';
   }
 
   function toSafeNumber(value, fallback = 0) {

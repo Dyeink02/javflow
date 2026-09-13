@@ -47,6 +47,9 @@ func (a *API) handleRuntimeBootstrapCommand(command string, payload map[string]a
 	case "app:validate-proxy":
 		return a.handleValidateProxyCommand(payload)
 
+	case "app:check-proxy-region":
+		return a.handleCheckProxyRegionCommand(payload)
+
 	case "app:save-global-proxy", "app:save-actress-atlas-proxy":
 		return a.handleSaveGlobalProxyCommand(payload)
 

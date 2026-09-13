@@ -36,6 +36,11 @@ func (t *CrawlTask) Run(bus *events.Bus, subscriptions *avsubscriptionv2.Service
 	t.running = true
 	t.mu.Unlock()
 
+	// 订阅抓取的独立模块日志：每次运行一个 订阅-*.txt，保留最近 10 份。
+	if _, err := modulelog.BeginRun(t.appPath, modulelog.Subscription, time.Now()); err != nil {
+		t.emitLog(bus, "warn", "订阅日志文件创建失败："+err.Error())
+	}
+
 	defer func() {
 		t.mu.Lock()
 		t.running = false

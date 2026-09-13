@@ -70,8 +70,7 @@
       const labels = {
         smart: '智能推荐',
         fanza: 'FANZA',
-        dmm: 'DMM',
-        avfan: 'AVfan',
+        avfan: 'AVfan（FANZA DVD 月榜镜像）',
         local: '本地历史'
       };
       const channel = String(ranking && (ranking.sourceChannel || ranking.resolvedSource) || '').trim().toLowerCase();
@@ -90,15 +89,169 @@
         .trim();
     }
 
+    function imagePlaceholder(className, text, loading = false) {
+      const placeholder = document.createElement('span');
+      placeholder.className = `${className}${loading ? ' is-loading' : ''}`;
+      placeholder.textContent = text;
+      return placeholder;
+    }
+
+    // Keep broken remote images out of the layout. The placeholder remains in
+    // the fixed frame while the browser is loading and after a failed request.
+    // Do not use the HTML `hidden` attribute during loading: WebView2 can defer
+    // a hidden image indefinitely, even when the same local media URL renders
+    // immediately in the full-screen viewer. The pending class keeps the frame
+    // visually unchanged while leaving the image eligible for decoding.
+    function bindSafeImage(image, placeholder, url, labels = {}) {
+      const source = String(url || '').trim();
+      image.alt = labels.alt || '';
+      const settleLoaded = () => {
+        if (image.safeImageTimeout) clearTimeout(image.safeImageTimeout);
+        image.safeImageTimeout = null;
+        image.classList.remove('is-pending');
+        image.hidden = false;
+        placeholder.classList.remove('is-loading', 'is-error');
+        placeholder.hidden = true;
+      };
+      // A profile refresh and a cover-cache refresh can render the same detail
+      // state more than once. Reassigning an identical src starts a new image
+      // request in WebView2, even when it is already cached locally.
+      if (image.dataset.safeImageSource === source) {
+        // Cached/data images can be complete without dispatching another load
+        // event. Reconcile the visual state when the binding is reused.
+        if (source && image.complete && Number(image.naturalWidth) > 0) settleLoaded();
+        if (source && !image.complete) {
+          // The image may have been bound while detached in a DocumentFragment;
+          // give WebView2 one microtask after insertion to expose its dimensions.
+          Promise.resolve().then(() => {
+            if (image.dataset.safeImageSource === source && image.complete && Number(image.naturalWidth) > 0) {
+              settleLoaded();
+            }
+          });
+        }
+        return Boolean(source);
+      }
+      if (image.safeImageTimeout) clearTimeout(image.safeImageTimeout);
+      image.dataset.safeImageSource = source;
+      const isLocalMedia = /^(?:data:|\/subscription-media\/)/i.test(source);
+      const isEmbeddedImage = /^data:/i.test(source);
+      // Local media starts hidden behind its placeholder. Lazy loading hidden
+      // images leaves them pending forever, while the media viewer (which does
+      // not use lazy loading) can display the exact same URL. Load application
+      // media eagerly and reserve lazy loading for uncached remote images.
+      image.loading = isLocalMedia ? 'eager' : 'lazy';
+      image.hidden = false;
+      image.classList.add('is-pending');
+      image.removeAttribute('src');
+      placeholder.classList.toggle('is-loading', Boolean(source));
+      placeholder.textContent = source ? (labels.loading || '正在加载图片...') : (labels.empty || '暂无图片');
+      placeholder.classList.remove('is-error');
+      if (!source) {
+        image.classList.remove('is-pending');
+        image.hidden = true;
+        return false;
+      }
+      let settled = false;
+      let optimisticEmbeddedImage = false;
+      // Application media is already in user data (or in memory) and must not
+      // be marked failed merely because a lazy-load timer elapsed.
+      const timeout = isLocalMedia ? null : setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        image.safeImageTimeout = null;
+        image.classList.remove('is-pending');
+        image.hidden = true;
+        image.removeAttribute('src');
+        placeholder.hidden = false;
+        placeholder.classList.remove('is-loading');
+        placeholder.classList.add('is-error');
+        placeholder.textContent = labels.timeout || labels.error || '图片加载超时';
+      }, Number(labels.timeoutMs) || 10000);
+      image.onload = () => {
+        if (settled) return;
+        settled = true;
+        settleLoaded();
+      };
+      image.onerror = () => {
+        // Embedded data URLs are shown optimistically because WebView2 can
+        // paint them without a load callback. Preserve a later real decode
+        // failure so an invalid resource still becomes an error placeholder.
+        if (settled && !optimisticEmbeddedImage) return;
+        settled = true;
+        optimisticEmbeddedImage = false;
+        clearTimeout(timeout);
+        image.safeImageTimeout = null;
+        image.classList.remove('is-pending');
+        image.hidden = true;
+        image.removeAttribute('src');
+        placeholder.hidden = false;
+        placeholder.classList.remove('is-loading');
+        placeholder.classList.add('is-error');
+        placeholder.textContent = labels.error || '图片加载失败';
+      };
+      placeholder.hidden = false;
+      image.safeImageTimeout = timeout;
+      image.src = source;
+      // WebView2 may expose a decoded cached/data image synchronously without
+      // dispatching `load`; settle immediately when the resource is ready.
+      if (image.complete && Number(image.naturalWidth) > 0) {
+        settled = true;
+        settleLoaded();
+      } else if (isEmbeddedImage) {
+        // Baseline avatars are bundled as data URLs, not remote requests. Do
+        // not leave a loading overlay over an image WebView2 has already
+        // painted merely because it skipped the detached-node load callback.
+        Promise.resolve().then(() => {
+          if (settled || image.dataset.safeImageSource !== source) return;
+          settled = true;
+          optimisticEmbeddedImage = true;
+          settleLoaded();
+        });
+      } else {
+        // Ranking rows are bound before their DocumentFragment is attached to
+        // the live DOM. Recheck after insertion for cached images that skipped
+        // the load event while detached.
+        Promise.resolve().then(() => {
+          if (settled || image.dataset.safeImageSource !== source) return;
+          if (image.complete && Number(image.naturalWidth) > 0) {
+            settled = true;
+            settleLoaded();
+          }
+        });
+      }
+      return true;
+    }
+
+    function renderRankingLoading(message = '正在加载榜单...') {
+      nodeText(elements.atlasRankingTotal, '加载中');
+      nodeText(elements.atlasRankingNotice, message);
+      if (!elements.atlasRankingList) return;
+      elements.atlasRankingList.replaceChildren();
+      const fragment = document.createDocumentFragment();
+      for (let index = 0; index < 8; index += 1) {
+        const row = document.createElement('div');
+        row.className = 'atlas-ranking-loading-row';
+        row.setAttribute('aria-hidden', 'true');
+        row.textContent = index === 0 ? message : '正在读取榜单内容...';
+        fragment.appendChild(row);
+      }
+      elements.atlasRankingList.appendChild(fragment);
+    }
+
     function renderRanking(ranking, onSelect) {
       const items = Array.isArray(ranking && ranking.items) ? ranking.items : [];
       nodeText(elements.atlasRankingTotal, `${items.length} 位`);
       const notice = neutralizeRankingNotice(ranking && ranking.notice);
       nodeText(elements.atlasRankingNotice, notice || `${rankingDisplayName(ranking)} · ${ranking && ranking.periodLabel || ''}`);
-      nodeText(elements.atlasRankingFooter, `显示榜单返回的 ${items.length} 位演员`);
+      const expected = Number(ranking && ranking.expectedTotal) || 100;
+      const complete = ranking && ranking.complete === true;
+      nodeText(elements.atlasRankingFooter, complete
+        ? `已显示完整榜单：${items.length}/${expected} 位演员`
+        : `已显示全部返回内容：${items.length}/${expected} 位演员（该来源可能未提供完整榜单）`);
       if (!elements.atlasRankingList) return;
 
       elements.atlasRankingList.replaceChildren();
+      const fragment = document.createDocumentFragment();
       items.forEach((item) => {
         const button = document.createElement('button');
         button.type = 'button';
@@ -107,11 +260,27 @@
         const rank = document.createElement('strong');
         rank.className = 'atlas-ranking-rank';
         rank.textContent = `#${item.rank || '-'}`;
+        const imageFrame = document.createElement('span');
+        imageFrame.className = 'atlas-ranking-avatar-frame';
+        const cacheFailed = item.avatarCacheFailed === true;
+        const imagePlaceholderNode = imagePlaceholder(
+          'atlas-image-placeholder',
+          cacheFailed ? '头像加载失败' : '正在加载头像...',
+          Boolean(item.imageUrl) && !cacheFailed
+        );
+        if (cacheFailed) imagePlaceholderNode.classList.add('is-error');
         const image = document.createElement('img');
         image.className = 'atlas-ranking-avatar';
-        image.src = item.imageUrl || '';
-        image.alt = '';
-        image.loading = 'lazy';
+        imageFrame.append(imagePlaceholderNode, image);
+        if (!cacheFailed) {
+          bindSafeImage(image, imagePlaceholderNode, item.imageUrl, {
+            alt: `${item.actressName || '演员'}头像`,
+            loading: '正在加载头像...',
+            empty: '暂无头像',
+            error: '头像加载失败',
+            timeout: '头像加载超时'
+          });
+        }
         const copy = document.createElement('span');
         copy.className = 'atlas-ranking-copy';
         const name = document.createElement('strong');
@@ -119,10 +288,11 @@
         const meta = document.createElement('small');
         meta.textContent = item.latestTitle || '';
         copy.append(name, meta);
-        button.append(rank, image, copy);
+        button.append(rank, imageFrame, copy);
         button.addEventListener('click', () => onSelect(item));
-        elements.atlasRankingList.appendChild(button);
+        fragment.appendChild(button);
       });
+      elements.atlasRankingList.appendChild(fragment);
     }
 
     function renderProfile(profile) {
@@ -182,13 +352,21 @@
         const tile = document.createElement('button');
         tile.type = 'button';
         tile.className = 'atlas-photo-tile';
+        const imageFrame = document.createElement('span');
+        imageFrame.className = 'atlas-photo-frame';
+        const imagePlaceholderNode = imagePlaceholder('atlas-image-placeholder', '正在加载照片...', true);
         const image = document.createElement('img');
-        image.src = url;
-        image.alt = `${item.actressName || '演员'}公开照片`;
-        image.loading = 'lazy';
+        imageFrame.append(imagePlaceholderNode, image);
+        bindSafeImage(image, imagePlaceholderNode, url, {
+          alt: `${item.actressName || '演员'}公开照片`,
+          loading: '正在加载照片...',
+          empty: '暂无照片',
+          error: '照片加载失败'
+        });
         const label = document.createElement('span');
+        label.className = 'atlas-photo-label';
         label.textContent = '公开照片';
-        tile.append(image, label);
+        tile.append(imageFrame, label);
         tile.addEventListener('click', () => openMedia(`${item.actressName || '演员'}公开照片`, urls, index));
         elements.atlasPromoGrid.appendChild(tile);
       });
@@ -233,7 +411,7 @@
             work.coverRetrying = false;
             placeholder.classList.remove('is-loading');
             placeholder.classList.add('is-retryable');
-            placeholder.textContent = '封面加载失败，点击重试';
+            placeholder.textContent = '封面加载失败，点击重新刷新';
             cover.remove();
           });
           frame.appendChild(cover);
@@ -274,9 +452,26 @@
       nodeText(elements.atlasActorMeta, profile.resolvedBase || '正在读取公开演员目录');
       const avatar = profile.avatarUrl || item.imageUrl || '';
       if (elements.atlasActorAvatar) {
-        elements.atlasActorAvatar.src = avatar;
-        elements.atlasActorAvatar.alt = `${item.actressName || '演员'}头像`;
-        elements.atlasActorAvatar.onclick = avatar ? () => openMedia(`${item.actressName || '演员'}公开照片`, [avatar, ...(profile.promotionImageUrls || [])]) : null;
+        const image = elements.atlasActorAvatar;
+        let frame = image.parentElement;
+        if (!frame || !frame.classList.contains('atlas-actor-avatar-frame')) {
+          frame = document.createElement('span');
+          frame.className = 'atlas-actor-avatar-frame';
+          image.replaceWith(frame);
+          frame.appendChild(image);
+        }
+        let placeholder = frame.querySelector('.atlas-image-placeholder');
+        if (!placeholder) {
+          placeholder = imagePlaceholder('atlas-image-placeholder', '正在加载头像...', Boolean(avatar));
+          frame.insertBefore(placeholder, image);
+        }
+        bindSafeImage(image, placeholder, avatar, {
+          alt: `${item.actressName || '演员'}头像`,
+          loading: '正在加载头像...',
+          empty: '暂无头像',
+          error: '头像加载失败'
+        });
+        image.onclick = avatar ? () => openMedia(`${item.actressName || '演员'}公开照片`, [avatar, ...(profile.promotionImageUrls || [])]) : null;
       }
       renderProfile(profile);
       renderStats(item, profile, state.worksLength);
@@ -284,7 +479,7 @@
       return renderWorks(state);
     }
 
-    return { renderRanking, renderProfile, renderStats, renderWorks, renderSelectedState };
+    return { renderRanking, renderRankingLoading, renderProfile, renderStats, renderWorks, renderSelectedState };
   }
 
   globalScope.desktopActressAtlasView = { createActressAtlasView };

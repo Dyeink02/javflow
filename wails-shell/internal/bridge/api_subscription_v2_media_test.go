@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"javflow/internal/actressranking"
 	"javflow/internal/contracts/subscriptiontarget"
 	runtimepaths "javflow/internal/runtime"
 )
@@ -45,6 +46,32 @@ func TestCacheSubscriptionMediaWritesHiddenLocalImage(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(mediaDir, "photo-01.png")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCacheNamedSubscriptionMediaReusesExistingFile(t *testing.T) {
+	requests := 0
+	originalFactory := newSubscriptionMediaHTTPClient
+	newSubscriptionMediaHTTPClient = func(string) (*http.Client, error) {
+		return newSubscriptionMediaTestClient(func(*http.Request) { requests++ }), nil
+	}
+	t.Cleanup(func() { newSubscriptionMediaHTTPClient = originalFactory })
+
+	mediaDir := filepath.Join(t.TempDir(), "subscriptions-v2", "media", "actor")
+	client, err := newSubscriptionMediaHTTPClient("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cacheNamedSubscriptionMedia(context.Background(), client, "https://8.8.8.8/avatar.png", "", mediaDir, "profile-avatar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cacheNamedSubscriptionMedia(context.Background(), client, "https://8.8.8.8/avatar.png", "", mediaDir, "profile-avatar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || requests != 1 {
+		t.Fatalf("existing media should be reused without a second request: first=%q second=%q requests=%d", first, second, requests)
 	}
 }
 
@@ -131,6 +158,42 @@ func TestCacheActressAtlasWorkCoversUsesLocalRouteAndWorkReferer(t *testing.T) {
 	second := api.cacheActressAtlasWorkCovers(context.Background(), secondProfile, "")
 	if second.Works[0].CoverURL == "" || second.Works[0].SourceCoverURL != profile.Works[0].CoverURL {
 		t.Fatalf("second refresh lost local/source cover pair: %#v", second.Works[0])
+	}
+}
+
+func TestCacheActressAtlasRankingAvatarsUsesStableLocalRoute(t *testing.T) {
+	originalFactory := newSubscriptionMediaHTTPClient
+	requests := 0
+	newSubscriptionMediaHTTPClient = func(string) (*http.Client, error) {
+		return newSubscriptionMediaTestClient(func(*http.Request) { requests++ }), nil
+	}
+	t.Cleanup(func() { newSubscriptionMediaHTTPClient = originalFactory })
+
+	userData := t.TempDir()
+	api := &API{runtime: runtimeFacade{paths: runtimepaths.Paths{UserData: userData}}}
+	items := []actressranking.RankingItem{
+		{Rank: 1, ActressName: "甲", ImageURL: "https://8.8.8.8/avatar-a.png"},
+		{Rank: 2, ActressName: "乙", ImageURL: "https://8.8.8.8/avatar-a.png"},
+	}
+	updated, cached, failed, err := api.cacheActressAtlasRankingAvatars(context.Background(), items, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached != 2 || failed != 0 || requests != 1 {
+		t.Fatalf("expected one download shared by two rows, cached=%d failed=%d requests=%d", cached, failed, requests)
+	}
+	if len(updated) != 2 || updated[0].ImageURL == items[0].ImageURL || updated[0].ImageURL != updated[1].ImageURL {
+		t.Fatalf("expected stable shared local avatar URL, got %#v", updated)
+	}
+	if !strings.HasPrefix(updated[0].ImageURL, "/subscription-media/atlas-ranking/") {
+		t.Fatalf("unexpected ranking avatar route: %q", updated[0].ImageURL)
+	}
+	second, secondCached, secondFailed, err := api.cacheActressAtlasRankingAvatars(context.Background(), updated, "")
+	if err != nil || secondCached != 2 || secondFailed != 0 || requests != 1 {
+		t.Fatalf("expected second call to reuse local cache, cached=%d failed=%d requests=%d err=%v", secondCached, secondFailed, requests, err)
+	}
+	if second[0].ImageURL != updated[0].ImageURL {
+		t.Fatalf("local avatar URL changed on cache hit: %q -> %q", updated[0].ImageURL, second[0].ImageURL)
 	}
 }
 

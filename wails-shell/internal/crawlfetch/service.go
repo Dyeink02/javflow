@@ -147,7 +147,27 @@ func (s *Service) FetchIndexPage(ctx context.Context, options IndexPageOptions) 
 	if lastErr == nil {
 		lastErr = context.Canceled
 	}
+	// 直连模式下所有域名都不可达时，给出可操作指引而不是裸超时，
+	// 避免用户误以为代理是硬性前置条件。
+	if strings.TrimSpace(s.options.Proxy) == "" && isConnectionFailure(lastErr) {
+		lastErr = fmt.Errorf("%w；当前为直连模式（未配置代理），本网络下主站与已配镜像均不可达：请开启代理，或在基础地址改用可达的镜像域名", lastErr)
+	}
 	return IndexPageResult{}, lastErr
+}
+
+// isConnectionFailure reports whether an error looks like a network-level
+// connect/timeout failure (as opposed to an HTTP status or parse problem).
+func isConnectionFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, token := range []string{"timeout", "connection", "connect", "refused", "reset", "unreachable", "lookup", "dial", "eof"} {
+		if strings.Contains(message, token) {
+			return true
+		}
+	}
+	return false
 }
 
 // FetchDetail fetches one detail page and projects it into metadata plus the

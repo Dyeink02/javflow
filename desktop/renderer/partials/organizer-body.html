@@ -87,7 +87,6 @@
                           name="organizer-ad-file-action"
                           type="radio"
                           value="move-to-delete"
-                          checked
                         />
                         <span>移入待删除（推荐）</span>
                         <small>广告文件先放入待删除目录，便于人工复核。</small>
@@ -98,6 +97,7 @@
                           name="organizer-ad-file-action"
                           type="radio"
                           value="delete-directly"
+                          checked
                         />
                         <span>直接删除广告文件</span>
                         <small>广告文件不再进入待删除，直接清理，速度更快。</small>
@@ -106,12 +106,12 @@
                     <small>你可以在每次整理前切换该模式。</small>
                 </label>
 
-                <!-- 批量删除选项（仅直接删除模式可用） -->
+                <!-- 批量删除选项（仅直接删除模式可用，默认启用） -->
                 <label class="toggle-card organizer-ad-action-card" id="organizer-batch-delete-card">
                   <input
                     id="organizer-batch-delete"
                     type="checkbox"
-                    disabled
+                    checked
                   />
                   <span>启用批量删除（推荐云盘用户）</span>
                   <small>先转移全部有效视频，再只删除扫描确认的广告/小文件；未知内容和软件产物会保留。</small>

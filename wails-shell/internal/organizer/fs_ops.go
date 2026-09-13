@@ -191,6 +191,27 @@ func copyThenRemove(srcPath string, targetPath string) error {
 	return nil
 }
 
+// dirEntryNamesLower reads the target directory once and returns entry names
+// lowercased. Cloud-drive mounts (115/夸克 等) may serve stale or
+// case-insensitive listings where a single os.Stat misses an existing file, so
+// conflict detection uses the full directory listing instead.
+func dirEntryNamesLower(dir string) map[string]struct{} {
+	names := map[string]struct{}{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return names
+	}
+	for _, entry := range entries {
+		names[strings.ToLower(entry.Name())] = struct{}{}
+	}
+	return names
+}
+
+func nameExistsFold(names map[string]struct{}, base string) bool {
+	_, ok := names[strings.ToLower(strings.TrimSpace(base))]
+	return ok
+}
+
 func moveWithUnique(srcPath string, desiredTargetPath string) (string, error) {
 	if err := ensureDirectory(filepath.Dir(desiredTargetPath)); err != nil {
 		return "", err
@@ -199,26 +220,71 @@ func moveWithUnique(srcPath string, desiredTargetPath string) (string, error) {
 	// Duplicate suffixing happens only at the final move point so earlier phases
 	// can reason about the intended target name without filesystem side effects.
 	targetPath := desiredTargetPath
-	if pathExists(targetPath) {
+	existingNames := dirEntryNamesLower(filepath.Dir(desiredTargetPath))
+	baseName := filepath.Base(desiredTargetPath)
+	if nameExistsFold(existingNames, baseName) {
 		extension := filepath.Ext(desiredTargetPath)
-		baseName := strings.TrimSuffix(filepath.Base(desiredTargetPath), extension)
-		parentDir := filepath.Dir(desiredTargetPath)
+		stem := strings.TrimSuffix(baseName, extension)
 		for index := 1; index <= 9999; index++ {
-			candidate := filepath.Join(parentDir, baseName+"_DUP"+intToString(index)+extension)
-			if !pathExists(candidate) {
-				targetPath = candidate
+			candidate := stem + "_DUP" + intToString(index) + extension
+			if !nameExistsFold(existingNames, candidate) {
+				targetPath = filepath.Join(filepath.Dir(desiredTargetPath), candidate)
 				break
 			}
 		}
 	}
 
 	if err := os.Rename(srcPath, targetPath); err == nil {
-		return targetPath, nil
+		return normalizeMovedName(targetPath), nil
 	}
 	if err := copyThenRemove(srcPath, targetPath); err != nil {
 		return "", err
 	}
-	return targetPath, nil
+	return normalizeMovedName(targetPath), nil
+}
+
+// normalizeMovedName repairs mangled result names on cloud-drive mounts.
+// 部分网盘在目标名已存在（或仅大小写不同）时会自行生成冲突名（如
+// `PDV-153-A.wmv**.wmv`），而 Rename 仍返回成功。这里按大小写不敏感匹配
+// 找到实际落盘的条目：与计划名一致则原样返回；不一致则尝试改回计划名，
+// 仍冲突时退回 _DUP 序号，保证最终文件名始终受控。
+func normalizeMovedName(plannedPath string) string {
+	parentDir := filepath.Dir(plannedPath)
+	plannedBase := filepath.Base(plannedPath)
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return plannedPath
+	}
+	var actualName string
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Name(), plannedBase) {
+			actualName = entry.Name()
+			break
+		}
+	}
+	if actualName == "" || actualName == plannedBase {
+		return plannedPath
+	}
+
+	actualPath := filepath.Join(parentDir, actualName)
+	// 云盘生成的冲突名通常携带 `*` 等非法字符；尝试改回计划名。
+	if err := os.Rename(actualPath, plannedPath); err == nil {
+		return plannedPath
+	}
+	extension := filepath.Ext(plannedBase)
+	stem := strings.TrimSuffix(plannedBase, extension)
+	existing := dirEntryNamesLower(parentDir)
+	for index := 1; index <= 9999; index++ {
+		candidate := stem + "_DUP" + intToString(index) + extension
+		if !nameExistsFold(existing, candidate) {
+			candidatePath := filepath.Join(parentDir, candidate)
+			if err := os.Rename(actualPath, candidatePath); err == nil {
+				return candidatePath
+			}
+			return actualPath
+		}
+	}
+	return actualPath
 }
 
 // moveDirectoryWithUnique mirrors moveWithUnique for whole directory trees.

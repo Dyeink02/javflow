@@ -131,6 +131,29 @@ select optgroup {
   border-color: rgba(255, 97, 124, 0.42);
 }
 
+.proxy-status-chip.foreign {
+  color: #fff4d6;
+  background: rgba(247, 184, 72, 0.2);
+  border-color: rgba(247, 184, 72, 0.46);
+}
+
+.proxy-status-chip.japan {
+  color: #091f16;
+  background: rgba(130, 255, 196, 0.92);
+  border-color: rgba(130, 255, 196, 0.75);
+}
+
+/* 图鉴板块：未检测/检测失败按用户约定显示红色警示。 */
+.atlas-proxy-section .proxy-status-chip.empty {
+  color: #ffe1e4;
+  background: rgba(255, 97, 124, 0.16);
+  border-color: rgba(255, 97, 124, 0.4);
+}
+
+button.proxy-status-chip {
+  cursor: pointer;
+}
+
 .compact-field {
   gap: 6px;
 }

@@ -41,9 +41,10 @@ func (a *API) stopCrawlNativeViaTaskController(ctx context.Context) (json.RawMes
 // being saved in one controller path but silently missed in another.
 func (a *API) prepareCrawlStartPayload(payload map[string]any) (map[string]any, error) {
 	payload = a.normalizeActressThresholdPayload(payload)
-	// Content validation is opt-in. Older renderer/CLI callers may omit the
-	// field entirely; normalize that omission before mode selection so the
-	// default stays consistent on the Go-task-controller path.
+	// Content validation is opt-in again（0.4.42 按用户决策恢复可选，默认关闭）.
+	// Older renderer/CLI callers may omit the field entirely; normalize that
+	// omission before mode selection so the default stays consistent on the
+	// Go-task-controller path.
 	if _, exists := payload["magnetContentValidation"]; !exists {
 		payload["magnetContentValidation"] = false
 	}

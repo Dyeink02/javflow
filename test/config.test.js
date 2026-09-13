@@ -62,6 +62,24 @@ describe('ConfigManager proxy precedence', () => {
     }
   });
 
+  it('keeps second validation enabled when a stale runtime payload disables it', async () => {
+    const systemProxyModule = require('../dist/utils/systemProxy');
+    const originalGetSystemProxy = systemProxyModule.getSystemProxy;
+
+    systemProxyModule.getSystemProxy = async () => ({ enabled: false, server: '' });
+    delete require.cache[require.resolve('../dist/core/config')];
+    const ConfigManager = require('../dist/core/config').default;
+
+    try {
+      const manager = new ConfigManager();
+      await manager.updateFromOptions({ secondValidation: false });
+      assert.strictEqual(manager.getConfig().secondValidation, true);
+    } finally {
+      systemProxyModule.getSystemProxy = originalGetSystemProxy;
+      delete require.cache[require.resolve('../dist/core/config')];
+    }
+  });
+
   it('supports actress-count filter threshold from runtime options', async () => {
     const systemProxyModule = require('../dist/utils/systemProxy');
     const originalGetSystemProxy = systemProxyModule.getSystemProxy;

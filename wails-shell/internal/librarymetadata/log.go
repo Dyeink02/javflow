@@ -24,8 +24,8 @@ import (
 const (
 	libraryMetadataLogDirName = "librarymetadata-logs"
 	historyFileName           = "history.json"
-	latestLogFileName         = "运行日志.txt"
-	logFilePrefix             = "媒体库刮削"
+	libraryLogFilePrefix      = "刮削"
+	libraryLogRetentionCount  = 10
 	maxHistoryPaths           = 2
 )
 
@@ -35,6 +35,9 @@ const (
 type LogManager struct {
 	mu       sync.Mutex
 	basePath string
+	// runFiles maps a library root path to its current per-run log file
+	// (刮削-<timestamp>.txt), created by InitLog at the start of each scrape.
+	runFiles map[string]string
 }
 
 // SetBasePath routes media-library logs into the portable installation log
@@ -169,7 +172,52 @@ func (m *LogManager) InitLog(rootPath string) (string, error) {
 		return "", err
 	}
 
+	// 单份日志策略：每次刮削运行创建一个 刮削-<时间戳>.txt，目录内只保留
+	// 最近 libraryLogRetentionCount 份。
+	if m.runFiles == nil {
+		m.runFiles = map[string]string{}
+	}
+	runPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.txt", libraryLogFilePrefix, time.Now().Format("20060102-150405")))
+	if err := os.WriteFile(runPath, []byte(""), 0o644); err != nil {
+		return "", err
+	}
+	m.runFiles[rootPath] = runPath
+	pruneLibraryRunLogs(logDir, libraryLogRetentionCount)
+
 	return logDir, nil
+}
+
+// pruneLibraryRunLogs keeps only the newest `keep` 刮削-*.txt run files in one
+// root's log directory (by modification time).
+func pruneLibraryRunLogs(logDir string, keep int) {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+	type logFile struct {
+		path    string
+		modTime time.Time
+	}
+	matches := make([]logFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), libraryLogFilePrefix) || !strings.HasSuffix(entry.Name(), ".txt") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		matches = append(matches, logFile{path: filepath.Join(logDir, entry.Name()), modTime: info.ModTime()})
+	}
+	if len(matches) <= keep {
+		return
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].modTime.After(matches[j].modTime)
+	})
+	for _, stale := range matches[keep:] {
+		_ = os.Remove(stale.path)
+	}
 }
 
 // AppendLog writes one timestamped line to both the rotating session log and
@@ -194,14 +242,20 @@ func (m *LogManager) AppendLog(rootPath, line string) error {
 
 	timestamped := fmt.Sprintf("[%s] %s\n", time.Now().Format("15:04:05"), line)
 
-	latestPath := filepath.Join(logDir, latestLogFileName)
-	if err := appendToFile(latestPath, timestamped); err != nil {
-		return err
+	if m.runFiles == nil {
+		m.runFiles = map[string]string{}
 	}
-
-	sessionName := fmt.Sprintf("%s-%s.txt", logFilePrefix, time.Now().Format("20060102"))
-	sessionPath := filepath.Join(logDir, sessionName)
-	return appendToFile(sessionPath, timestamped)
+	runPath := m.runFiles[rootPath]
+	if runPath == "" {
+		// 兜底：未经过 InitLog 的调用也应有落点（惰性建一份运行文件）。
+		logDir := m.logDirForRoot(rootPath)
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			return err
+		}
+		runPath = filepath.Join(logDir, fmt.Sprintf("%s-%s.txt", libraryLogFilePrefix, time.Now().Format("20060102-150405")))
+		m.runFiles[rootPath] = runPath
+	}
+	return appendToFile(runPath, timestamped)
 }
 
 // OpenLogFolder returns the log directory for the given root path, creating it

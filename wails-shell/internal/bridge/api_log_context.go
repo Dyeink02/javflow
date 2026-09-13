@@ -3,8 +3,6 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"javflow/internal/common"
@@ -28,15 +26,13 @@ import (
 // context query path.
 func (a *API) initTaskLog(outputDir string, payload map[string]any) {
 	now := time.Now()
-	logDir := modulelog.Directory(a.runtime.paths.AppPath, modulelog.JAVCrawl)
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	sessionLogPath, err := modulelog.BeginRun(a.runtime.paths.AppPath, modulelog.JAVCrawl, now)
+	if err != nil {
 		a.emitLogEntry("error", fmt.Sprintf("创建日志目录失败：%s", err.Error()))
 		return
 	}
-
-	sessionID := now.Format("20060102-150405")
-	sessionLogPath := modulelog.SessionPath(a.runtime.paths.AppPath, modulelog.JAVCrawl, now)
-	latestLogPath := filepath.Join(logDir, "\u8fd0\u884c\u65e5\u5fd7.txt")
+	logDir := modulelog.Directory(a.runtime.paths.AppPath, modulelog.JAVCrawl)
+	latestLogPath := sessionLogPath
 
 	header := fmt.Sprintf(
 		"JAV crawl log\r\nstartedAt: %s\r\noutputDir: %s\r\nbaseURL: %s\r\nsearch: %s\r\n------------------------------------------------------------\r\n",
@@ -46,16 +42,11 @@ func (a *API) initTaskLog(outputDir string, payload map[string]any) {
 		crawlSearchFromPayload(payload),
 	)
 
-	if err := common.WriteUTF8TextFile(sessionLogPath, header); err != nil {
+	if err := common.AppendUTF8TextFile(sessionLogPath, header); err != nil {
 		a.emitLogEntry("error", fmt.Sprintf("写入会话日志失败：%s", err.Error()))
 	}
-	if err := common.WriteUTF8TextFile(latestLogPath, header); err != nil {
-		a.emitLogEntry("error", fmt.Sprintf("写入最新日志失败：%s", err.Error()))
-	}
-	if err := common.AppendUTF8TextFile(modulelog.DailyPath(a.runtime.paths.AppPath, modulelog.JAVCrawl, now), header); err != nil {
-		a.emitLogEntry("error", fmt.Sprintf("写入日期日志失败：%s", err.Error()))
-	}
 
+	sessionID := now.Format("20060102-150405")
 	raw, _ := json.Marshal(map[string]any{
 		"sessionLogPath": sessionLogPath,
 		"latestLogPath":  latestLogPath,

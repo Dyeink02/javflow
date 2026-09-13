@@ -71,7 +71,7 @@ func DefaultConfig() CrawlConfig {
 		Nopic:                       false,
 		StrictSSL:                   true,
 		UseCloudflareBypass:         false,
-		SecondValidation:            false,
+		SecondValidation:            true,
 		MagnetExcludeKeywords:       "",
 		ActressCountFilterThreshold: 0,
 		FilmCodeFilterThreshold:     "",

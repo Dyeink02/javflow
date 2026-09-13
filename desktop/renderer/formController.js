@@ -261,9 +261,8 @@
       if (Object.prototype.hasOwnProperty.call(draft, 'cloudflare')) {
         elements.cloudflare.checked = Boolean(draft.cloudflare);
       }
-      if (Object.prototype.hasOwnProperty.call(draft, 'secondValidation')) {
-        elements.secondValidation.checked = Boolean(draft.secondValidation);
-      }
+      // 结果二次校验是 JAV 抓取的固定收尾步骤，不再允许草稿关闭。
+      if (elements.secondValidation) elements.secondValidation.checked = true;
       if (Object.prototype.hasOwnProperty.call(draft, 'nomag')) {
         elements.nomag.checked = Boolean(draft.nomag);
       }
@@ -544,7 +543,7 @@
       elements.timeout.value = String(template.timeout);
       elements.itemsPerPage.value = String(template.itemsPerPage);
       elements.cloudflare.checked = template.cloudflare;
-      elements.secondValidation.checked = template.secondValidation;
+      if (elements.secondValidation) elements.secondValidation.checked = true;
 
       if (!keepLimit) {
         elements.limit.value = '0';
@@ -607,7 +606,7 @@
         filmCodeFilterThreshold: getElementValue(elements.filmCodeFilterThreshold).trim(),
         taskTemplate: getElementValue(elements.taskTemplate),
         cloudflare: getElementChecked(elements.cloudflare, true),
-        secondValidation: getElementChecked(elements.secondValidation),
+        secondValidation: true,
         nomag: getElementChecked(elements.nomag),
         allmag: getElementChecked(elements.allmag),
         magnetContentValidation: getElementChecked(elements.magnetContentValidation),
@@ -983,7 +982,6 @@
 
       [
         elements.cloudflare,
-        elements.secondValidation,
         elements.nomag,
         elements.allmag,
         elements.magnetContentValidation,
@@ -1138,7 +1136,7 @@
         elements.delay.value = String(initialSettings.delay || TASK_TEMPLATES.balanced.delay);
         elements.timeout.value = String(initialSettings.timeout || TASK_TEMPLATES.balanced.timeout);
         elements.cloudflare.checked = Boolean(initialSettings.cloudflare ?? true);
-        elements.secondValidation.checked = Boolean(initialSettings.secondValidation);
+        if (elements.secondValidation) elements.secondValidation.checked = true;
       }
 
       elements.base.value = initialSettings.base || '';

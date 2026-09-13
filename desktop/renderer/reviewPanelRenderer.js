@@ -49,6 +49,8 @@
       failedItemsView,
       filteredItemsView,
       filteredTotalView,
+      actressFilteredItemsView,
+      actressFilteredTotalView,
       completedItemsView,
       completedTotalView,
       emptyTexts = {},
@@ -82,12 +84,14 @@
       pageGap: '',
       failed: '',
       filtered: '',
+      actressFiltered: '',
       completed: ''
     };
 
     // 当抓取结束时，各复盘面板应保留最后一次非空数据，而不是被清空为 0。
     let preserveOnEmpty = false;
     let hasRenderedNonEmptyFiltered = false;
+    let hasRenderedNonEmptyActressFiltered = false;
     let hasRenderedNonEmptyCompleted = false;
     let hasRenderedNonEmptyFailed = false;
     let hasRenderedNonEmptyDuplicate = false;
@@ -255,6 +259,39 @@
       renderFilteredItems(normalized, Number.isFinite(totalCount) ? totalCount : normalized.length);
     }
 
+    function renderActressFilteredItems(items = [], totalCount = items.length) {
+      const safeTotal = Number.isFinite(totalCount) ? totalCount : items.length;
+      const visibleItems = toSafeArray(items);
+      const signature = `${safeTotal}|${visibleItems.join('|')}`;
+
+      if (signature === lastRenderSignature.actressFiltered) {
+        return;
+      }
+
+      if (safeTotal > 0 || visibleItems.length > 0) {
+        hasRenderedNonEmptyActressFiltered = true;
+      } else if (preserveOnEmpty && hasRenderedNonEmptyActressFiltered) {
+        // 抓取结束时保留最后一次非空过滤演员数数据，避免面板被清空。
+        return;
+      }
+
+      lastRenderSignature.actressFiltered = signature;
+      if (!actressFilteredItemsView || !actressFilteredTotalView) {
+        return;
+      }
+
+      actressFilteredTotalView.textContent = String(safeTotal);
+      replaceChildren(
+        actressFilteredItemsView,
+        buildChipNodes(visibleItems, 'state-chip chip-filtered', '暂无过滤演员数影片。')
+      );
+    }
+
+    function updateActressFilteredItems(items = [], totalCount = items.length) {
+      const normalized = normalizeItems(items, maxPanelItems);
+      renderActressFilteredItems(normalized, Number.isFinite(totalCount) ? totalCount : normalized.length);
+    }
+
     function renderCompletedItems(items = [], totalCount = items.length) {
       const safeTotal = Number.isFinite(totalCount) ? totalCount : items.length;
       const visibleItems = toSafeArray(items);
@@ -297,10 +334,12 @@
       preserveOnEmpty = next;
       if (!preserveOnEmpty) {
         lastRenderSignature.filtered = '';
+        lastRenderSignature.actressFiltered = '';
         lastRenderSignature.completed = '';
         lastRenderSignature.failed = '';
         lastRenderSignature.duplicate = '';
         hasRenderedNonEmptyFiltered = false;
+        hasRenderedNonEmptyActressFiltered = false;
         hasRenderedNonEmptyCompleted = false;
         hasRenderedNonEmptyFailed = false;
         hasRenderedNonEmptyDuplicate = false;
@@ -427,13 +466,17 @@
           : toSafeArray(panel.unfinishedItems).length
       );
       renderPageGapItems(sanitizeReadyItems(panel.pageGapItems, maxPanelItems));
+      renderActressFilteredItems(
+        sanitizeReadyItems(panel.actressFilteredItems || panel.filteredByActressCountItemIds, maxPanelItems),
+        Number.isFinite(panel.filteredByActressCount)
+          ? panel.filteredByActressCount
+          : toSafeArray(panel.actressFilteredItems || panel.filteredByActressCountItemIds).length
+      );
       renderFilteredItems(
         sanitizeReadyItems(panel.filteredItems || panel.filteredItemIds, maxPanelItems),
         Number.isFinite(panel.filteredItemsTotal)
           ? panel.filteredItemsTotal
-          : Number.isFinite(panel.filteredByActressCount)
-            ? panel.filteredByActressCount
-            : toSafeArray(panel.filteredItems || panel.filteredItemIds).length
+          : toSafeArray(panel.filteredItems || panel.filteredItemIds).length
       );
       renderCompletedItems(
         sanitizeReadyItems(panel.completedItems || panel.completedItemIds, maxPanelItems),
@@ -457,11 +500,13 @@
       applyPanel,
       renderActiveItems,
       renderCompletedItems,
+      renderActressFilteredItems,
       renderFilteredItems,
       setPreserveMode,
       updateActiveItems,
       updateCompletedItems,
       updateDuplicateItems,
+      updateActressFilteredItems,
       updateFailedDetails,
       updateFilteredItems,
       updatePageGapItems,

@@ -26,31 +26,31 @@ type RawDuplicateGroup struct {
 }
 
 type Reconciliation struct {
-	ExpectedIDs             []string            `json:"expectedIds"`
-	QueuedIDs               []string            `json:"queuedIds"`
-	ProcessedIDs            []string            `json:"processedIds"`
-	PersistedIDs            []string            `json:"persistedIds"`
-	ExpectedButNotQueuedIDs []string            `json:"expectedButNotQueuedIds"`
-	ExpectedButNotQueuedLinks []string          `json:"expectedButNotQueuedLinks"`
-	ExpectedButNotPersistedIDs []string         `json:"expectedButNotPersistedIds"`
-	ProcessedButNotPersistedIDs []string        `json:"processedButNotPersistedIds"`
-	DuplicateExpectedIDs    []string            `json:"duplicateExpectedIds"`
-	ExpectedEntryCount      int                 `json:"expectedEntryCount"`
-	RawDuplicateEntryCount  int                 `json:"rawDuplicateEntryCount"`
-	RawDuplicateGroups      []RawDuplicateGroup `json:"rawDuplicateGroups"`
+	ExpectedIDs                 []string            `json:"expectedIds"`
+	QueuedIDs                   []string            `json:"queuedIds"`
+	ProcessedIDs                []string            `json:"processedIds"`
+	PersistedIDs                []string            `json:"persistedIds"`
+	ExpectedButNotQueuedIDs     []string            `json:"expectedButNotQueuedIds"`
+	ExpectedButNotQueuedLinks   []string            `json:"expectedButNotQueuedLinks"`
+	ExpectedButNotPersistedIDs  []string            `json:"expectedButNotPersistedIds"`
+	ProcessedButNotPersistedIDs []string            `json:"processedButNotPersistedIds"`
+	DuplicateExpectedIDs        []string            `json:"duplicateExpectedIds"`
+	ExpectedEntryCount          int                 `json:"expectedEntryCount"`
+	RawDuplicateEntryCount      int                 `json:"rawDuplicateEntryCount"`
+	RawDuplicateGroups          []RawDuplicateGroup `json:"rawDuplicateGroups"`
 }
 
 type ReconciliationInput struct {
-	ExpectedItemIDs      map[string]struct{}
-	QueuedItemIDs        map[string]struct{}
-	ProcessedItemIDs     map[string]struct{}
-	PersistedItemIDs     map[string]struct{}
-	SkippedItemIDs       map[string]struct{}
-	DuplicateExpectedIDs map[string]struct{}
-	ExpectedItemLinkMap  map[string]string
-	ExpectedEntryCount   int
+	ExpectedItemIDs        map[string]struct{}
+	QueuedItemIDs          map[string]struct{}
+	ProcessedItemIDs       map[string]struct{}
+	PersistedItemIDs       map[string]struct{}
+	SkippedItemIDs         map[string]struct{}
+	DuplicateExpectedIDs   map[string]struct{}
+	ExpectedItemLinkMap    map[string]string
+	ExpectedEntryCount     int
 	RawDuplicateEntryCount int
-	RawDuplicateGroups   []RawDuplicateGroup
+	RawDuplicateGroups     []RawDuplicateGroup
 }
 
 func GetExpectedButNotQueuedIDs(expectedItemIDs map[string]struct{}, queuedItemIDs map[string]struct{}, persistedItemIDs map[string]struct{}) []string {

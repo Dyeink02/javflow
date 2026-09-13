@@ -384,7 +384,7 @@ function buildInstallerScript(stagePath, outputPath, version) {
   ].join('\r\n');
 }
 
-function buildLiteDirectScript(stagePath, outputPath, version) {
+function buildLiteDirectScript(stagePath, outputPath, version, buildID) {
   const liteDirName = `JavFlow-Lite-${String(version || '').trim() || 'dev'}`;
   const iconPath = path.join(REPO_ROOT, 'build', 'icon.ico');
   return [
@@ -399,24 +399,25 @@ function buildLiteDirectScript(stagePath, outputPath, version) {
     `InstallDir "$TEMP\\\\${escapeNSIS(liteDirName)}"`,
     `Name "${escapeNSIS(`${PRODUCT_NAME} 直开版`)}"`,
     '',
+    '; 解压标记记录 BUILD_ID（每次构建唯一）：同一构建重复打开秒开；',
+    '; 新构建（含同版本号的热修复）自动全量重解压，避免旧代码被标记误跳过。',
     'Section "Launch"',
-    '  ; 同版本已完整解压过则直接启动，跳过重复解压（二次打开秒开）。',
     '  ClearErrors',
-    '  FileOpen $R0 "$INSTDIR\\\\.extracted-version" r',
+    '  FileOpen $R0 "$INSTDIR\\\\.extracted-build-id" r',
     '  ${If} ${Errors}',
     '    Goto extract_all',
     '  ${EndIf}',
     '  FileRead $R0 $R1',
     '  FileClose $R0',
-    `  \${If} $R1 == "${escapeNSIS(version)}"`,
+    '  ${If} $R1 == "${BUILD_ID}"',
     '    Goto launch_app',
     '  ${EndIf}',
     'extract_all:',
     '  RMDir /r "$INSTDIR"',
     '  SetOutPath "$INSTDIR"',
     `  File /r "${escapeNSIS(path.join(stagePath, '*'))}"`,
-    `  FileOpen $R0 "$INSTDIR\\\\.extracted-version" w`,
-    `  FileWrite $R0 "${escapeNSIS(version)}"`,
+    '  FileOpen $R0 "$INSTDIR\\\\.extracted-build-id" w',
+    '  FileWrite $R0 "${BUILD_ID}"',
     '  FileClose $R0',
     'launch_app:',
     `  Exec '"$INSTDIR\\\\${escapeNSIS(EXECUTABLE_NAME)}"'`,
@@ -425,13 +426,16 @@ function buildLiteDirectScript(stagePath, outputPath, version) {
   ].join('\r\n');
 }
 
-function buildNSISPackage(scriptContent, outputPath, tempFolderName) {
+function buildNSISPackage(scriptContent, outputPath, tempFolderName, buildID) {
   const tempWorkDir = path.join(TEMP_ROOT, tempFolderName);
   ensureCleanDirectory(tempWorkDir);
 
   const scriptPath = path.join(tempWorkDir, 'package.nsi');
   fs.writeFileSync(scriptPath, `\uFEFF${scriptContent}`, 'utf8');
-  run(resolveNSISBinary(), [scriptPath], { cwd: tempWorkDir });
+  // BUILD_ID 随每次构建变化：便携壳用它判断已解压内容是否为新构建，
+  // 避免同版本号新构建被旧解压目录的标记误跳过。
+  const makensisArgs = buildID ? [`/DBUILD_ID=${buildID}`, scriptPath] : [scriptPath];
+  run(resolveNSISBinary(), makensisArgs, { cwd: tempWorkDir });
 
   if (!fileExists(outputPath)) {
     throw new Error(`NSIS 构建已结束，但未生成目标文件：${outputPath}`);
@@ -458,15 +462,19 @@ function main() {
   prepareBaseStage();
   prepareDerivedStages();
 
+  const buildID = `${version}-${Date.now()}`;
+
   buildNSISPackage(
     buildLiteDirectScript(LITE_STAGE_PATH, liteOutputPath, version),
     liteOutputPath,
-    'nsis-lite-direct'
+    'nsis-lite-direct',
+    buildID
   );
   buildNSISPackage(
     buildInstallerScript(INSTALLER_STAGE_PATH, installerOutputPath, version),
     installerOutputPath,
-    'nsis-installer'
+    'nsis-installer',
+    buildID
   );
 
   console.log('Wails 双分发打包完成：');

@@ -50,7 +50,7 @@ func TestRestorePersistedOutputStateRestoresFilteredItems(t *testing.T) {
 		t.Fatalf("expected filtered items [DAZD-277], got %#v", filteredItems)
 	}
 
-	if got := runner.filmCount; got != 1 {
+	if got := runner.filmCount.Load(); got != 1 {
 		t.Fatalf("expected filmCount 1, got %d", got)
 	}
 }
@@ -210,7 +210,7 @@ func TestFinalizeOutputArtifactsWritesContractFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write output record: %v", err)
 	}
-	runner.filmCount = 1
+	runner.filmCount.Store(1)
 	runner.tracker.RecordExpectedPageLinks(1, []string{"https://example.com/ABP-889"})
 
 	runner.finalizeOutputArtifacts(FinalStateOutput{

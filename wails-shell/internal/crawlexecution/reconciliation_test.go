@@ -20,7 +20,7 @@ func TestBuildReconciliation(t *testing.T) {
 		ExpectedItemLinkMap: map[string]string{
 			"ABC-003": "https://example.com/abc-003",
 		},
-		ExpectedEntryCount:    3,
+		ExpectedEntryCount:     3,
 		RawDuplicateEntryCount: 1,
 		RawDuplicateGroups: []RawDuplicateGroup{
 			{ItemID: "ABC-002", Links: []string{"https://example.com/1", "https://example.com/1"}},

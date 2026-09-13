@@ -54,7 +54,9 @@ function main() {
   runCommand(wailsBinary, [
     'build',
     '-ldflags',
-    `-X javflow/internal/appupdate.BuildVersion=${productVersion}`
+    // -s -w 去除符号表与 DWARF 调试信息（panic 堆栈仍可读， pclntab 不受影响），
+    // 单此一项可缩小主程序约 25-30%。
+    `-X javflow/internal/appupdate.BuildVersion=${productVersion} -s -w`
   ], { cwd: wailsDir });
   const releaseResult = copyBuildExeToRelease();
   runCommand('node', [path.join(repoRoot, 'scripts', 'patch-exe-metadata.mjs')], { cwd: repoRoot });

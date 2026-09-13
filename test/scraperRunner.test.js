@@ -101,13 +101,14 @@ describe('ScraperRunner limit tracking', () => {
     const finalState = runner.getFinalStateAfterExecution();
     const reportLines = runner.getUnfinishedReportLines(finalState.status, finalState.message);
 
-    assert.strictEqual(finalState.status, 'incomplete');
-    assert.ok(finalState.message.includes('输出结果已通过二次校验，但目标条数仍未补齐'));
-    assert.ok(finalState.message.includes('站点原始分页仅解析到 8 条'));
-    assert.ok(finalState.message.includes('发现 2 条重复番号（AAA-001、AAA-002）'));
-    assert.ok(reportLines.includes('# 任务状态：未完成'));
+    // 新口径：站点本身条目少于目标（6 唯一 < 目标 10）不算抓取失败；
+    // 全部唯一番号均已持久化 → 判定完成，重复条目仅作说明。
+    assert.strictEqual(finalState.status, 'completed');
+    assert.ok(finalState.message.includes('站点原始条目 8 条'));
+    assert.ok(finalState.message.includes('按唯一番号完成 6 条'));
+    assert.ok(finalState.message.includes('其中重复番号 2 条'));
+    assert.ok(reportLines.includes('# 任务状态：已完成'));
     assert.ok(reportLines.includes('# 已定位重复番号'));
-    assert.ok(reportLines.includes('# 已定位未完成番号'));
     assert.ok(reportLines.some((line) => line.includes('AAA-001 | 出现 2 次')));
   });
 

@@ -8,6 +8,7 @@ require (
 	github.com/lib/pq v1.12.0
 	github.com/metatube-community/metatube-sdk-go v1.4.0
 	github.com/wailsapp/wails/v2 v2.12.0
+	golang.org/x/image v0.37.0
 	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.42.0
 	golang.org/x/text v0.35.0
@@ -97,7 +98,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/image v0.37.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

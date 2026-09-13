@@ -1,9 +1,16 @@
 package actressranking
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,8 +43,8 @@ func TestGetActressRankingsReturnsStaleOfficialCacheWithoutOnlineRefresh(t *test
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("stale cache should not wait for online fetch: %s", elapsed)
 	}
-	if !result.FromCache || !result.Stale || len(result.Items) != 1 {
-		t.Fatalf("unexpected stale cache result: %#v", result)
+	if !result.FromCache || !result.Stale || len(result.Items) != 1 || result.Complete {
+		t.Fatalf("official cache must remain its own source instead of being upgraded from AVfan: %#v", result)
 	}
 }
 
@@ -53,11 +60,14 @@ func TestGetActressRankingsUsesBundledJulySnapshotOnFirstRun(t *testing.T) {
 	if !result.FromCache || result.PeriodYear != 2026 || result.PeriodMonth != 7 || len(result.Items) != 20 {
 		t.Fatalf("unexpected bundled snapshot: period=%d-%d cache=%t items=%d", result.PeriodYear, result.PeriodMonth, result.FromCache, len(result.Items))
 	}
-	if result.Total != len(result.Items) || result.Items[0].Rank != 1 || result.Items[0].ActressName != "瀬戸環奈" || result.Items[len(result.Items)-1].Rank != 20 {
-		t.Fatalf("snapshot must retain the exact returned rows without padding: %#v", result)
+	if result.SourceName != "FANZA 官方" || result.Total != len(result.Items) || result.Items[0].Rank != 1 || result.Items[0].ActressName != "瀬戸環奈" || result.Items[len(result.Items)-1].Rank != 20 {
+		t.Fatalf("bundled official snapshot must retain its exact official rows: %#v", result)
 	}
 	if result.FetchedAt != "2026-07-31T01:07:19+08:00" {
 		t.Fatalf("snapshot must expose its source capture time, got %q", result.FetchedAt)
+	}
+	if result.ExpectedTotal != 100 || result.Complete {
+		t.Fatalf("partial bundled official snapshot must not be marked complete, got expected=%d complete=%t", result.ExpectedTotal, result.Complete)
 	}
 }
 
@@ -100,6 +110,45 @@ func TestLoadCacheRecoversFromDamagedJSON(t *testing.T) {
 	}
 	if len(backups) != 1 {
 		t.Fatalf("expected one corrupt-cache backup, got %v", backups)
+	}
+}
+
+func TestLoadCacheRemovesOnlyMislabelledOfficialAVFanSnapshots(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	cache := getCacheSkeleton()
+	cache.Version = cacheVersion - 1
+	cache.Sources["official"] = sourceCache{
+		MonthlyLatestKey: "2026-08",
+		MonthlyByPeriod: map[string]cacheEntry{
+			"2026-08": {Data: Result{Mode: "monthly", SourceName: "FANZA 官方（本地 Top100 快照）", PeriodYear: 2026, PeriodMonth: 8, Items: []RankingItem{{Rank: 1, ActressName: "错误复制"}}}},
+			"2025-12": {Data: Result{Mode: "monthly", SourceName: "FANZA 官方", PeriodYear: 2025, PeriodMonth: 12, Items: []RankingItem{{Rank: 1, ActressName: "真实官方"}}}},
+		},
+		AnnualByYear: map[string]cacheEntry{},
+	}
+	cache.Sources["avfan"] = sourceCache{
+		MonthlyLatestKey: "2026-08",
+		MonthlyByPeriod: map[string]cacheEntry{
+			"2026-08": {Data: Result{Mode: "monthly", SourceName: "AVfan 在线", PeriodYear: 2026, PeriodMonth: 8, Items: []RankingItem{{Rank: 1, ActressName: "保留的 AVfan"}}}},
+		},
+		AnnualByYear: map[string]cacheEntry{},
+	}
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := loadCache(cachePath)
+	if _, exists := loaded.Sources["official"].MonthlyByPeriod["2026-08"]; exists {
+		t.Fatalf("mislabelled AVfan snapshot must be removed from official cache: %#v", loaded.Sources["official"])
+	}
+	if got := loaded.Sources["official"].MonthlyByPeriod["2025-12"].Data.Items[0].ActressName; got != "真实官方" {
+		t.Fatalf("real official entry must be preserved, got %q", got)
+	}
+	if got := loaded.Sources["avfan"].MonthlyByPeriod["2026-08"].Data.Items[0].ActressName; got != "保留的 AVfan" {
+		t.Fatalf("AVfan source record must remain available, got %q", got)
 	}
 }
 
@@ -148,6 +197,80 @@ func TestBundledHistoryContainsOnlyVerifiedMonthlyPeriods(t *testing.T) {
 	}
 }
 
+func TestBundledFANZAVideoArchiveKeepsItsOwnSourceAndPeriods(t *testing.T) {
+	cache := getBundledInitialCache()
+	periods := listMonthlyPeriods(cache, []string{"localHistory"})
+	seen := make(map[string]Result, len(periods))
+	for _, period := range periods {
+		seen[period.Key] = normalizeResultMetadata(period.Entry.Data)
+	}
+
+	for _, key := range []string{"2026-01", "2026-02"} {
+		data, ok := seen[key]
+		if !ok {
+			t.Fatalf("missing bundled FANZA Video archive period %s", key)
+		}
+		if data.Total != expectedRankingTotal || !data.Complete {
+			t.Fatalf("bundled FANZA Video archive %s must be a complete Top100: %#v", key, data)
+		}
+		if data.SourceName != "Proclivity-DB（FANZA 视频月榜归档）" || !strings.Contains(data.SourceURL, key) {
+			t.Fatalf("bundled archive must preserve its source identity: %#v", data)
+		}
+	}
+
+	if _, exists := cache.Sources["official"].MonthlyByPeriod["2026-01"]; exists {
+		t.Fatal("FANZA Video archive must not be written into the official DVD bucket")
+	}
+	if _, exists := cache.Sources["avfan"].MonthlyByPeriod["2026-02"]; exists {
+		t.Fatal("FANZA Video archive must not be written into the AVfan DVD bucket")
+	}
+}
+
+func TestBundledFullHistoryCarriesCompleteTop100Metadata(t *testing.T) {
+	result, err := NewService().GetActressRankings(Options{Source: "smart", Mode: "monthly", Year: 2026, Month: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 100 || result.ExpectedTotal != 100 || !result.Complete {
+		t.Fatalf("bundled Top 100 metadata mismatch: total=%d expected=%d complete=%t", result.Total, result.ExpectedTotal, result.Complete)
+	}
+}
+
+func TestRankingCacheLogsItsHitWithoutNetwork(t *testing.T) {
+	logs := make([]string, 0)
+	_, err := NewService().GetActressRankings(Options{
+		Source: "smart",
+		Mode:   "monthly",
+		Year:   2026,
+		Month:  3,
+		Log: func(level string, message string, details map[string]any) {
+			logs = append(logs, level+":"+message)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) < 3 {
+		t.Fatalf("expected cache lifecycle logs, got %v", logs)
+	}
+}
+
+func TestSourceHealthEntersShortCooldownAfterRepeatedFailures(t *testing.T) {
+	service := NewService()
+	service.recordSourceResult("official", true)
+	if _, cooling := service.sourceIsCoolingDown("official"); cooling {
+		t.Fatal("first source failure should remain retryable")
+	}
+	service.recordSourceResult("official", true)
+	if _, cooling := service.sourceIsCoolingDown("official"); !cooling {
+		t.Fatal("repeated source failures should enter cooldown")
+	}
+	service.recordSourceResult("official", false)
+	if _, cooling := service.sourceIsCoolingDown("official"); cooling {
+		t.Fatal("successful source response should clear cooldown")
+	}
+}
+
 func TestSmartHistoricalMonthUsesBundledSnapshotBeforeOnlineFetch(t *testing.T) {
 	started := time.Now()
 	result, err := NewService().GetActressRankings(Options{
@@ -164,6 +287,28 @@ func TestSmartHistoricalMonthUsesBundledSnapshotBeforeOnlineFetch(t *testing.T) 
 	}
 	if !result.FromCache || result.ResolvedSource != "avfan" || result.PeriodYear != 2026 || result.PeriodMonth != 3 || len(result.Items) != 100 {
 		t.Fatalf("unexpected bundled historical result: %+v", result)
+	}
+}
+
+func TestFANZAHistoricalMonthUsesLocalHistoryBeforeOnlineFetch(t *testing.T) {
+	started := time.Now()
+	result, err := NewService().GetActressRankings(Options{
+		Source: "fanza",
+		Mode:   "monthly",
+		Year:   2026,
+		Month:  3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("FANZA historical fallback must not wait for the current official page: %s", elapsed)
+	}
+	if !result.FromCache || !result.FallbackUsed || result.ResolvedSource != "local" || result.PeriodYear != 2026 || result.PeriodMonth != 3 || len(result.Items) != 100 {
+		t.Fatalf("unexpected FANZA local-history fallback: %+v", result)
+	}
+	if !strings.Contains(result.SourceName, "本地历史") || !strings.Contains(result.Notice, "FANZA 官方暂未保存") {
+		t.Fatalf("FANZA historical fallback must remain truthfully labeled: %+v", result)
 	}
 }
 
@@ -203,8 +348,8 @@ func TestBuildSourcePlan(t *testing.T) {
 	}{
 		{name: "local", requestedChannel: "local", mode: "monthly", expected: []string{"local"}},
 		{name: "avfan", requestedChannel: "avfan", mode: "monthly", expected: []string{"avfan", "local"}},
-		{name: "official monthly", requestedChannel: "fanza", mode: "monthly", expected: []string{"official", "avfan", "local"}},
-		{name: "official annual", requestedChannel: "dmm", mode: "annual", expected: []string{"official", "avfan", "local"}},
+		{name: "official monthly", requestedChannel: "fanza", mode: "monthly", expected: []string{"official", "local"}},
+		{name: "official annual", requestedChannel: "dmm", mode: "annual", expected: []string{"official", "local"}},
 		{name: "smart annual", requestedChannel: "smart", mode: "annual", expected: []string{"official", "avfan", "local"}},
 	}
 
@@ -403,6 +548,51 @@ func TestGetActressRankingsFromLocalHistory(t *testing.T) {
 	}
 }
 
+func TestSaveMonthlyHistoryPreservesFirstCompleteSnapshot(t *testing.T) {
+	tempDir := t.TempDir()
+	historyDir := filepath.Join(tempDir, "ranking-history")
+	items := make([]RankingItem, 0, expectedRankingTotal)
+	for index := 1; index <= expectedRankingTotal; index++ {
+		items = append(items, RankingItem{Rank: index, ActressName: fmt.Sprintf("演员-%03d", index)})
+	}
+	service := NewService()
+	first, alreadySaved, err := service.SaveMonthlyHistory(Result{
+		Mode: "monthly", SourceName: "FANZA 官方", PeriodYear: 2026, PeriodMonth: 2,
+		PeriodLabel: "2026年02月", Items: items,
+	}, []string{historyDir})
+	if err != nil || alreadySaved || first.SourceName != "用户保存月榜（原始来源：FANZA 官方）" {
+		t.Fatalf("first monthly snapshot should be saved once: saved=%+v already=%t err=%v", first, alreadySaved, err)
+	}
+
+	changed := append([]RankingItem(nil), items...)
+	changed[0].ActressName = "不应覆盖的演员"
+	second, alreadySaved, err := service.SaveMonthlyHistory(Result{
+		Mode: "monthly", SourceName: "FANZA 官方", PeriodYear: 2026, PeriodMonth: 2,
+		PeriodLabel: "2026年02月", Items: changed,
+	}, []string{historyDir})
+	if err != nil || !alreadySaved || second.Items[0].ActressName != items[0].ActressName {
+		t.Fatalf("existing monthly snapshot must be preserved: saved=%+v already=%t err=%v", second, alreadySaved, err)
+	}
+
+	restored, err := service.GetActressRankings(Options{
+		Mode: "monthly", Source: "local", Year: 2026, Month: 2,
+		CacheFilePath: filepath.Join(tempDir, "cache.json"), HistoryDirectories: []string{historyDir},
+	})
+	if err != nil || restored.Total != expectedRankingTotal || restored.Items[0].ActressName != items[0].ActressName {
+		t.Fatalf("saved snapshot must be available as local history: result=%+v err=%v", restored, err)
+	}
+}
+
+func TestSaveMonthlyHistoryRejectsIncompleteResult(t *testing.T) {
+	_, _, err := NewService().SaveMonthlyHistory(Result{
+		Mode: "monthly", PeriodYear: 2026, PeriodMonth: 1,
+		Items: []RankingItem{{Rank: 1, ActressName: "不完整演员"}},
+	}, []string{filepath.Join(t.TempDir(), "ranking-history")})
+	if err == nil || !strings.Contains(err.Error(), "未保存不完整榜单") {
+		t.Fatalf("incomplete monthly ranking must not be recorded, got %v", err)
+	}
+}
+
 func TestAnnualQueryYearsOnlyExposeRealSourceOrCacheYears(t *testing.T) {
 	cache := getCacheSkeleton()
 	cache.Sources["avfan"] = sourceCache{
@@ -422,6 +612,32 @@ func TestAnnualQueryYearsOnlyExposeRealSourceOrCacheYears(t *testing.T) {
 	}
 	if cache.Sources["avfan"].AnnualByYear["2025"].Data.Items[0].ActressName != "真实缓存演员" {
 		t.Fatal("query year helper must not alter real cached ranking data")
+	}
+}
+
+func TestAnnualAvailabilityExcludesTheCurrentCalendarYear(t *testing.T) {
+	currentYear := time.Now().Year()
+	publishedYear := currentYear - 1
+	cache := getCacheSkeleton()
+	cache.Sources["official"] = sourceCache{
+		// Monthly availability must never create an annual selector option.
+		AvailableYears: []int{currentYear},
+		AnnualByYear: map[string]cacheEntry{
+			strconv.Itoa(currentYear):   {Data: Result{Title: "未发布年榜", Mode: "annual", PeriodYear: currentYear, AvailableYears: []int{currentYear, publishedYear}, Items: []RankingItem{{Rank: 1, ActressName: "不应显示"}}}},
+			strconv.Itoa(publishedYear): {Data: Result{Title: "已发布年榜", Mode: "annual", PeriodYear: publishedYear, AvailableYears: []int{currentYear, publishedYear}, Items: []RankingItem{{Rank: 1, ActressName: "应显示"}}}},
+		},
+	}
+
+	years := getAnnualQueryYears(cache, []string{"official"})
+	if len(years) != 1 || years[0] != publishedYear {
+		t.Fatalf("annual picker must exclude current year, got %#v", years)
+	}
+	if cached := resolveCachedAnnualEntry(cache, []string{"official"}, currentYear, true); cached != nil {
+		t.Fatalf("unpublished current annual cache must not resolve: %#v", cached)
+	}
+	_, err := NewService().GetActressRankings(Options{Source: "fanza", Mode: "annual", Year: currentYear})
+	if err == nil || !strings.Contains(err.Error(), "尚未发布") {
+		t.Fatalf("current annual request must be rejected before fetch, got %v", err)
 	}
 }
 
@@ -454,11 +670,163 @@ func TestSmartMonthlyAvailabilityMergesRealSourcePeriods(t *testing.T) {
 	}
 }
 
+func TestMonthlyAvailabilityStaysNavigableAfterSwitchingToFANZA(t *testing.T) {
+	cache := getCacheSkeleton()
+	cache.Sources["official"] = sourceCache{
+		MonthlyByPeriod: map[string]cacheEntry{
+			"2026-07": {Data: Result{PeriodYear: 2026, PeriodMonth: 7, Items: []RankingItem{{Rank: 1, ActressName: "FANZA七月"}}}},
+		},
+	}
+	cache.Sources["avfan"] = sourceCache{
+		MonthlyByPeriod: map[string]cacheEntry{
+			"2026-06": {Data: Result{PeriodYear: 2026, PeriodMonth: 6, Items: []RankingItem{{Rank: 1, ActressName: "AVfan六月"}}}},
+		},
+	}
+	cache.Sources["localHistory"] = sourceCache{
+		MonthlyByPeriod: map[string]cacheEntry{
+			"2026-02": {Data: Result{PeriodYear: 2026, PeriodMonth: 2, Items: []RankingItem{{Rank: 1, ActressName: "本地二月"}}}},
+		},
+	}
+
+	years, months := getMonthlyAvailability(cache, rankingAvailabilityBuckets("fanza", "fanza", []string{"official"}), 2026)
+	if len(years) != 1 || years[0] != 2026 {
+		t.Fatalf("unexpected available years after FANZA switch: %#v", years)
+	}
+	if len(months) != 3 || months[0] != 7 || months[1] != 6 || months[2] != 2 {
+		t.Fatalf("FANZA switch must retain every verified local month, got %#v", months)
+	}
+}
+
+func TestDMMChannelMigratesToFANZA(t *testing.T) {
+	if got := normalizeRankingChannel("dmm"); got != "fanza" {
+		t.Fatalf("legacy DMM selection must migrate to FANZA, got %q", got)
+	}
+	if got := getChannelLabel("dmm"); got != "FANZA" {
+		t.Fatalf("legacy DMM label must resolve to FANZA, got %q", got)
+	}
+}
+
 func TestOfficialMonthlyPageURLFollowsVerifiedPagination(t *testing.T) {
 	if got := officialMonthlyPageURL(1); got != officialMonthlyURL {
 		t.Fatalf("page 1 should stay on the base URL, got %s", got)
 	}
 	if got := officialMonthlyPageURL(3); got != "https://www.dmm.co.jp/mono/dvd/-/ranking/=/mode=actress/term=monthly/page=3/" {
 		t.Fatalf("unexpected page URL: %s", got)
+	}
+}
+
+func TestParseAVFanAnnualSupportsTableRowLayout(t *testing.T) {
+	htmlSource := `
+<html>
+  <head><title>【2023年】【FANZA】年間AV女優ランキング | AVfan</title></head>
+  <body>
+    <div class="ranking-year-link"><a href="?year=2023">2023</a></div>
+    <table>
+      <tr><td><b>导航表格不得计入</b></td><td><a href="/ranking/monthly.html">月榜</a></td></tr>
+      <tr>
+        <td valign="middle">
+          <div class="ranking-cnt"><span><b>1</b>位</span></div>
+        </td>
+        <td valign="middle">
+          <a href="https://av-fan.tokyo/actress/%E6%A5%AA%E3%82%AB%E3%83%AC%E3%83%B3.html"><img src="https://pics.dmm.co.jp/mono/actjpgs/yuzuriha_karen.jpg" alt="楪カレン" align="left"></a>
+        </td>
+        <td valign="middle">
+          <a href="https://av-fan.tokyo/actress/%E6%A5%AA%E3%82%AB%E3%83%AC%E3%83%B3.html">楪カレン</a>
+        </td>
+      </tr>
+      <tr>
+        <td valign="middle">
+          <div class="ranking-cnt"><span><b>2</b>位</span></div>
+        </td>
+        <td valign="middle">
+          <a href="https://av-fan.tokyo/actress/test2.html"><img src="https://pics.dmm.co.jp/mono/actjpgs/test2.jpg" alt="" align="left"></a>
+        </td>
+        <td valign="middle">
+          <a href="https://av-fan.tokyo/actress/test2.html">另一名演员</a>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+
+	result, err := parseAVFanRankingHTML(htmlSource, "annual", "https://av-fan.tokyo/ranking/fanza-rental-dvd-actress-top100.php?year=2023", 2023)
+	if err != nil {
+		t.Fatalf("parseAVFanRankingHTML returned error: %v", err)
+	}
+	if result.PeriodYear != 2023 {
+		t.Fatalf("PeriodYear = %d, expected 2023", result.PeriodYear)
+	}
+	if result.Total != 2 {
+		t.Fatalf("result.Total = %d, expected 2（导航表格行必须被排除）", result.Total)
+	}
+	if result.Items[0].Rank != 1 || result.Items[0].ActressName != "楪カレン" {
+		t.Fatalf("first item = rank %d name %q", result.Items[0].Rank, result.Items[0].ActressName)
+	}
+	if result.Items[0].ImageURL == "" {
+		t.Fatalf("first item image URL is empty")
+	}
+}
+
+func TestBundledAnnualSnapshotContainsVerifiedYears(t *testing.T) {
+	compressed, err := base64.StdEncoding.DecodeString(bundledAnnualHistoryBase64)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	defer reader.Close()
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("gzip read: %v", err)
+	}
+	var bundled cacheFile
+	if err := json.Unmarshal(payload, &bundled); err != nil {
+		t.Fatalf("unmarshal snapshot: %v", err)
+	}
+
+	expected := map[string]map[string]int{
+		"official": {"2024": 100, "2025": 100},
+		"avfan":    {"2021": 90, "2022": 90, "2023": 90},
+	}
+	for bucketID, years := range expected {
+		source, ok := bundled.Sources[bucketID]
+		if !ok {
+			t.Fatalf("snapshot missing bucket %s", bucketID)
+		}
+		for year, wantCount := range years {
+			entry, ok := source.AnnualByYear[year]
+			if !ok {
+				t.Fatalf("%s missing annual year %s", bucketID, year)
+			}
+			if len(entry.Data.Items) != wantCount {
+				t.Fatalf("%s %s: items = %d, want %d", bucketID, year, len(entry.Data.Items), wantCount)
+			}
+			seen := map[int]bool{}
+			for _, item := range entry.Data.Items {
+				if seen[item.Rank] {
+					t.Fatalf("%s %s: duplicate rank %d", bucketID, year, item.Rank)
+				}
+				seen[item.Rank] = true
+			}
+		}
+	}
+}
+
+func TestGetBundledInitialCacheIncludesAnnualYears(t *testing.T) {
+	cache := getBundledInitialCache()
+	official := cache.Sources["official"]
+	for _, year := range []string{"2024", "2025"} {
+		if entry, ok := official.AnnualByYear[year]; !ok || len(entry.Data.Items) != 100 {
+			t.Fatalf("official bundled annual %s missing or incomplete", year)
+		}
+	}
+	avfan := cache.Sources["avfan"]
+	for _, year := range []string{"2021", "2022", "2023"} {
+		entry, ok := avfan.AnnualByYear[year]
+		if !ok || len(entry.Data.Items) != 90 {
+			t.Fatalf("avfan bundled annual %s missing or incomplete", year)
+		}
 	}
 }

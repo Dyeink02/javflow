@@ -143,7 +143,7 @@ function createCrawlService({ fs, eventBus }) {
       strictSSL: payload.strictSSL !== false,
       proxy: String(payload.proxy || '').trim() || undefined,
       useCloudflareBypass: Boolean(payload.cloudflare),
-      secondValidation: Boolean(payload.secondValidation),
+      secondValidation: true,
       taskTemplate: 'balanced',
       magnetExcludeKeywords: '',
       magnetContentValidation: false,

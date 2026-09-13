@@ -60,5 +60,8 @@ func (a *API) buildActressRankingOptions(payload map[string]any) actressranking.
 		ForceRefresh:       boolValue(payload["forceRefresh"], false),
 		CacheFilePath:      cacheFilePath,
 		HistoryDirectories: historyDirectories,
+		Log: func(level string, message string, details map[string]any) {
+			a.emitActressRankingLog(level, message, details)
+		},
 	}
 }

@@ -124,6 +124,3 @@ func TestRealNetworkVRFilter(t *testing.T) {
 
 	t.Logf("PASS: magnet-links.txt has 0 VR lines; filmData keeps filtered records")
 }
-
-
-
