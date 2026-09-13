@@ -111,6 +111,8 @@ jobs:
             release-staging/JavFlow-Portable-*.exe
             release-staging/JavFlow-Installer-*.exe
             release-staging/javflow.exe
-          generate_release_notes: true
+          # 说明正文由维护者用润色后的 更新日志.md 维护（gh release edit --notes-file），
+          # 这里不得开启 generate_release_notes，否则会覆盖人工说明。
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
